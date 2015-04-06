@@ -5,7 +5,7 @@ acd_cli
 
 ##Features
 
- * node cache
+ * node caching
  * mapping of node IDs to a "remote" path
  * tree listing of files and folders
  * upload/download of single files 
@@ -17,6 +17,7 @@ acd_cli
 
  * recursive upload/download
  * folder syncing
+ * processing of incremental changes
  * ... minor stuff
 
 ##Quick start
@@ -26,6 +27,7 @@ Enter your client credentials into the JSON file named `client_data`. You will h
 
 ##Usage
 
+The following actions are built in
 
 ```
     sync                refresh node list cache
@@ -46,7 +48,7 @@ Enter your client credentials into the JSON file named `client_data`. You will h
     list-changes        list changes
 ```
 
-Please run ```./acd_cli.py --help``` to get a current list of the available actions
+Please run ```./acd_cli.py --help``` to get a current list of the available actions and help on further arguments.
 
 You may provide any node argument as a 22 character ID or a UNIX-style path. Directories must always end with a forward slash '/'. 
 
@@ -77,9 +79,10 @@ $ ./acd_cli.py move /egg/bacon/spam /
 # 1 file(s) updated.
 ```
 
+
 ##Known Issues
 
-Some of the trashed folders' children will remain in the tree listing.
+Downloaded files are not being hashed currently.
 
 ##Dependencies
 * pycurl
