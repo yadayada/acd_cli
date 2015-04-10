@@ -1,11 +1,13 @@
-import re
 import os
+import hashlib
 from multiprocessing.pool import ThreadPool
-
-BG_HASHING_THR = 500 * 1024 ** 2
 
 
 class Hasher():
+    """MD5 hash generator. Performs background hashing if file size threshold is exceeded."""
+
+    BG_HASHING_THR = 500 * 1024 ** 2
+
     def __init__(self, file_name):
         self.file_name = file_name
         self.md5 = None
@@ -18,7 +20,7 @@ class Hasher():
             self.pool.terminate()
 
     def start_hashing(self):
-        if os.path.getsize(self.file_name) > BG_HASHING_THR:
+        if os.path.getsize(self.file_name) > Hasher.BG_HASHING_THR:
             self.pool = ThreadPool(processes=1)
             self.async_result = self.pool.apply_async(generate_md5_hash, (self.file_name,))
         else:
@@ -31,7 +33,6 @@ class Hasher():
 
 
 def generate_md5_hash(file_name):
-    import hashlib
     hasher = hashlib.md5()
     with open(file_name, 'rb') as f:
         while True:
@@ -40,6 +41,17 @@ def generate_md5_hash(file_name):
                 break
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+class IncrementalHasher():
+    def __init__(self):
+        self.hasher = hashlib.md5()
+
+    def update(self, chunk):
+        self.hasher.update(chunk)
+
+    def get_result(self):
+        return self.hasher.hexdigest()
 
 
 def is_uploadable(file_name):

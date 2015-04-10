@@ -15,8 +15,10 @@ parentage_table = Table('parentage', Base.metadata,
 class Node(Base):
     __tablename__ = 'nodes'
 
+    # apparently 22 chars; max length is 22 for folders according to API doc ?!
     id = Column(String(50), primary_key=True, unique=True)
     type = Column(String(15))
+    name = Column(String(256))
 
     created = Column(DateTime)
     modified = Column(DateTime)
@@ -29,11 +31,36 @@ class Node(Base):
         'polymorphic_on': type
     }
 
+    # compares Nodes on same path level
+    def __lt__(self, other):
+        if isinstance(self, Folder):
+            if isinstance(other, File):
+                return True
+            return self.name < other.name
+        if isinstance(other, Folder):
+            return False
+        return self.name < other.name
+
+    def is_file(self):
+        return isinstance(self, File)
+
+    def is_folder(self):
+        return isinstance(self, Folder)
+
     def id_str(self):
         return '[{}] [{}] {}'.format(self.id, self.status[0], self.simple_name())
 
-    def long_id_str(self):
-        return '[{}] [{}] {}'.format(self.id, self.status[0], self.full_path())
+    def long_id_str(self, path=None):
+        if path is None:
+            path = self.containing_folder()
+        return '[{}] [{}] {}{}'.format(self.id, self.status[0], path,
+                                       ('' if not self.name else self.name)
+                                       + ('/' if isinstance(self, Folder) else ''))
+
+    def containing_folder(self):
+        if len(self.parents) == 0:
+            return ''
+        return self.parents[0].full_path()
 
     parents = relationship('Folder', secondary=parentage_table,
                            primaryjoin=id == parentage_table.c.child,
@@ -46,7 +73,6 @@ class File(Node):
     __tablename__ = 'files'
 
     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True, unique=True)
-    name = Column(String(256), nullable=False)
     md5 = Column(String(32))
     size = Column(BigInteger)
 
@@ -88,9 +114,7 @@ class File(Node):
 class Folder(Node):
     __tablename__ = 'folders'
 
-    # max id length is 22 according to API doc
     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True, unique=True)
-    name = Column(String(256))
 
     __mapper_args__ = {
         'polymorphic_identity': 'folder'
@@ -118,11 +142,22 @@ class Folder(Node):
     def simple_name(self):
         return (self.name if self.name is not None else '') + '/'
 
+    # path of first occurrence
     def full_path(self):
         if len(self.parents) == 0:
             return '/'
         return self.parents[0].full_path() \
             + (self.name if self.name is not None else '') + '/'
+
+    def get_child(self, name):
+        for child in self.children:
+            if child.name == name:
+                return child
+        return
+
+
+def drop_all():
+    Base.metadata.drop_all(engine)
 
 
 engine = create_engine('sqlite:///nodes.db')

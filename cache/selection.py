@@ -3,6 +3,10 @@ import os
 import cache.db as db
 
 
+def get_node(id):
+    return db.session.query(db.Node).filter_by(id=id).first()
+
+
 def get_root_node():
     return db.session.query(db.Folder).filter_by(name=None).first()
 
@@ -20,7 +24,7 @@ def get_name(id):
     return node.name
 
 
-def list_children(folder_id, trash=False):
+def list_children(folder_id, recursive=False, trash=False):
     """ Creates formatted list of folder's
     :param folder_id: folder's id
     :return: list of node names, folders first
@@ -30,51 +34,53 @@ def list_children(folder_id, trash=False):
         print('Not a folder or not found.')
         return []
 
-    c = folder.children
-    c = sorted(c, key=lambda n: ('a' if isinstance(n, db.Folder) else 'b') + n.simple_name())
-
-    children = []
-    for node in c:
-        if trash or not node.status == 'TRASH':
-            children.append(node.id_str())
-    return children
+    return node_list(folder, False, recursive, trash)
 
 
-# TODO: filter nodes with trashed parents
-def node_tree(trash=False, root=None, n_list=None):
+def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_list=[]):
     """
-    Tree of non-trashed nodes
+    Generates formatted list of (non-)trashed nodes
+    :db.Folder root: start folder
+    :bool add_root: whether to add the root node to the list and prepend its path to its children
+    :bool recursive: whether to traverse hierarchy
     :bool trash: whether to include trash
+    :str path: the path on which this method incarnation was reached
     :return: list of nodes in absolute path representation
     """
 
     if not root:
         root = get_root_node()
-    if not n_list:
-        n_list = []
+        if not root:
+            return []
 
-    children = sorted(root.children, key=lambda n: ('a' if isinstance(n, db.Folder) else 'b') + n.simple_name())
+    if add_root:
+        n_list.append(root.long_id_str(path))
+        path += root.simple_name()
 
-    n_list.append(root.long_id_str())
+    children = sorted(root.children)
+
     for child in children:
         if child.status == 'TRASH' and not trash:
             continue
-        if isinstance(child, db.Folder):
-            node_tree(trash, child, n_list)
+        if isinstance(child, db.Folder) and recursive:
+            node_list(child, True, recursive, trash, path, n_list)
         else:
-            n_list.append(child.long_id_str())
+            n_list.append(child.long_id_str(path))
 
     return n_list
 
 
-def list_trash():
-    nodes = db.session.query(db.Node).filter(db.Node.status == 'TRASH')
+def list_trash(recursive=False):
+    trash_nodes = db.session.query(db.Node).filter(db.Node.status == 'TRASH').all()
+    trash_nodes = sorted(trash_nodes)
 
-    node_list = []
-    for node in nodes:
-        node_list.append(node.long_id_str())
+    nodes = []
+    for node in trash_nodes:
+        nodes.append(node.long_id_str())
+        if isinstance(node, db.Folder) and recursive:
+            nodes.extend(node_list(node, False, True, True, node.full_path()))
 
-    return sorted(node_list)
+    return nodes
 
 
 # TODO
@@ -83,27 +89,36 @@ def find(name):
     pass
 
 
-def resolve_path(path):
-    """
-    Resolves non-trashed path name
-    :param path: absolute path
-    :return: node id corresponding to path or None
-    """
-    if path == '/':
-        return get_root_id()
+def resolve_path(path, root=None):
+    """Resolves absolute path, if fully unique"""
+    if not path or (not root and '/' not in path):
+        return
 
-    dir_, file = os.path.split(path)
+    segments = path.split('/')
+    if segments[0] == '' and not root:
+        root = get_root_node()
 
-    if not file:
-        dir_, file = os.path.split(dir_)  # move folder name into 'file'
+    if len(segments) == 1 or segments[1] == '':
+        return root.id
 
-    if path[-1:] == '/':
-        nodes = db.session.query(db.Folder).filter(db.Folder.name == file)
-    else:
-        nodes = db.session.query(db.File).filter(db.File.name == file)
+    if isinstance(root, db.File):
+        return
 
-    for n in nodes:
-        if n.status != 'TRASH' and n.full_path() == path:
-            return n.id
+    segments = segments[1:]
 
-    return
+    children = []  # possibly non-unique trash children
+    for child in root.children:
+        if child.name == segments[0]:
+            if child.status != 'TRASH':
+                return resolve_path('/'.join(segments), child)
+            children.append(child)
+
+    ids = []
+    for trash_child in children:
+        res = resolve_path('/'.join(segments), trash_child)
+        if res:
+            ids.append(res)
+    if len(ids) == 1:
+        return ids[0]
+        # else:
+        # print('Could resolve non fully unique (i.e. trash) path "%s"' % path)

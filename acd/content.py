@@ -1,4 +1,3 @@
-from http import client as http
 import http.client as http
 import requests
 import json
@@ -13,6 +12,7 @@ import utils
 
 
 def progress(total_to_download, total_downloaded, total_to_upload, total_uploaded):
+    """curl progress indicator function"""
     if total_to_upload:
         rate = float(total_uploaded) / total_to_upload
         percentage = round(rate * 100, ndigits=2)
@@ -43,7 +43,7 @@ def create_folder(name, parent=None):
 def upload_file(file_name, parent=None):
     params = '?suppress=deduplication'  # suppresses 409 response
 
-    metadata = {'kind': 'FILE', 'name': os.path.split(file_name)[1]}
+    metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
     if parent:
         metadata['parents'] = [parent]
 
@@ -53,7 +53,7 @@ def upload_file(file_name, parent=None):
     c.setopt(c.HTTPHEADER, ['Authorization: ' + oauth.get_auth_token()])
     c.setopt(c.WRITEDATA, buffer)
     c.setopt(c.HTTPPOST, [('metadata', json.dumps(metadata)),
-                          ('content', (c.FORM_FILE, file_name))])
+                          ('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, progress)
     # c.setopt(c.VERBOSE, 1)
@@ -66,30 +66,61 @@ def upload_file(file_name, parent=None):
     body = buffer.getvalue().decode('utf-8')
 
     if status != http.CREATED:
-        print('Uploading "%s" failed.' % file_name)
+        # print('Uploading "%s" failed.' % file_name)
         raise RequestError(status, body)
 
     return json.loads(body)
 
 
-# TODO
-def overwrite_file(file_name, node_id):
+def overwrite_file(node_id, file_name):
+    params = '?suppress=deduplication'  # suppresses 409 response
+
+    buffer = BytesIO()
+    c = pycurl.Curl()
+    c.setopt(c.URL, oauth.get_content_url() + 'nodes/' + node_id + '/content' + params)
+    c.setopt(c.HTTPHEADER, ['Authorization: ' + oauth.get_auth_token()])
+    c.setopt(c.WRITEDATA, buffer)
+    c.setopt(c.HTTPPOST, [('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
+    c.setopt(c.CUSTOMREQUEST, 'PUT')
+    c.setopt(c.NOPROGRESS, 0)
+    c.setopt(c.PROGRESSFUNCTION, progress)
+    c.perform()
+
+    status = c.getinfo(pycurl.HTTP_CODE)
+    c.close()
+    print()  # break progress line
+
+    body = buffer.getvalue().decode('utf-8')
+
+    if status != http.OK:
+        # print('Overwriting "%s" failed.' % file_name)
+        raise RequestError(status, body)
+
+    return json.loads(body)
+
     pass
 
 
-# local name must checked prior to call
+# local name must be checked prior to call
 # existing file will be overwritten
-def download_file(id, local_name):
+def download_file(id, local_name, local_path=None, write_callback=None):
     r = requests.get(oauth.get_content_url() + 'nodes/' + id, headers=oauth.get_auth_header(), stream=True)
     if r.status_code != http.OK:
         print('Downloading %s failed.' % id)
-    with open(local_name, 'wb') as f:
+        raise RequestError(r.status_code, r.text)
+
+    dl_path = local_name
+    if local_path:
+        dl_path = os.path.join(local_path, local_name)
+    with open(dl_path, 'wb') as f:
         total_ln = int(r.headers.get('content-length'))
         curr_ln = 0
         for chunk in r.iter_content(chunk_size=8192):
             if chunk:  # filter out keep-alive new chunks
                 f.write(chunk)
                 f.flush()
+                if write_callback:
+                    write_callback(chunk)
                 curr_ln += len(chunk)
                 progress(0, 0, total_ln, curr_ln)
     print()  # break progress line

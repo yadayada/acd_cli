@@ -18,6 +18,10 @@ with open(CLIENT_DATA_FILE) as f:
     CLIENT_ID = cd['CLIENT_ID']
     CLIENT_SECRET = cd['CLIENT_SECRET']
 
+    if CLIENT_ID == '' or CLIENT_SECRET == '':
+        print('Please enter the security profile\'s client data in %s.' % CLIENT_DATA_FILE)
+        exit()
+
 AMAZON_OA_LOGIN_URL = 'https://amazon.com/ap/oa'
 AMAZON_OA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token'
 REDIRECT_URI = 'http://localhost'
@@ -45,9 +49,7 @@ ENDPOINT_VAL_TIME = 259200
 
 # noinspection PyDictCreation
 def get_data():
-    """
-    Loads stored conn data from file or starts OA procedure
-    """
+    """ Loads stored conn data from file or starts OA procedure """
     global conn_data
     changed = False
 
@@ -78,13 +80,13 @@ def get_data():
 
 def on_user_data_changed():
     with open(CONN_DATA_FILE, 'w') as outfile:
-        json.dump(conn_data, outfile)
+        json.dump(conn_data, outfile, indent=4)
 
 
 def authenticate():
     response = requests.post(AMAZON_OA_LOGIN_URL, params=OAUTH_ST1, allow_redirects=True)
 
-    print('Please visit %s.' % response.url)
+    print('Please visit %s' % response.url)
 
     ret_url = input("Please enter the url you have been redirected to: ")
     ret_q = parse_qs(urlparse(ret_url).query)
@@ -136,7 +138,7 @@ def treat_auth_token(token, curr_time):
     if not token:
         return
     try:
-        token['expTime'] = curr_time + token['expires_in']
+        token['expTime'] = curr_time + token['expires_in'] - 60
         token['auth_token'] = "Bearer " + token['access_token']
     except KeyError as e:
         print('Fatal error: Token key not found.')

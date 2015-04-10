@@ -1,11 +1,22 @@
 """
-Syncs Amazon Node API objects with database
+Syncs Amazon Node API objects with sqlite database
 """
 
 from sqlalchemy.exc import *
 
 from cache import db
 import dateutil.parser as iso_date
+
+
+def insert_node(node):
+    if not node:
+        pass
+    if node['kind'] == 'FILE':
+        insert_files([node], True)
+    elif node['kind'] == 'FOLDER':
+        insert_folders([node], True)
+    else:
+        print('Cannot insert unknown node type.')
 
 
 def insert_folders(folders, partial=False):
@@ -32,8 +43,8 @@ def insert_folders(folders, partial=False):
                 dup += 1
             else:
                 upd += 1
-            ef = db.session.merge(f)
-            db.session.add(ef)
+            db.session.delete(ef)
+            db.session.add(f)
 
         parents.append((f.id, folder['parents']))
 
@@ -68,7 +79,6 @@ def insert_folders(folders, partial=False):
 
 
 # file movement is detected by updated modifiedDate
-# TODO: inconsistent cache state for files after parent's deletion?
 def insert_files(files, partial=False):
     ins = 0
     dup = 0
@@ -93,8 +103,8 @@ def insert_files(files, partial=False):
                     dup += 1
                 else:
                     upd += 1
-                ef = db.session.merge(f)
-                db.session.add(ef)
+                db.session.delete(ef)
+                db.session.add(f)
 
             for p in file['parents']:
                 p_folder = db.session.query(db.Folder).filter_by(id=p).first()

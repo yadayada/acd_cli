@@ -28,7 +28,6 @@ def get_asset_list():
     return get_node_list(filters='kind:ASSET')
 
 
-# returns all trashed nodes
 def get_trashed_folders():
     return get_node_list(filters='status:TRASH AND kind:FOLDER')
 
@@ -80,9 +79,10 @@ def add_child(parent, child):
 def remove_child(parent, child):
     r = requests.delete(oauth.get_metadata_url()
                         + 'nodes/' + parent + "/children/" + child, headers=oauth.get_auth_header())
-    if r.status_code != http.ACCEPTED:
+    if r.status_code != http.OK:
         print('Removing child failed.')
         raise RequestError(r.status_code, r.text)
+    return r.json()
 
 
 # preferable to adding child to new parent and removing child from old parent

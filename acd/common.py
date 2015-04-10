@@ -27,8 +27,8 @@ def paginated_get_request(url, params={}, headers={}):
         if 'nextToken' in ret.keys():
             params['startToken'] = ret['nextToken']
         else:
-            if ret['count'] != node_list.__len__():
-                print('Expected %i items, got %i.' % ret['count'], node_list.__len__())
+            if ret['count'] != len(node_list):
+                print('Expected {} items, received {}.'.format(ret['count'], len(node_list)))
             break
 
     return node_list
