@@ -8,7 +8,7 @@ acd_cli
  * local node caching
  * addressing of nodes via a pathname (e.g. `/Photos/kitten.jpg`)
  * tree listing of files and folders
- * upload/download of single files 
+ * upload/download of single files and directories
  * background hashing
  * folder creation
  * trashing/restoring
@@ -16,7 +16,6 @@ acd_cli
 
 ##Planned
 
- * recursive upload/download
  * folder syncing
  * processing of incremental changes
  * ... minor stuff
@@ -44,6 +43,7 @@ The following actions are built in
     upload              upload a file
     download            download a remote file
     create              create folder
+    list-trash          list trashed nodes
     trash               move to trash
     restore             restore from trash
     children            list folder's children
@@ -60,9 +60,9 @@ And some more
     changes             list changes
 ```
 
-Please run ```./acd_cli.py --help``` to get a current list of the available actions and help on further arguments.
+Please run ```./acd_cli.py --help``` to get a current list of the available actions. You may also get a list of  further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
 
-You may provide any node argument as a 22 character ID or a UNIX-style path. Directories must always end with a forward slash '/'. 
+You may provide most node arguments as a 22 character ID or a UNIX-style path. Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
 ##Usage example
 
@@ -101,7 +101,6 @@ Feel free to use the bug tracker to add issues.
 * dateutils
 
 ##Changelog
-=========
 
 ## Version 0.1.2
 new:
