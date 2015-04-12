@@ -5,10 +5,13 @@ import sys
 import os
 import pycurl
 from io import BytesIO
+import logging
 
 from acd import oauth
 from acd.common import RequestError
 import utils
+
+logger = logging.getLogger(__name__)
 
 
 def progress(total_to_download, total_downloaded, total_to_upload, total_uploaded):
@@ -33,7 +36,7 @@ def create_folder(name, parent=None):
     r = requests.post(oauth.get_metadata_url() + 'nodes', headers=oauth.get_auth_header(), data=body_str)
 
     if r.status_code != http.CREATED:
-        print('Error creating folder "%s"' % name)
+        # print('Error creating folder "%s"' % name)
         raise RequestError(r.status_code, r.text)
 
     return r.json()
@@ -56,8 +59,13 @@ def upload_file(file_name, parent=None):
                           ('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, progress)
-    # c.setopt(c.VERBOSE, 1)
-    c.perform()
+    if logger.getEffectiveLevel() == logging.DEBUG:
+        c.setopt(c.VERBOSE, 1)
+
+    try:
+        c.perform()
+    except pycurl.error as e:
+        raise RequestError(0, e)
 
     status = c.getinfo(pycurl.HTTP_CODE)
     c.close()
@@ -84,7 +92,13 @@ def overwrite_file(node_id, file_name):
     c.setopt(c.CUSTOMREQUEST, 'PUT')
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, progress)
-    c.perform()
+    if logger.getEffectiveLevel() == logging.DEBUG:
+        c.setopt(c.VERBOSE, 1)
+
+    try:
+        c.perform()
+    except pycurl.error as e:
+        raise RequestError(0, e)
 
     status = c.getinfo(pycurl.HTTP_CODE)
     c.close()
@@ -98,15 +112,13 @@ def overwrite_file(node_id, file_name):
 
     return json.loads(body)
 
-    pass
-
 
 # local name must be checked prior to call
 # existing file will be overwritten
-def download_file(id, local_name, local_path=None, write_callback=None):
-    r = requests.get(oauth.get_content_url() + 'nodes/' + id, headers=oauth.get_auth_header(), stream=True)
+def download_file(node_id, local_name, local_path=None, write_callback=None):
+    r = requests.get(oauth.get_content_url() + 'nodes/' + node_id, headers=oauth.get_auth_header(), stream=True)
     if r.status_code != http.OK:
-        print('Downloading %s failed.' % id)
+        print('Downloading %s failed.' % node_id)
         raise RequestError(r.status_code, r.text)
 
     dl_path = local_name

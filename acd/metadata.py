@@ -90,3 +90,13 @@ def remove_child(parent, child):
 def move_node(child, new_parent):
     properties = {'parents': [new_parent]}
     return update_metadata(child, properties)
+
+
+def rename_node(node_id, new_name):
+    properties = {'name': new_name}
+    return update_metadata(node_id, properties)
+
+# sets node with 'PENDING' status to 'AVAILABLE'
+def set_available(node_id):
+    properties = {'status': 'AVAILABLE'}
+    return update_metadata(node_id, properties)

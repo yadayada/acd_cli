@@ -1,7 +1,10 @@
+import logging
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -150,14 +153,16 @@ class Folder(Node):
             + (self.name if self.name is not None else '') + '/'
 
     def get_child(self, name):
+        """ Gets non-trashed child by name. """
         for child in self.children:
-            if child.name == name:
+            if child.name == name and child.status != 'TRASH':
                 return child
         return
 
 
 def drop_all():
     Base.metadata.drop_all(engine)
+    logger.info('Dropped all tables.')
 
 
 engine = create_engine('sqlite:///nodes.db')

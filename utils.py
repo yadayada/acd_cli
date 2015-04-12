@@ -54,10 +54,6 @@ class IncrementalHasher():
         return self.hasher.hexdigest()
 
 
-def is_uploadable(file_name):
-    return os.path.isfile(file_name) and os.access(file_name, os.R_OK)
-
-
 # shamelessly copied from
 # http://stackoverflow.com/questions/1094841/reusable-library-to-get-human-readable-version-of-file-size
 def file_size_str(num, suffix='B'):

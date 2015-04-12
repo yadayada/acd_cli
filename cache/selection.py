@@ -1,10 +1,13 @@
 import os
+import logging
 
 import cache.db as db
 
+logger = logging.getLogger(__name__)
 
-def get_node(id):
-    return db.session.query(db.Node).filter_by(id=id).first()
+
+def get_node(node_id):
+    return db.session.query(db.Node).filter_by(id=node_id).first()
 
 
 def get_root_node():
@@ -17,8 +20,8 @@ def get_root_id():
         return root.id
 
 
-def get_name(id):
-    node = db.session.query(db.Node).filter_by(id=id).first()
+def get_name(node_id):
+    node = db.session.query(db.Node).filter_by(id=node_id).first()
     if not node:
         return
     return node.name
@@ -26,18 +29,18 @@ def get_name(id):
 
 def list_children(folder_id, recursive=False, trash=False):
     """ Creates formatted list of folder's
-    :param folder_id: folder's id
+    :param folder_id: valid folder's id
     :return: list of node names, folders first
     """
     folder = db.session.query(db.Folder).filter_by(id=folder_id).first()
     if not folder:
-        print('Not a folder or not found.')
+        logger.warning('Not a folder or not found: "%s" .' % folder_id)
         return []
 
     return node_list(folder, False, recursive, trash)
 
 
-def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_list=[]):
+def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_list=None):
     """
     Generates formatted list of (non-)trashed nodes
     :db.Folder root: start folder
@@ -52,6 +55,9 @@ def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_
         root = get_root_node()
         if not root:
             return []
+
+    if n_list is None:
+        n_list = []
 
     if add_root:
         n_list.append(root.long_id_str(path))
@@ -90,13 +96,16 @@ def find(name):
 
 
 def resolve_path(path, root=None):
-    """Resolves absolute path, if fully unique"""
+    """Resolves absolute path if fully unique"""
     if not path or (not root and '/' not in path):
         return
 
     segments = path.split('/')
     if segments[0] == '' and not root:
         root = get_root_node()
+        # empty cache
+        if not root:
+            return
 
     if len(segments) == 1 or segments[1] == '':
         return root.id
@@ -120,5 +129,5 @@ def resolve_path(path, root=None):
             ids.append(res)
     if len(ids) == 1:
         return ids[0]
-        # else:
-        # print('Could resolve non fully unique (i.e. trash) path "%s"' % path)
+    else:
+        logger.info('Could resolve non fully unique (i.e. trash) path "%s"' % path)

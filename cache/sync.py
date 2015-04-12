@@ -2,10 +2,13 @@
 Syncs Amazon Node API objects with sqlite database
 """
 
+import logging
 from sqlalchemy.exc import *
+import dateutil.parser as iso_date
 
 from cache import db
-import dateutil.parser as iso_date
+
+logger = logging.getLogger(__name__)
 
 
 def insert_node(node):
@@ -16,10 +19,16 @@ def insert_node(node):
     elif node['kind'] == 'FOLDER':
         insert_folders([node], True)
     else:
-        print('Cannot insert unknown node type.')
+        logging.warning('Cannot insert unknown node type.')
 
 
 def insert_folders(folders, partial=False):
+    """
+    Inserts lists folders
+    :param folders: list of raw dict-type folders
+    :param partial: whether the list of folders is not complete
+    """
+
     ins = 0
     dup = 0
     upd = 0
@@ -27,6 +36,8 @@ def insert_folders(folders, partial=False):
 
     parents = []
     for folder in folders:
+        logger.debug(folder)
+
         # root folder has no name key
         f_name = folder.get('name')
         f = db.Folder(folder['id'], f_name,
@@ -60,17 +71,17 @@ def insert_folders(folders, partial=False):
     try:
         db.session.commit()
     except IntegrityError:
-        print('Error inserting folders.')
+        logger.warning('Error inserting folders.')
         db.session.rollback()
 
     if ins > 0:
-        print(str(ins) + ' folder(s) inserted.')
-    # if dup > 0:
-    #     print(str(dup) + ' duplicate folders not inserted.')
+        logger.info(str(ins) + ' folder(s) inserted.')
+    if dup > 0:
+        logger.info(str(dup) + ' duplicate folders not inserted.')
     if upd > 0:
-        print(str(upd) + ' folder(s) updated.')
+        logger.info(str(upd) + ' folder(s) updated.')
     if dtd > 0:
-        print(str(dtd) + ' folder(s) deleted.')
+        logger.info(str(dtd) + ' folder(s) deleted.')
 
     conn = db.engine.connect()
     for rel in parents:
@@ -87,7 +98,13 @@ def insert_files(files, partial=False):
 
     with db.session.no_autoflush:
         for file in files:
-            props = file['contentProperties']
+            props = {}
+            try:
+                props = file['contentProperties']
+            except KeyError:  # empty files
+                props['md5'] = 'd41d8cd98f00b204e9800998ecf8427e'
+                props['size'] = 0
+
             f = db.File(file['id'], file['name'],
                         iso_date.parse(file['createdDate']),
                         iso_date.parse(file['modifiedDate']),
@@ -109,7 +126,8 @@ def insert_files(files, partial=False):
             for p in file['parents']:
                 p_folder = db.session.query(db.Folder).filter_by(id=p).first()
                 if p_folder is None:
-                    print('Parent folder of [%s] not found.' % f.name)
+                    # print('Parent folder of [%s] not found.' % f.name)
+                    logger.warning('Node %s [%s] has no parent %s.' % (f.id, f.name, p_folder))
                 elif f not in p_folder.children:
                     f.parents.append(db.session.query(db.Folder).filter_by(id=p).first())
 
@@ -119,6 +137,7 @@ def insert_files(files, partial=False):
             for file in files:
                 if db_file.id == file['id']:
                     found = True
+                    break
             if not found:
                 db.session.delete(db_file)
                 dtd += 1
@@ -126,14 +145,14 @@ def insert_files(files, partial=False):
     try:
         db.session.commit()
     except ValueError:
-        print('Error inserting files.')
+        logger.warning('Error inserting files.')
         db.session.rollback()
 
     if ins > 0:
-        print(str(ins) + ' file(s) inserted.')
+        logger.info(str(ins) + ' file(s) inserted.')
     if upd > 0:
-        print(str(upd) + ' file(s) updated.')
-    # if dup > 0:
-    #     print(str(dup) + ' duplicate files not inserted.')
+        logger.info(str(upd) + ' file(s) updated.')
+    if dup > 0:
+        logger.info(str(dup) + ' duplicate files not inserted.')
     if dtd > 0:
-        print(str(dtd) + ' file(s) deleted.')
+        logger.info(str(dtd) + ' file(s) deleted.')

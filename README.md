@@ -12,11 +12,12 @@ acd_cli
  * background hashing
  * folder creation
  * trashing/restoring
- * moving nodes
+ * moving/renaming nodes
 
 ##Planned
-
- * folder syncing
+ 
+ * "smart" folder syncing
+ * shell completion
  * processing of incremental changes
  * ... minor stuff
 
@@ -37,21 +38,23 @@ You will be asked to visit a URL, log into Amazon and paste the URL that you hav
 The following actions are built in
 
 ```
-    sync                refresh node cache
-    clear-cache         clear the node cache
-    tree                print directory tree
-    upload              upload a file
-    download            download a remote file
-    create              create folder
-    list-trash          list trashed nodes
-    trash               move to trash
-    restore             restore from trash
-    children            list folder's children
-    move                move node A into folder B
+    sync (s)            refresh node list cache; necessary for many actions
+    clear-cache (cc)    clear node cache
+    tree (t)            print directory tree [uses cached data]
+    upload (ul)         file and directory upload to a remote destination
+    overwrite (ov)      overwrite node A [remote] with file B [local]
+    download (dl)       download a remote file; will overwrite local files
+    create (c, mkdir)   create folder
+    list-trash (lt)     list trashed nodes [uses cached data]
+    trash (tr)          move to trash
+    restore (re)        restore from trash
+    children (ls)       list folder's children [uses cached data]
+    move (mv)           move node A into folder B
+    rename (rn)         rename a node
 ```
 And some more
 ```
-    resolve             resolve a path to a node id
+    resolve (rs)        resolve a path to a node id
     add-child           add a node to a parent folder
     remove-child        remove a node from a parent folder
     usage               show drive usage data
@@ -60,7 +63,7 @@ And some more
     changes             list changes
 ```
 
-Please run ```./acd_cli.py --help``` to get a current list of the available actions. You may also get a list of  further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
+Please run ``./acd_cli.py --help`` to get a current list of the available actions. You may also get a list of  further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
 
 You may provide most node arguments as a 22 character ID or a UNIX-style path. Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
@@ -72,27 +75,28 @@ $ ./acd_cli.py sync
 $ ./acd_cli.py tree
 # [PHwiEv53QOKoGFGqYNl8pw] [A] /
 $ ./acd_cli.py create /egg/
-# 1 folder(s) inserted.
 $ ./acd_cli.py create /egg/bacon/
-# 1 folder(s) inserted.
-$ ./acd_cli.py upload local/spam /egg/bacon/
+$ ./acd_cli.py upload local/spam/ /egg/bacon/
+#Current directory: local/spam/
+#Current file: local/spam/sausage
 # [##################################################] 100.00% of 20.0MiB
-# 1 file(s) inserted.
+#Current file: local/spam/lobster
+# [##################################################] 100.00% of 10.0MiB
+[...]
 $ ./acd_cli.py tree
 # [PHwiEv53QOKoGFGqYNl8pw] [A] /
-# [MaBngd6VTByJunX-8zeWMg] [A] /egg/
-# [uPbjGFCqRGi-wFJTOV8ggQ] [A] /egg/bacon/
-# [m2lCXyDCTZeeYWxZXCbAsA] [A] /egg/bacon/spam
-$ ./acd_cli.py move /egg/bacon/spam /
-# 1 file(s) updated.
+# [         ...          ] [A] /egg/
+# [         ...          ] [A] /egg/bacon/
+# [         ...          ] [A] /egg/bacon/spam/
+# [         ...          ] [A] /egg/bacon/spam/sausage
+# [...]
 ```
-
 
 ##Known Issues
 
  * Nodes with multiple parents might mess up the cache
 
-Feel free to use the bug tracker to add issues.
+Feel free to use the bug tracker to add issues. You might find the `--verbose` and `--debug` options helpful. 
 
 ##Dependencies
 * pycurl
