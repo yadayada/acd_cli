@@ -1,3 +1,4 @@
+import os
 import logging
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
@@ -5,6 +6,9 @@ from sqlalchemy.orm import sessionmaker, relationship
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
+
+session = None
+engine = None
 
 Base = declarative_base()
 
@@ -150,7 +154,7 @@ class Folder(Node):
         if len(self.parents) == 0:
             return '/'
         return self.parents[0].full_path() \
-            + (self.name if self.name is not None else '') + '/'
+               + (self.name if self.name is not None else '') + '/'
 
     def get_child(self, name):
         """ Gets non-trashed child by name. """
@@ -160,12 +164,25 @@ class Folder(Node):
         return
 
 
+# class Label(Base):
+#     __tablename__ = 'labels'
+#
+#     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True)
+#     name = Column(String(256), primary_key=True)
+
+"""End of 'schema'"""
+
+
+def init(path=''):
+    global session
+    global engine
+    engine = create_engine('sqlite:///%s' % os.path.join(path, 'nodes.db'))
+    Base.metadata.create_all(engine)
+    _session = sessionmaker(bind=engine)
+    session = _session()
+
+
 def drop_all():
     Base.metadata.drop_all(engine)
     logger.info('Dropped all tables.')
 
-
-engine = create_engine('sqlite:///nodes.db')
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-session = Session()

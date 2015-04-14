@@ -96,6 +96,7 @@ def rename_node(node_id, new_name):
     properties = {'name': new_name}
     return update_metadata(node_id, properties)
 
+
 # sets node with 'PENDING' status to 'AVAILABLE'
 def set_available(node_id):
     properties = {'status': 'AVAILABLE'}

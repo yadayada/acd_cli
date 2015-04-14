@@ -82,7 +82,7 @@ $ ./acd_cli.py upload local/spam/ /egg/bacon/
 # [##################################################] 100.00% of 20.0MiB
 #Current file: local/spam/lobster
 # [##################################################] 100.00% of 10.0MiB
-[...]
+#[...]
 $ ./acd_cli.py tree
 # [PHwiEv53QOKoGFGqYNl8pw] [A] /
 # [         ...          ] [A] /egg/
@@ -94,7 +94,7 @@ $ ./acd_cli.py tree
 
 ##Known Issues
 
- * Nodes with multiple parents might mess up the cache
+ * the tree and recursive folder listings are prone to infinite recursion if folder loops exist
 
 Feel free to use the bug tracker to add issues. You might find the `--verbose` and `--debug` options helpful. 
 

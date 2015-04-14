@@ -54,8 +54,8 @@ def insert_folders(folders, partial=False):
                 dup += 1
             else:
                 upd += 1
-            db.session.delete(ef)
-            db.session.add(f)
+            # this should keep the children intact
+            db.session.merge(f)
 
         parents.append((f.id, folder['parents']))
 
@@ -84,6 +84,8 @@ def insert_folders(folders, partial=False):
         logger.info(str(dtd) + ' folder(s) deleted.')
 
     conn = db.engine.connect()
+    for f in folders:
+        conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
     for rel in parents:
         for p in rel[1]:
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
@@ -96,40 +98,34 @@ def insert_files(files, partial=False):
     upd = 0
     dtd = 0
 
-    with db.session.no_autoflush:
-        for file in files:
-            props = {}
-            try:
-                props = file['contentProperties']
-            except KeyError:  # empty files
-                props['md5'] = 'd41d8cd98f00b204e9800998ecf8427e'
-                props['size'] = 0
+    parents = []
+    for file in files:
+        props = {}
+        try:
+            props = file['contentProperties']
+        except KeyError:  # empty files
+            props['md5'] = 'd41d8cd98f00b204e9800998ecf8427e'
+            props['size'] = 0
 
-            f = db.File(file['id'], file['name'],
-                        iso_date.parse(file['createdDate']),
-                        iso_date.parse(file['modifiedDate']),
-                        props['md5'], props['size'],
-                        file['status'])
-            ef = db.session.query(db.File).filter_by(id=file['id']).first()
+        f = db.File(file['id'], file['name'],
+                    iso_date.parse(file['createdDate']),
+                    iso_date.parse(file['modifiedDate']),
+                    props['md5'], props['size'],
+                    file['status'])
+        ef = db.session.query(db.File).filter_by(id=file['id']).first()
 
-            if not ef:
-                db.session.add(f)
-                ins += 1
+        if not ef:
+            db.session.add(f)
+            ins += 1
+        else:
+            if f == ef:
+                dup += 1
             else:
-                if f == ef:
-                    dup += 1
-                else:
-                    upd += 1
-                db.session.delete(ef)
-                db.session.add(f)
+                upd += 1
+            db.session.delete(ef)
+            db.session.add(f)
 
-            for p in file['parents']:
-                p_folder = db.session.query(db.Folder).filter_by(id=p).first()
-                if p_folder is None:
-                    # print('Parent folder of [%s] not found.' % f.name)
-                    logger.warning('Node %s [%s] has no parent %s.' % (f.id, f.name, p_folder))
-                elif f not in p_folder.children:
-                    f.parents.append(db.session.query(db.Folder).filter_by(id=p).first())
+        parents.append((f.id, file['parents']))
 
     if not partial:
         for db_file in db.session.query(db.File):
@@ -156,3 +152,10 @@ def insert_files(files, partial=False):
         logger.info(str(dup) + ' duplicate files not inserted.')
     if dtd > 0:
         logger.info(str(dtd) + ' file(s) deleted.')
+
+    conn = db.engine.connect()
+    for f in files:
+        conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
+    for rel in parents:
+        for p in rel[1]:
+            conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])

@@ -21,8 +21,8 @@ def progress(total_to_download, total_downloaded, total_to_upload, total_uploade
         percentage = round(rate * 100, ndigits=2)
         completed = "#" * int(percentage / 2)
         spaces = " " * (50 - len(completed))
-        sys.stdout.write('[%s%s] %05.2f%% of %s\r'
-                         % (completed, spaces, percentage, utils.file_size_str(total_to_upload)))
+        sys.stdout.write('[%s%s] %s%% of %s\r'
+                         % (completed, spaces, ('%05.2f' % percentage).rjust(6), utils.file_size_str(total_to_upload)))
         sys.stdout.flush()
 
 

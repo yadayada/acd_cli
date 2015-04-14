@@ -7,26 +7,28 @@ import logging
 import subprocess
 import signal
 
-from cache import sync, selection, db
+from cache import sync, query, db
 from acd import oauth, content, metadata, account, trash, changes
 from acd.common import RequestError
 import utils
 
 __version__ = '0.1.2'
 
+# TODO: this should be xdg conforming
+CACHE_PATH = os.path.dirname(os.path.realpath(__file__))
+SETTINGS_PATH = CACHE_PATH
+
 logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
-sh = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s  [%(name)s] [%(levelname)s] - %(message)s')
-sh.setFormatter(formatter)
-logger.addHandler(sh)
 
 INVALID_ARG_RETVAL = 2
-KEYBOARD_INTERRUPT = 3
+KEYB_INTERR_RETVAL = 3
 
 
 def signal_handler(signal, frame):
-    db.session.rollback()
-    sys.exit(KEYBOARD_INTERRUPT)
+    if db.session:
+        db.session.rollback()
+    sys.exit(KEYB_INTERR_RETVAL)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -66,7 +68,7 @@ def upload_file(path, parent_id, overwr, force):
     hasher = utils.Hasher(path)
     short_nm = os.path.basename(path)
 
-    cached_file = selection.get_node(parent_id).get_child(short_nm)
+    cached_file = query.get_node(parent_id).get_child(short_nm)
     if cached_file:
         file_id = cached_file.id
     else:
@@ -80,35 +82,40 @@ def upload_file(path, parent_id, overwr, force):
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 print('Uploading %s failed. Name collision with non-cached file. '
-                      'If you want to overwrite, please sync and try again.')
+                      'If you want to overwrite, please sync and try again.' % short_nm)
                 # colliding node ID is returned in error message -> could be used to continue
+                hasher.stop()
                 return
             else:
-                hasher.__stop__()
+                hasher.stop()
                 print('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return
     else:
         if not overwr and not force:
             print('Skipping upload of existing file "%s".' % short_nm)
-            hasher.__stop__()
+            hasher.stop()
             return
 
         if cached_file.size < os.path.getsize(path) or force:
             overwrite(file_id, path)
         elif not force:
-            print('Skipping upload of "%s", because local file is smaller or of same size.')
+            print('Skipping upload of "%s", because local file is smaller or of same size.' % short_nm)
+            hasher.stop()
+            return
 
     # might have changed
-    cached_file = selection.get_node(file_id)
+    cached_file = query.get_node(file_id)
 
     if hasher.get_result() != cached_file.md5:
         print('Hash mismatch between local and remote file for "%s".' % short_nm)
+    else:
+        logger.info('Local and remote hashes match for "%s".' % short_nm)
 
 
 def upload_folder(folder, parent_id, overwr, force):
     if parent_id is None:
-        parent_id = selection.get_root_id()
-    parent = selection.get_node(parent_id)
+        parent_id = query.get_root_id()
+    parent = query.get_node(parent_id)
 
     real_path = os.path.realpath(folder)
     short_nm = os.path.basename(real_path)
@@ -118,7 +125,7 @@ def upload_folder(folder, parent_id, overwr, force):
         try:
             r = content.create_folder(short_nm, parent_id)
             sync.insert_node(r)
-            curr_node = selection.get_node(r['id'])
+            curr_node = query.get_node(r['id'])
         except RequestError as e:
             print('Error creating remote folder "%s.' % short_nm)
             if e.status_code == 409:
@@ -145,12 +152,12 @@ def overwrite(node_id, local_file):
         if r['contentProperties']['md5'] != hasher.get_result():
             print('Hash mismatch between local and remote file for "%s".' % local_file)
     except RequestError as e:
-        hasher.__stop__()
+        hasher.stop()
         print('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
 
 
 def download(node_id, local_path):
-    node = selection.get_node(node_id)
+    node = query.get_node(node_id)
 
     if node.is_folder():
         download_folder(node_id, local_path)
@@ -175,7 +182,7 @@ def download_folder(node_id, local_path):
     if not local_path:
         local_path = os.getcwd()
 
-    node = selection.get_node(node_id)
+    node = query.get_node(node_id)
 
     curr_path = os.path.join(local_path, node.name)
     try:
@@ -211,14 +218,14 @@ def clear_action(args):
 
 
 def tree_action(args):
-    tree = selection.node_list(trash=args.include_trash)
+    tree = query.tree(args.node, args.include_trash)
     for node in tree:
         print(node)
 
 
 def usage_action(args):
     r = account.get_account_usage()
-    pprint(r)
+    print(r)
 
 
 def quota_action(args):
@@ -228,7 +235,6 @@ def quota_action(args):
 
 
 def upload_action(args):
-
     for path in args.path:
         if not os.path.exists(path):
             print('Path "%s" does not exist.' % path)
@@ -246,12 +252,7 @@ def overwrite_action(args):
 
 
 def download_action(args):
-    loc_path = None
-    try:
-        loc_path = args.path
-    except IndexError:
-        pass
-    download(args.node, loc_path)
+    download(args.node, args.path)
 
 
 # TODO: check os
@@ -262,11 +263,12 @@ def stream_action(args):
 
 
 def create_action(args):
+    # TODO: try to resolve first
     parent, folder = os.path.split(args.new_folder)
     if not folder:
         parent, folder = os.path.split(parent)
 
-    p_path = selection.resolve_path(parent)
+    p_path = query.resolve_path(parent)
     if not p_path:
         print('Invalid parent path.')
         sys.exit(INVALID_ARG_RETVAL)
@@ -283,7 +285,7 @@ def create_action(args):
 
 
 def list_trash_action(args):
-    t_list = selection.list_trash(args.recursive)
+    t_list = query.list_trash(args.recursive)
     if t_list:
         print('\n'.join(t_list))
 
@@ -299,11 +301,11 @@ def restore_action(args):
 
 
 def resolve_action(args):
-    print(selection.resolve_path(args.path))
+    print(query.resolve_path(args.path))
 
 
 def children_action(args):
-    c_list = selection.list_children(args.node, args.recursive, args.include_trash)
+    c_list = query.list_children(args.node, args.recursive, args.include_trash)
     if c_list:
         for entry in c_list:
             print(entry)
@@ -357,6 +359,7 @@ def main():
 
     tree_sp = subparsers.add_parser('tree', aliases=['t'], help='print directory tree [uses cached data]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
+    tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
 
     upload_sp = subparsers.add_parser('upload', aliases=['ul'],
@@ -368,7 +371,7 @@ def main():
     upload_sp.set_defaults(func=upload_action)
 
     overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'],
-                                         help='overwrite node A [remote] with file B [local]')
+                                         help='overwrite file A [remote] with content of file B [local]')
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)
@@ -376,7 +379,7 @@ def main():
     download_sp = subparsers.add_parser('download', aliases=['dl'],
                                         help='download a remote file; will overwrite local files')
     download_sp.add_argument('node')
-    download_sp.add_argument('path', nargs='?', help='local download path')
+    download_sp.add_argument('path', nargs='?', default=None, help='local download path')
     download_sp.set_defaults(func=download_action)
 
     # stream_sp = subparsers.add_parser('stream')
@@ -391,13 +394,13 @@ def main():
     trash_sp.add_argument('--recursive', '-r', action='store_true')
     trash_sp.set_defaults(func=list_trash_action)
 
-    m_trash_sp = subparsers.add_parser('trash', aliases=['tr'], help='move to trash')
+    m_trash_sp = subparsers.add_parser('trash', aliases=['rm'], help='move to trash')
     m_trash_sp.add_argument('node')
     m_trash_sp.set_defaults(func=trash_action)
 
     rest_sp = subparsers.add_parser('restore', aliases=['re'], help='restore from trash')
     rest_sp.add_argument('node', help='id of the node')
-    rest_sp.set_defaults(func=resolve_action)
+    rest_sp.set_defaults(func=restore_action)
 
     list_c_sp = subparsers.add_parser('children', aliases=['ls'], help='list folder\'s children [uses cached data]')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
@@ -446,12 +449,14 @@ def main():
 
     args = opt_parser.parse_args()
 
-    if args.action not in ['tree', 'children', 'list-trash']:
-        oauth.get_data()
+    if args.action not in ['tree', 'children', 'list-trash', 't', 'ls', 'lt']:
+        oauth.init(CACHE_PATH)
 
     # if args.action in ['create', 'resolve', 'upload'] and not selection.get_root_node():
-    #     print('Cache empty. Forcing sync.')
+    # print('Cache empty. Forcing sync.')
     #     sync_action()
+
+    db.init(CACHE_PATH)
 
     # TODO: resolve unique names
     # auto-resolve node paths
@@ -461,7 +466,7 @@ def main():
             if not val:
                 continue
             if '/' in val:
-                val = selection.resolve_path(val)
+                val = query.resolve_path(val)
                 if not val:
                     print('Could not resolve path.')
                     sys.exit(INVALID_ARG_RETVAL)
@@ -470,17 +475,20 @@ def main():
                 print('Invalid ID format.')
                 sys.exit(INVALID_ARG_RETVAL)
 
+    _format = '%(asctime)s  [%(name)s] [%(levelname)s] - %(message)s'
+
     if not args.debug and not args.verbose:
-        logging.basicConfig(level=logging.WARNING)
+        logging.basicConfig(level=logging.WARNING, format=_format)
     elif args.verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, format=_format)
         logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
     else:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG, format=_format)
 
         # these debug messages (prints) will not show up in log file
         import http.client
+
         http.client.HTTPConnection.debuglevel = 1
 
         r_logger = logging.getLogger("requests")
@@ -497,6 +505,13 @@ def main():
         # handler.setFormatter(formatter)
         #
         # logging.getLogger().addHandler(handler)
+
+    # TODO
+    # sh = logging.StreamHandler()
+    # formatter = logging.Formatter('%(asctime)s  [%(name)s] [%(levelname)s] - %(message)s')
+    # sh.setFormatter(formatter)
+    # logging.getLogger().addHandler(sh)
+
 
     # call appropriate sub-parser action
     args.func(args)

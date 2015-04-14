@@ -1,4 +1,3 @@
-import os
 import logging
 
 import cache.db as db
@@ -10,6 +9,7 @@ def get_node(node_id):
     return db.session.query(db.Node).filter_by(id=node_id).first()
 
 
+# may be broken
 def get_root_node():
     return db.session.query(db.Folder).filter_by(name=None).first()
 
@@ -20,21 +20,30 @@ def get_root_id():
         return root.id
 
 
-def get_name(node_id):
-    node = db.session.query(db.Node).filter_by(id=node_id).first()
-    if not node:
-        return
-    return node.name
+def is_folder(node_id):
+    return db.session.query(db.Folder).filter_by(id=node_id).first() is not None
+
+
+def tree(root_id=None, trash=False):
+    if root_id is None:
+        return node_list(trash=trash)
+
+    folder = db.session.query(db.Folder).filter_by(id=root_id).first()
+    if not folder:
+        print('Not a folder or not found: "%s".' % root_id)
+        return []
+
+    return node_list(folder, True, True, trash)
 
 
 def list_children(folder_id, recursive=False, trash=False):
-    """ Creates formatted list of folder's
+    """ Creates formatted list of folder's children
     :param folder_id: valid folder's id
     :return: list of node names, folders first
     """
     folder = db.session.query(db.Folder).filter_by(id=folder_id).first()
     if not folder:
-        logger.warning('Not a folder or not found: "%s" .' % folder_id)
+        logger.warning('Not a folder or not found: "%s".' % folder_id)
         return []
 
     return node_list(folder, False, recursive, trash)
@@ -44,7 +53,7 @@ def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_
     """
     Generates formatted list of (non-)trashed nodes
     :db.Folder root: start folder
-    :bool add_root: whether to add the root node to the list and prepend its path to its children
+    :bool add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
     :bool recursive: whether to traverse hierarchy
     :bool trash: whether to include trash
     :str path: the path on which this method incarnation was reached
@@ -96,7 +105,7 @@ def find(name):
 
 
 def resolve_path(path, root=None):
-    """Resolves absolute path if fully unique"""
+    """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
         return
 
@@ -107,11 +116,11 @@ def resolve_path(path, root=None):
         if not root:
             return
 
+    if not root:
+        return
+
     if len(segments) == 1 or segments[1] == '':
         return root.id
-
-    if isinstance(root, db.File):
-        return
 
     segments = segments[1:]
 
