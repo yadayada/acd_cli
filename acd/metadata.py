@@ -67,6 +67,11 @@ def get_root_id():
         return data['data'][0]['id']
 
 
+def list_children(node_id):
+    r = requests.get(oauth.get_metadata_url() + 'nodes/' + node_id + '/children', headers=oauth.get_auth_header())
+    return r.json
+
+
 def add_child(parent, child):
     r = requests.put(oauth.get_metadata_url()
                      + 'nodes/' + parent + '/children/' + child, headers=oauth.get_auth_header())
@@ -101,3 +106,11 @@ def rename_node(node_id, new_name):
 def set_available(node_id):
     properties = {'status': 'AVAILABLE'}
     return update_metadata(node_id, properties)
+
+
+# TODO
+def list_properties(node_id):
+    owner_id = ''
+    r = requests.get(oauth.get_metadata_url() + "/nodes/" + node_id + "/properties/" + owner_id,
+                     headers=oauth.get_auth_header())
+    return r.text

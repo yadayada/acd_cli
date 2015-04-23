@@ -57,9 +57,13 @@ def init(path=''):
 
     if get_client_id() == '' or get_client_secret() == '':
         print('Please enter the security profile\'s client data in %s.' % CLIENT_DATA_FILE)
-        sys.exit()
+        return False
 
-    get_data()
+    try:
+        get_data()
+        return True
+    except:
+        return False
 
 
 # noinspection PyDictCreation

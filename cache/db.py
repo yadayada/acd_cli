@@ -38,8 +38,8 @@ class Node(Base):
         'polymorphic_on': type
     }
 
-    # compares Nodes on same path level
     def __lt__(self, other):
+        """ Compares this Node to another one on same path level. Sorts case-sensitive, Folder first. """
         if isinstance(self, Folder):
             if isinstance(other, File):
                 return True
@@ -154,7 +154,7 @@ class Folder(Node):
         if len(self.parents) == 0:
             return '/'
         return self.parents[0].full_path() \
-               + (self.name if self.name is not None else '') + '/'
+            + (self.name if self.name is not None else '') + '/'
 
     def get_child(self, name):
         """ Gets non-trashed child by name. """
@@ -165,7 +165,7 @@ class Folder(Node):
 
 
 # class Label(Base):
-#     __tablename__ = 'labels'
+# __tablename__ = 'labels'
 #
 #     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True)
 #     name = Column(String(256), primary_key=True)

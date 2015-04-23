@@ -17,11 +17,18 @@ class Usage(object):
 
     @staticmethod
     def format_line(type, count, size):
-        return '{0:10} {1:4}, {2:>6} {3:3}\n'.format(type+':', count, *size)
+        return '{0:10} {1:4}, {2:>6} {3:3}\n'.format(type + ':', count, *size)
 
     def __str__(self):
         _str = ''
         try:
+            sum_count = 0
+            sum_bytes = 0
+            for key in self._dict.keys():
+                if not isinstance(self._dict[key], dict):
+                    continue
+                sum_count += self._dict[key]['total']['count']
+                sum_bytes += self._dict[key]['total']['bytes']
             _str = Usage.format_line('Documents', self._dict['doc']['total']['count'],
                                      utils.file_size_pair(self._dict['doc']['total']['bytes'])) + \
                    Usage.format_line('Other', self._dict['other']['total']['count'],
@@ -29,7 +36,8 @@ class Usage(object):
                    Usage.format_line('Photos', self._dict['photo']['total']['count'],
                                      utils.file_size_pair(self._dict['photo']['total']['bytes'])) + \
                    Usage.format_line('Videos', self._dict['video']['total']['count'],
-                                     utils.file_size_pair(self._dict['video']['total']['bytes']))
+                                     utils.file_size_pair(self._dict['video']['total']['bytes'])) + \
+                   Usage.format_line('Total', sum_count, utils.file_size_pair(sum_bytes))
         except KeyError:
             logger.warning('Invalid usage JSON string.')
         return _str

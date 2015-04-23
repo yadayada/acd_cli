@@ -98,13 +98,17 @@ def list_trash(recursive=False):
     return nodes
 
 
-# TODO
 def find(name):
-    # use SQL LIKE
-    pass
+    q = db.session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
+    q = sorted(q, key=lambda x: x.full_path())
+
+    nodes = []
+    for node in q:
+        nodes.append(node.long_id_str())
+    return nodes
 
 
-def resolve_path(path, root=None):
+def resolve_path(path, root=None, trash=True):
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
         return
@@ -131,6 +135,8 @@ def resolve_path(path, root=None):
                 return resolve_path('/'.join(segments), child)
             children.append(child)
 
+    if not trash:
+        return
     ids = []
     for trash_child in children:
         res = resolve_path('/'.join(segments), trash_child)
@@ -139,4 +145,4 @@ def resolve_path(path, root=None):
     if len(ids) == 1:
         return ids[0]
     else:
-        logger.info('Could resolve non fully unique (i.e. trash) path "%s"' % path)
+        logger.info('Could not resolve non fully unique (i.e. trash) path "%s"' % path)

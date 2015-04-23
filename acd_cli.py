@@ -6,6 +6,7 @@ import argparse
 import logging
 import subprocess
 import signal
+import datetime
 
 from cache import sync, query, db
 from acd import oauth, content, metadata, account, trash, changes
@@ -20,6 +21,7 @@ SETTINGS_PATH = CACHE_PATH
 
 logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
+INIT_FAILED_RETVAL = 1
 INVALID_ARG_RETVAL = 2
 KEYB_INTERR_RETVAL = 3
 
@@ -34,7 +36,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 
 def pprint(s):
-    print(json.dumps(s, indent=4))
+    print(json.dumps(s, indent=4, sort_keys=True))
 
 
 def sync_node_list():
@@ -60,7 +62,7 @@ def upload(path, parent_id, overwr, force):
         print('Current directory: %s' % path)
         upload_folder(path, parent_id, overwr, force)
     elif os.path.isfile(path):
-        print('Current file: %s' % path)
+        print('Current file: %s' % os.path.basename(path))
         upload_file(path, parent_id, overwr, force)
 
 
@@ -81,25 +83,39 @@ def upload_file(path, parent_id, overwr, force):
             file_id = r['id']
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
+                hasher.stop()
                 print('Uploading %s failed. Name collision with non-cached file. '
                       'If you want to overwrite, please sync and try again.' % short_nm)
                 # colliding node ID is returned in error message -> could be used to continue
+                return
+            elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
                 hasher.stop()
+                print('Timeout while uploading "%s".')
+                # TODO: wait; request parent folder's children
                 return
             else:
                 hasher.stop()
                 print('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return
     else:
+        mod_time = cached_file.modified.replace(tzinfo=datetime.timezone.utc)
+        mod_time = mod_time.timestamp()
+
+        logger.info('Remote mtime:' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
+                    + ', local ctime: ' + str(os.path.getctime(path)))
+
         if not overwr and not force:
             print('Skipping upload of existing file "%s".' % short_nm)
             hasher.stop()
             return
 
-        if cached_file.size < os.path.getsize(path) or force:
+        # ctime is checked because files can be overwritten by files with older mtime
+        if mod_time < os.path.getmtime(path) \
+                or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
+                or force:
             overwrite(file_id, path)
         elif not force:
-            print('Skipping upload of "%s", because local file is smaller or of same size.' % short_nm)
+            print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
             hasher.stop()
             return
 
@@ -121,7 +137,7 @@ def upload_folder(folder, parent_id, overwr, force):
     short_nm = os.path.basename(real_path)
 
     curr_node = parent.get_child(short_nm)
-    if not curr_node or curr_node.status == 'TRASH':
+    if not curr_node or curr_node.status == 'TRASH' or parent.status == 'TRASH':
         try:
             r = content.create_folder(short_nm, parent_id)
             sync.insert_node(r)
@@ -137,7 +153,7 @@ def upload_folder(folder, parent_id, overwr, force):
         print('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
         return
 
-    entries = os.listdir(folder)
+    entries = sorted(os.listdir(folder))
 
     for entry in entries:
         full_path = os.path.join(real_path, entry)
@@ -163,16 +179,19 @@ def download(node_id, local_path):
         download_folder(node_id, local_path)
         return
     loc_name = node.name
-    # downloading a non-cached node
-    if not loc_name:
-        loc_name = node_id
+
+    # # downloading a non-cached node
+    # if not loc_name:
+    # loc_name = node_id
+
     hasher = utils.IncrementalHasher()
 
     try:
+        print('Current file: %s' % loc_name)
         content.download_file(node_id, loc_name, local_path, hasher.update)
     except RequestError as e:
         print('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
-        print()
+        return
 
     if hasher.get_result() != node.md5:
         print('Hash mismatch between local and remote file for "%s".' % loc_name)
@@ -185,12 +204,13 @@ def download_folder(node_id, local_path):
     node = query.get_node(node_id)
 
     curr_path = os.path.join(local_path, node.name)
+    print('Current path: %s' % curr_path)
     try:
         os.makedirs(curr_path, exist_ok=True)
     except OSError:
         print('Error creating directory "%s".' % curr_path)
         return
-    children = node.children
+    children = sorted(node.children)
     for child in children:
         if child.is_file():
             download(child.id, curr_path)
@@ -296,12 +316,22 @@ def trash_action(args):
 
 
 def restore_action(args):
-    r = trash.restore(args.node)
+    try:
+        r = trash.restore(args.node)
+    except RequestError as e:
+        print('Error restoring "%s"' % args.node, e)
+        return
     sync.insert_node(r)
 
 
 def resolve_action(args):
     print(query.resolve_path(args.path))
+
+
+def find_action(args):
+    r = query.find(args.name)
+    for node in r:
+        print(node)
 
 
 def children_action(args):
@@ -362,9 +392,12 @@ def main():
     tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
 
-    upload_sp = subparsers.add_parser('upload', aliases=['ul'],
+    upload_nms = ['upload', 'ul']
+    upload_sp = subparsers.add_parser(upload_nms[0], aliases=upload_nms[1:],
                                       help='file and directory upload to a remote destination')
-    upload_sp.add_argument('--overwrite', '-o', action='store_true', help='overwrite smaller remote files')
+    upload_sp.add_argument('--overwrite', '-o', action='store_true',
+                           help='overwrite if local modification time is higher or local ctime is higher than remote '
+                                'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
     upload_sp.add_argument('path', nargs="*", help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
@@ -394,7 +427,8 @@ def main():
     trash_sp.add_argument('--recursive', '-r', action='store_true')
     trash_sp.set_defaults(func=list_trash_action)
 
-    m_trash_sp = subparsers.add_parser('trash', aliases=['rm'], help='move to trash')
+    trash_nms = ['trash', 'rm']
+    m_trash_sp = subparsers.add_parser(trash_nms[0], aliases=trash_nms[1:], help='move to trash')
     m_trash_sp.add_argument('node')
     m_trash_sp.set_defaults(func=trash_action)
 
@@ -421,6 +455,10 @@ def main():
     res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node id')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
+
+    find_sp = subparsers.add_parser('find', help='find nodes by name')
+    find_sp.add_argument('name')
+    find_sp.set_defaults(func=find_action)
 
     # maybe the child operations should not be exposed
     # they can be used for creating hardlinks
@@ -450,11 +488,12 @@ def main():
     args = opt_parser.parse_args()
 
     if args.action not in ['tree', 'children', 'list-trash', 't', 'ls', 'lt']:
-        oauth.init(CACHE_PATH)
+        if not oauth.init(CACHE_PATH):
+            sys.exit(INIT_FAILED_RETVAL)
 
     # if args.action in ['create', 'resolve', 'upload'] and not selection.get_root_node():
     # print('Cache empty. Forcing sync.')
-    #     sync_action()
+    # sync_action()
 
     db.init(CACHE_PATH)
 
@@ -466,7 +505,8 @@ def main():
             if not val:
                 continue
             if '/' in val:
-                val = query.resolve_path(val)
+                incl_trash = args.action not in upload_nms + trash_nms
+                val = query.resolve_path(val, trash=incl_trash)
                 if not val:
                     print('Could not resolve path.')
                     sys.exit(INVALID_ARG_RETVAL)
@@ -497,21 +537,6 @@ def main():
 
         logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
-
-        # handler = logging.FileHandler(os.path.basename(__file__).split('.')[0] + '.log')
-        # handler.setLevel(logging.DEBUG)
-        #
-        # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        # handler.setFormatter(formatter)
-        #
-        # logging.getLogger().addHandler(handler)
-
-    # TODO
-    # sh = logging.StreamHandler()
-    # formatter = logging.Formatter('%(asctime)s  [%(name)s] [%(levelname)s] - %(message)s')
-    # sh.setFormatter(formatter)
-    # logging.getLogger().addHandler(sh)
-
 
     # call appropriate sub-parser action
     args.func(args)

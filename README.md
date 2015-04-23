@@ -94,6 +94,7 @@ $ ./acd_cli.py tree
 
 ##Known Issues
 
+ * files larger than 10GiB may not be downloaded
  * the tree and recursive folder listings are prone to infinite recursion if folder loops exist
 
 Feel free to use the bug tracker to add issues. You might find the `--verbose` and `--debug` options helpful. 

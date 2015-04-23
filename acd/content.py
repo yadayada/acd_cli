@@ -118,7 +118,7 @@ def overwrite_file(node_id, file_name):
 def download_file(node_id, local_name, local_path=None, write_callback=None):
     r = requests.get(oauth.get_content_url() + 'nodes/' + node_id, headers=oauth.get_auth_header(), stream=True)
     if r.status_code != http.OK:
-        print('Downloading %s failed.' % node_id)
+        # print('Downloading %s failed.' % node_id)
         raise RequestError(r.status_code, r.text)
 
     dl_path = local_name

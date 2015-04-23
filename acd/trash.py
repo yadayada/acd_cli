@@ -17,7 +17,6 @@ def move_to_trash(node):
     return r.json()
 
 
-# TODO: handle 409
 def restore(node):
     r = requests.post(oauth.get_metadata_url() + 'trash/' + node + '/restore', headers=oauth.get_auth_header())
     if r.status_code != http.OK:
