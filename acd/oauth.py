@@ -1,179 +1,136 @@
-import time
-import json
-from urllib.parse import urlparse, parse_qs
 import os
-import sys
+import json
 import requests
+import urllib
+import time
 import logging
+import webbrowser
 
 logger = logging.getLogger(__name__)
 
 settings_path = ''
-CONN_DATA_FILE = 'conn_data'
-CLIENT_DATA_FILE = 'client_data'
+OAUTH_DATA_FILE = 'oauth_data'
+ENDPOINT_DATA_FILE = 'endpoint_data'
 
-conn_data = {}
-client_data = {}
+# json key names
+EXP_IN_KEY = 'expires_in'
+ACC_TOKEN_KEY = 'access_token'
+REFR_TOKEN_KEY = 'refresh_token'
 
-get_client_id = lambda: client_data['CLIENT_ID']
-get_client_secret = lambda: client_data['CLIENT_SECRET']
-get_metadata_url = lambda: conn_data['endpoints']['metadataUrl']
-get_content_url = lambda: conn_data['endpoints']['contentUrl']
+# custom key added by appspot app
+EXP_TIME_KEY = 'exp_time'
 
-AMAZON_OA_LOGIN_URL = 'https://amazon.com/ap/oa'
-AMAZON_OA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token'
-REDIRECT_URI = 'http://localhost'
+oauth_data_path = lambda: os.path.join(settings_path, OAUTH_DATA_FILE)
+endpoint_data_path = lambda: os.path.join(settings_path, ENDPOINT_DATA_FILE)
 
-OAUTH_ST1 = lambda: {'client_id': get_client_id(),
-                     'response_type': 'code',
-                     'scope': 'clouddrive:read clouddrive:write',
-                     'redirect_uri': REDIRECT_URI}
+oauth_data = {}
+endpoint_data = {}
 
-OAUTH_ST2 = lambda: {'grant_type': 'authorization_code',
-                     'code': None,
-                     'client_id': get_client_id(),
-                     'client_secret': get_client_secret(),
-                     'redirect_uri': REDIRECT_URI}
+get_metadata_url = lambda: endpoint_data['metadataUrl']
+get_content_url = lambda: endpoint_data['contentUrl']
 
-OAUTH_REF = lambda: {'grant_type': 'refresh_token',
-                     'refresh_token': None,
-                     'client_id': get_client_id(),
-                     'client_secret': get_client_secret(),
-                     'redirect_uri': REDIRECT_URI}
+# remote request URLs
+APPSPOT_URL = 'http://tensile-runway-92512.appspot.com/'
 
 AMZ_ENDPOINT_REQ_URL = 'https://drive.amazonaws.com/drive/v1/account/endpoint'
 ENDPOINT_VAL_TIME = 259200
+
+
+def oauth_data_changed():
+    with open(oauth_data_path(), 'w') as oa:
+        json.dump(oauth_data, oa, indent=4, sort_keys=True)
+
+
+def endpoint_data_changed():
+    with open(endpoint_data_path(), 'w') as ep:
+        json.dump(endpoint_data, ep, indent=4, sort_keys=True)
 
 
 def init(path=''):
     global settings_path
     settings_path = path
 
-    global client_data
-    cl_file = os.path.join(settings_path, CLIENT_DATA_FILE)
-
-    with open(cl_file) as f:
-        client_data = json.load(f)
-
-    if get_client_id() == '' or get_client_secret() == '':
-        print('Please enter the security profile\'s client data in %s.' % CLIENT_DATA_FILE)
-        return False
-
     try:
         get_data()
         return True
     except:
-        return False
+        raise
 
 
-# noinspection PyDictCreation
 def get_data():
-    """ Loads stored conn data from file or starts OA procedure """
-    global conn_data
-    changed = False
-
-    conn_path = os.path.join(settings_path, CONN_DATA_FILE)
-
-    if os.path.isfile(conn_path):
-        with open(conn_path) as infile:
-            try:
-                conn_data = json.load(infile)
-                get_auth_token()  # refresh, if necessary
-                if time.time() > conn_data['endpoints']['expTime']:
-                    conn_data['endpoints'] = get_endpoints()
-                    changed = True
-            except TypeError:
-                print("Error loading user data.")
-            except ValueError:
-                print('Missing key in user data file.')
-
-    if not conn_data:
-        conn_data = {}
-        conn_data['token'] = authenticate()
-        conn_data['endpoints'] = get_endpoints()
-        changed = True
-
-    if changed:
-        on_user_data_changed()
-
-    return
-
-
-def on_user_data_changed():
-    with open(os.path.join(settings_path, CONN_DATA_FILE), 'w') as outfile:
-        json.dump(conn_data, outfile, indent=4)
-
-
-def authenticate():
-    response = requests.post(AMAZON_OA_LOGIN_URL, params=OAUTH_ST1(), allow_redirects=True)
-
-    print('Please visit %s' % response.url)
-
-    ret_url = input("Please enter the url you have been redirected to: ")
-    ret_q = parse_qs(urlparse(ret_url).query)
-
-    if ret_q['scope'][0] != OAUTH_ST1()['scope']:
-        logger.warning('Oauth return scope does not match requested scope.')
-
-    st2 = OAUTH_ST2()
-    st2['code'] = ret_q['code'][0]
+    global oauth_data
+    global endpoint_data
 
     curr_time = time.time()
-    response = requests.post(AMAZON_OA_TOKEN_URL, data=st2)
-    try:
-        r = response.json()
-    except ValueError as e:
-        print('Invalid JSON.')
-        raise e
 
-    treat_auth_token(r, curr_time)
+    if not os.path.isfile(oauth_data_path()):
+        webbrowser.open_new_tab(APPSPOT_URL)
+        input('A browser tab will been opened. Please follow the link, accept the request '
+              'and save the plaintext response data into a file called "%s" in the application directory. '
+              'Then, press a key to continue.\n' % OAUTH_DATA_FILE)
 
-    return r
+        if not os.path.isfile(oauth_data_path()):
+            raise Exception
+
+    with open(oauth_data_path()) as oa:
+        oauth_data = json.load(oa)
+        if EXP_TIME_KEY not in oauth_data:
+            treat_auth_token(oauth_data, curr_time)
+            oauth_data_changed()
+
+    if not os.path.isfile(endpoint_data_path()):
+        get_endpoints()
+    else:
+        with open(endpoint_data_path()) as ep:
+            endpoint_data = json.load(ep)
+        if time.time() > endpoint_data[EXP_TIME_KEY]:
+            get_endpoints()
+
+
+def get_auth_token():
+    if time.time() > oauth_data[EXP_TIME_KEY]:
+        refresh_auth_token()
+    return "Bearer " + oauth_data[ACC_TOKEN_KEY]
 
 
 def get_auth_header():
     return {'Authorization': get_auth_token()}
 
 
-def get_auth_token():
-    if time.time() > conn_data['token']['expTime']:
-        refresh_auth_token()
-        on_user_data_changed()
-    return conn_data['token']['auth_token']
-
-
 def get_endpoints():
-    params = {"Authorization": get_auth_token()}
-    r = requests.get(AMZ_ENDPOINT_REQ_URL, headers=params)
+    global endpoint_data
 
+    r = requests.get(AMZ_ENDPOINT_REQ_URL, headers=get_auth_header())
     try:
         e = r.json()
-        e['expTime'] = time.time() + ENDPOINT_VAL_TIME
+        e[EXP_TIME_KEY] = time.time() + ENDPOINT_VAL_TIME
+        endpoint_data = e
+        endpoint_data_changed()
     except ValueError as e:
         print('Invalid JSON.')
         raise e
 
-    return e
-
 
 def treat_auth_token(token, curr_time):
+    """Adds expiration time to Amazon OAUTH dict"""
     if not token:
         return
     try:
-        token['expTime'] = curr_time + token['expires_in'] - 60
-        token['auth_token'] = "Bearer " + token['access_token']
+        token[EXP_TIME_KEY] = curr_time + token[EXP_IN_KEY] - 120
     except KeyError as e:
         print('Fatal error: Token key not found.')
         raise e
 
 
 def refresh_auth_token():
+    global oauth_data
+
     print('Refreshing authentication token.')
 
-    ref = OAUTH_REF()
-    ref['refresh_token'] = conn_data['token']['refresh_token']
+    ref = {REFR_TOKEN_KEY: oauth_data[REFR_TOKEN_KEY]}
     t = time.time()
-    response = requests.post(AMAZON_OA_TOKEN_URL, data=ref)
+
+    response = requests.post(APPSPOT_URL, data=ref)
     try:
         r = response.json()
     except ValueError as e:
@@ -181,7 +138,5 @@ def refresh_auth_token():
         raise e
 
     treat_auth_token(r, t)
-
-    conn_data['token'] = r
-
-    return r
+    oauth_data = r
+    oauth_data_changed()

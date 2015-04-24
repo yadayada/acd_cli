@@ -13,7 +13,7 @@ from acd import oauth, content, metadata, account, trash, changes
 from acd.common import RequestError
 import utils
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 
 # TODO: this should be xdg conforming
 CACHE_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -98,8 +98,7 @@ def upload_file(path, parent_id, overwr, force):
                 print('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return
     else:
-        mod_time = cached_file.modified.replace(tzinfo=datetime.timezone.utc)
-        mod_time = mod_time.timestamp()
+        mod_time = (cached_file.modified - datetime.datetime(1970, 1, 1)) / datetime.timedelta(seconds=1)
 
         logger.info('Remote mtime:' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
                     + ', local ctime: ' + str(os.path.getctime(path)))
@@ -113,7 +112,7 @@ def upload_file(path, parent_id, overwr, force):
         if mod_time < os.path.getmtime(path) \
                 or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
                 or force:
-            overwrite(file_id, path)
+            overwrite(file_id, path, _hash=False)
         elif not force:
             print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
             hasher.stop()
@@ -160,15 +159,17 @@ def upload_folder(folder, parent_id, overwr, force):
         upload(full_path, curr_node.id, overwr, force)
 
 
-def overwrite(node_id, local_file):
-    hasher = utils.Hasher(local_file)
+def overwrite(node_id, local_file, _hash=True):
+    if hash:
+        hasher = utils.Hasher(local_file)
     try:
         r = content.overwrite_file(node_id, local_file)
         sync.insert_node(r)
-        if r['contentProperties']['md5'] != hasher.get_result():
+        if _hash and r['contentProperties']['md5'] != hasher.get_result():
             print('Hash mismatch between local and remote file for "%s".' % local_file)
     except RequestError as e:
-        hasher.stop()
+        if hash:
+            hasher.stop()
         print('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
 
 
@@ -275,11 +276,23 @@ def download_action(args):
     download(args.node, args.path)
 
 
-# TODO: check os
-def stream_action(args):
+# TODO
+def open_action(args):
+    n = query.get_node(args.node)
+    # mime = mimetypes.guess_type(n.simple_name())[0]
+    #
+    # appl = ''
+    # try:
+    # appl = subprocess.check_output(['gvfs-mime', '--query', mime]).decode('utf-8')
+    # appl = (appl.splitlines()[0]).split(':')[1]
+    # except FileNotFoundError:
+    # return
+
     r = metadata.get_metadata(args.node)
     link = r['tempLink']
-    subprocess.call(['xdg-open', link])
+
+    if sys.platform == 'linux':
+        subprocess.call(['mimeopen', '--no-ask', link + '#' + n.simple_name()])
 
 
 def create_action(args):
@@ -373,10 +386,15 @@ def metadata_action(args):
 
 def main():
     opt_parser = argparse.ArgumentParser(
-        epilog='Hint: If you need to enter a node id that contains a leading dash (minus) sign, ' +
-               'precede it by two dashes and a space, e.g. \'-- -xfH...\'')
-    opt_parser.add_argument('--verbose', '-v', action='store_true', help='print more stuff')
-    opt_parser.add_argument('--debug', '-d', action='store_true', help='turn on debug mode')
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog='Hints: \n'
+               ' * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
+               ' * The "tree" and "list" actions may optionally list trashed nodes (-t)\n'
+               ' * If you need to enter a node ID that contains a leading dash (minus) sign, '
+               'precede it by two dashes and a space, e.g. \'-- -xfH...\''
+               '')
+    opt_parser.add_argument('-v', '--verbose', action='store_true', help='print more stuff')
+    opt_parser.add_argument('-d', '--debug', action='store_true', help='turn on debug mode')
 
     subparsers = opt_parser.add_subparsers(dest='action')
     subparsers.required = True
@@ -384,10 +402,12 @@ def main():
     sync_sp = subparsers.add_parser('sync', aliases=['s'], help='refresh node list cache; necessary for many actions')
     sync_sp.set_defaults(func=sync_action)
 
-    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache')
+    clear_nms = ['clear-cache', 'cc']
+    clear_sp = subparsers.add_parser(clear_nms[0], aliases=clear_nms[1:], help='clear node cache [offline operation]')
     clear_sp.set_defaults(func=clear_action)
 
-    tree_sp = subparsers.add_parser('tree', aliases=['t'], help='print directory tree [uses cached data]')
+    tree_nms = ['tree', 't']
+    tree_sp = subparsers.add_parser(tree_nms[0], aliases=tree_nms[1:], help='print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
     tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
@@ -410,33 +430,37 @@ def main():
     overwrite_sp.set_defaults(func=overwrite_action)
 
     download_sp = subparsers.add_parser('download', aliases=['dl'],
-                                        help='download a remote file; will overwrite local files')
+                                        help='download a remote folder or file; will overwrite local files')
     download_sp.add_argument('node')
-    download_sp.add_argument('path', nargs='?', default=None, help='local download path')
+    download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
 
-    # stream_sp = subparsers.add_parser('stream')
-    # stream_sp.add_argument('node')
-    # stream_sp.set_defaults(func=stream_action)
+    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node')
+    open_sp.add_argument('node')
+    open_sp.set_defaults(func=open_action)
 
-    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder')
-    cr_fo_sp.add_argument('new_folder')
+    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder using an absolute path')
+    cr_fo_sp.add_argument('new_folder', help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
 
-    trash_sp = subparsers.add_parser('list-trash', aliases=['lt'], help='list trashed nodes [uses cached data]')
+    ls_trash_nms = ['list-trash', 'lt']
+    trash_sp = subparsers.add_parser(ls_trash_nms[0], aliases=ls_trash_nms[1:],
+                                     help='list trashed nodes [offline operation]')
     trash_sp.add_argument('--recursive', '-r', action='store_true')
     trash_sp.set_defaults(func=list_trash_action)
 
     trash_nms = ['trash', 'rm']
-    m_trash_sp = subparsers.add_parser(trash_nms[0], aliases=trash_nms[1:], help='move to trash')
+    m_trash_sp = subparsers.add_parser(trash_nms[0], aliases=trash_nms[1:], help='move node to trash')
     m_trash_sp.add_argument('node')
     m_trash_sp.set_defaults(func=trash_action)
 
     rest_sp = subparsers.add_parser('restore', aliases=['re'], help='restore from trash')
-    rest_sp.add_argument('node', help='id of the node')
+    rest_sp.add_argument('node', help='ID of the node')
     rest_sp.set_defaults(func=restore_action)
 
-    list_c_sp = subparsers.add_parser('children', aliases=['ls'], help='list folder\'s children [uses cached data]')
+    children_nms = ['children', 'ls']
+    list_c_sp = subparsers.add_parser(children_nms[0], aliases=children_nms[1:],
+                                      help='list folder\'s children [offline operation]')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node')
@@ -452,42 +476,45 @@ def main():
     rename_sp.add_argument('name')
     rename_sp.set_defaults(func=rename_action)
 
-    res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node id')
+    resolve_nms = ['resolve', 'rs']
+    res_sp = subparsers.add_parser(resolve_nms[0], aliases=resolve_nms[1:], help='resolve a path to a node ID')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
 
-    find_sp = subparsers.add_parser('find', help='find nodes by name')
+    find_nms = ['find', 'f']
+    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:], help='find nodes by name [offline operation]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
 
     # maybe the child operations should not be exposed
     # they can be used for creating hardlinks
-    add_c_sp = subparsers.add_parser('add-child', help='add a node to a parent folder')
+    add_c_sp = subparsers.add_parser('add-child', aliases=['ac'], help='add a node to a parent folder')
     add_c_sp.add_argument('parent')
     add_c_sp.add_argument('child')
     add_c_sp.set_defaults(func=add_child_action)
 
-    rem_c_sp = subparsers.add_parser('remove-child', help='remove a node from a parent folder')
+    rem_c_sp = subparsers.add_parser('remove-child', aliases=['rc'], help='remove a node from a parent folder')
     rem_c_sp.add_argument('parent')
     rem_c_sp.add_argument('child')
     rem_c_sp.set_defaults(func=remove_child_action)
 
-    usage_sp = subparsers.add_parser('usage', help='show drive usage data')
+    usage_sp = subparsers.add_parser('usage', aliases=['u'], help='show drive usage data')
     usage_sp.set_defaults(func=usage_action)
 
-    quota_sp = subparsers.add_parser('quota', help='show drive quota')
+    quota_sp = subparsers.add_parser('quota', aliases=['q'], help='show drive quota (raw JSON)')
     quota_sp.set_defaults(func=quota_action)
 
-    meta_sp = subparsers.add_parser('metadata', help='print a node\'s metadata')
+    meta_sp = subparsers.add_parser('metadata', aliases=['m'], help='print a node\'s metadata (raw JSON)')
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
-    chn_sp = subparsers.add_parser('changes', help='list changes')
+    chn_sp = subparsers.add_parser('changes', aliases=['ch'], help='list changes (raw JSON)')
     chn_sp.set_defaults(func=changes_action)
 
     args = opt_parser.parse_args()
 
-    if args.action not in ['tree', 'children', 'list-trash', 't', 'ls', 'lt']:
+    # offline actions
+    if args.action not in clear_nms + tree_nms + children_nms + ls_trash_nms + find_nms + resolve_nms:
         if not oauth.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
 

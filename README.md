@@ -17,21 +17,15 @@ acd_cli
 ##Planned
  
  * "smart" folder syncing
- * shell completion
+ * shell completion for remote paths
  * processing of incremental changes
  * ... minor stuff
 
 ##Quick start
-If you have not done so already, register a security profile with Amazon and whitelist your profile for the Cloud Drive API. Refer to https://developer.amazon.com/public/apis/experience/cloud-drive/content/getting-started for further details.
-
-As this is a local application, your security profile must include ``http://localhost`` as an allowed return url.
-If you select your profile in the the 'Security Profile Management' (https://developer.amazon.com/iba-sp/overview.html), this setting can be found in the 'Web Settings' tab, named 'Allowed Return URLs'.
-
-Enter your security profile's client credentials ('Client ID' and 'Client Secret') into the JSON file named `client_data`. 
 
 On the first start of the program (try ``./acd_cli.py sync``), you will have to complete the OAuth procedure.
-You will be asked to visit a URL, log into Amazon and paste the URL that you have been redirected to into the console.
-
+You will be asked to visit a URL (https://tensile-runway-92512.appspot.com/), possibly login and grant access for 'acd_cli_oa'.
+The JSON data displayed then must be pasted into a file named 'oauth_data' in the application directory.
 
 ##Usage
 
@@ -69,7 +63,7 @@ You may provide most node arguments as a 22 character ID or a UNIX-style path. T
 
 ##Usage example
 
-```bash
+```
 $ ./acd_cli.py sync
 # Syncing... Done.
 $ ./acd_cli.py tree
@@ -77,12 +71,12 @@ $ ./acd_cli.py tree
 $ ./acd_cli.py create /egg/
 $ ./acd_cli.py create /egg/bacon/
 $ ./acd_cli.py upload local/spam/ /egg/bacon/
-#Current directory: local/spam/
-#Current file: local/spam/sausage
+# Current directory: local/spam/
+# Current file: local/spam/sausage
 # [##################################################] 100.00% of 20.0MiB
-#Current file: local/spam/lobster
+# Current file: local/spam/lobster
 # [##################################################] 100.00% of 10.0MiB
-#[...]
+# [...]
 $ ./acd_cli.py tree
 # [PHwiEv53QOKoGFGqYNl8pw] [A] /
 # [         ...          ] [A] /egg/
@@ -105,7 +99,14 @@ Feel free to use the bug tracker to add issues. You might find the `--verbose` a
 * sqlalchemy
 * dateutils
 
+##Contact
+
+acd_cli@mail.com
+
 ##Changelog
+
+## Version 0.1.3
+ * OAuth now via Appspot; security profile no longer necessary 
 
 ## Version 0.1.2
 new:
