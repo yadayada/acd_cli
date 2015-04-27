@@ -30,7 +30,7 @@ get_metadata_url = lambda: endpoint_data['metadataUrl']
 get_content_url = lambda: endpoint_data['contentUrl']
 
 # remote request URLs
-APPSPOT_URL = 'http://tensile-runway-92512.appspot.com/'
+APPSPOT_URL = 'https://tensile-runway-92512.appspot.com/'
 
 AMZ_ENDPOINT_REQ_URL = 'https://drive.amazonaws.com/drive/v1/account/endpoint'
 ENDPOINT_VAL_TIME = 259200
