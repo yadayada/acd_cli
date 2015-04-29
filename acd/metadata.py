@@ -1,10 +1,9 @@
-import http.client as http
 import json
-
-import requests
+import logging
 
 from acd.common import *
-import acd.oauth as oauth
+
+logger = logging.getLogger(__name__)
 
 
 # additional parameters are: tempLink='true'
@@ -13,7 +12,7 @@ def get_node_list(**params):
     for param in params.keys():
         q_params[param] = params[param]
 
-    return paginated_get_request(oauth.get_metadata_url() + 'nodes', q_params, {})
+    return paginated_get_request(get_metadata_url() + 'nodes', q_params)
 
 
 def get_file_list():
@@ -36,10 +35,29 @@ def get_trashed_files():
     return get_node_list(filters='status:TRASH AND kind:FILE')
 
 
+def get_changes(checkpoint='', include_purged=False):
+    """https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes"""
+    body = {}
+    if checkpoint:
+        body['checkpoint'] = checkpoint
+    r = BackOffRequest.post(get_metadata_url() + 'changes', data=json.dumps(body))
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
+
+    # return format: '{}\n{"end": true}'
+    ro = str.splitlines(r.text)
+
+    status = json.loads(ro[1])
+    if not status['end']:
+        logger.warning('End of change request not reached.')
+
+    return json.loads(ro[0])
+
+
 def get_metadata(node_id):
     params = {'tempLink': 'true'}
-    r = requests.get(oauth.get_metadata_url() + 'nodes/' + node_id, headers=oauth.get_auth_header(), params=params)
-    if r.status_code != http.OK:
+    r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id, params=params)
+    if r.status_code not in OK_CODES:
         return RequestError(r.status_code, r.text)
     return r.json()
 
@@ -47,8 +65,8 @@ def get_metadata(node_id):
 # this will increment the node's version attribute
 def update_metadata(node_id, properties):
     body = json.dumps(properties)
-    r = requests.patch(oauth.get_metadata_url() + 'nodes/' + node_id, headers=oauth.get_auth_header(), data=body)
-    if r.status_code != http.OK:
+    r = BackOffRequest.patch(get_metadata_url() + 'nodes/' + node_id, data=body)
+    if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
     return r.json()
 
@@ -56,9 +74,9 @@ def update_metadata(node_id, properties):
 # necessary?
 def get_root_id():
     params = {'filters': 'isRoot:true'}
-    r = requests.get(oauth.get_metadata_url() + 'nodes', headers=oauth.get_auth_header(), params=params)
+    r = BackOffRequest.get(get_metadata_url() + 'nodes', params=params)
 
-    if r.status_code != http.OK:
+    if r.status_code not in OK_CODES:
         return RequestError(r.status_code, r.text)
 
     data = r.json()
@@ -67,25 +85,24 @@ def get_root_id():
         return data['data'][0]['id']
 
 
+# unused
 def list_children(node_id):
-    r = requests.get(oauth.get_metadata_url() + 'nodes/' + node_id + '/children', headers=oauth.get_auth_header())
+    r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id + '/children')
     return r.json
 
 
 def add_child(parent, child):
-    r = requests.put(oauth.get_metadata_url()
-                     + 'nodes/' + parent + '/children/' + child, headers=oauth.get_auth_header())
-    if r.status_code != http.OK:
-        print('Adding child failed.')
+    r = BackOffRequest.put(get_metadata_url() + 'nodes/' + parent + '/children/' + child)
+    if r.status_code not in OK_CODES:
+        logger.error('Adding child failed.')
         raise RequestError(r.status_code, r.text)
     return r.json()
 
 
 def remove_child(parent, child):
-    r = requests.delete(oauth.get_metadata_url()
-                        + 'nodes/' + parent + "/children/" + child, headers=oauth.get_auth_header())
-    if r.status_code != http.OK:
-        print('Removing child failed.')
+    r = BackOffRequest.delete(get_metadata_url() + 'nodes/' + parent + "/children/" + child)
+    if r.status_code not in OK_CODES:
+        logger.error('Removing child failed.')
         raise RequestError(r.status_code, r.text)
     return r.json()
 
@@ -111,6 +128,5 @@ def set_available(node_id):
 # TODO
 def list_properties(node_id):
     owner_id = ''
-    r = requests.get(oauth.get_metadata_url() + "/nodes/" + node_id + "/properties/" + owner_id,
-                     headers=oauth.get_auth_header())
+    r = BackOffRequest.get(get_metadata_url() + "/nodes/" + node_id + "/properties/" + owner_id)
     return r.text

@@ -18,14 +18,16 @@ acd_cli
  
  * "smart" folder syncing
  * shell completion for remote paths
- * processing of incremental changes
  * ... minor stuff
 
 ##Quick start
 
 On the first start of the program (try ``./acd_cli.py sync``), you will have to complete the OAuth procedure.
-You will be asked to visit a URL (https://tensile-runway-92512.appspot.com/), possibly login and grant access for 'acd_cli_oa'.
-The JSON data displayed then must be pasted into a file named 'oauth_data' in the application directory.
+A browser tab will open and you will be asked to log in or grant access for 'acd_cli_oa'.
+Signing in or clicking on 'Continue' will download a JSON file named `oauth_data`,
+which must be placed in the application directory.
+
+You may view the Appspot source code at https://tensile-runway-92512.appspot.com/src. 
 
 ##Usage
 
@@ -33,28 +35,26 @@ The following actions are built in
 
 ```
     sync (s)            refresh node list cache; necessary for many actions
-    clear-cache (cc)    clear node cache
-    tree (t)            print directory tree [uses cached data]
+    clear-cache (cc)    clear node cache [offline operation]
+    tree (t)            print directory tree [offline operation]
     upload (ul)         file and directory upload to a remote destination
-    overwrite (ov)      overwrite node A [remote] with file B [local]
-    download (dl)       download a remote file; will overwrite local files
-    create (c, mkdir)   create folder
-    list-trash (lt)     list trashed nodes [uses cached data]
-    trash (tr)          move to trash
+    overwrite (ov)      overwrite file A [remote] with content of file B [local]
+    download (dl)       download a remote folder or file; will overwrite local files
+    open (o)            open node
+    create (c, mkdir)   create folder using an absolute path
+    list-trash (lt)     list trashed nodes [offline operation]
+    trash (rm)          move node to trash
     restore (re)        restore from trash
-    children (ls)       list folder's children [uses cached data]
+    children (ls)       list folder's children [offline operation]
     move (mv)           move node A into folder B
     rename (rn)         rename a node
-```
-And some more
-```
-    resolve (rs)        resolve a path to a node id
-    add-child           add a node to a parent folder
-    remove-child        remove a node from a parent folder
-    usage               show drive usage data
-    quota               show drive quota
-    metadata            print a node's metadata
-    changes             list changes
+    resolve (rs)        resolve a path to a node ID
+    find (f)            find nodes by name [offline operation]
+    add-child (ac)      add a node to a parent folder
+    remove-child (rc)   remove a node from a parent folder
+    usage (u)           show drive usage data
+    quota (q)           show drive quota (raw JSON)
+    metadata (m)        print a node's metadata (raw JSON)
 ```
 
 Please run ``./acd_cli.py --help`` to get a current list of the available actions. You may also get a list of  further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
@@ -94,10 +94,13 @@ $ ./acd_cli.py tree
 Feel free to use the bug tracker to add issues. You might find the `--verbose` and `--debug` options helpful. 
 
 ##Dependencies
-* pycurl
-* requests
-* sqlalchemy
-* dateutils
+
+ * dateutils
+ * pycurl
+ * requests
+ * sqlalchemy
+
+If you are using a Debian-based distribution, the necessary packages are ``python3-dateutil python3-pycurl python3-requests python3-sqlalchemy``.
 
 ##Contact
 
@@ -105,10 +108,11 @@ acd_cli@mail.com
 
 ##Changelog
 
-## Version 0.1.3
- * OAuth now via Appspot; security profile no longer necessary 
+### Version 0.1.3
+ * OAuth now via Appspot; security profile no longer necessary
+ * back-off algorithm for API requests implemented
 
-## Version 0.1.2
+### Version 0.1.2
 new:
  * overwriting of files
  * recursive upload/download

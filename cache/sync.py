@@ -4,22 +4,63 @@ Syncs Amazon Node API objects with sqlite database
 
 import logging
 from sqlalchemy.exc import *
+from sqlalchemy.sql.expression import func
 import dateutil.parser as iso_date
+from datetime import datetime, timedelta
+
 
 from cache import db
 
 logger = logging.getLogger(__name__)
 
+_CHECKPOINT_KEY = 'checkpoint'
+
+
+def get_checkpoint():
+    cp = db.session.query(db.Metadate).filter_by(key=_CHECKPOINT_KEY).first()
+    return cp.value if cp else None
+
+
+def set_checkpoint(cp):
+    cp = db.Metadate(_CHECKPOINT_KEY, cp)
+    db.session.merge(cp)
+    db.session.cmit()
+
+
+def max_age():
+    oldest = db.session.query(func.max(db.Node.updated)).scalar()
+    if not oldest:
+        return 0
+    return (datetime.utcnow() - oldest) / timedelta(days=1)
+
+
+def insert_nodes(nodes, partial=True):
+    files = []
+    folders = []
+    for node in nodes:
+        if node['status'] == 'PENDING':
+            continue
+        kind = node['kind']
+        if kind == 'FILE':
+            files.append(node)
+        elif kind == 'FOLDER':
+            folders.append(node)
+        elif kind != 'ASSET':
+            logger.warning('Cannot insert unknown node type "%s".' % kind)
+    insert_folders(folders, partial)
+    insert_files(files, partial)
+
 
 def insert_node(node):
     if not node:
         pass
-    if node['kind'] == 'FILE':
+    kind = node['kind']
+    if kind == 'FILE':
         insert_files([node], True)
-    elif node['kind'] == 'FOLDER':
+    elif kind == 'FOLDER':
         insert_folders([node], True)
-    else:
-        logging.warning('Cannot insert unknown node type.')
+    elif kind != 'ASSET':
+        logger.warning('Cannot insert unknown node type "%s".' % kind)
 
 
 def insert_folders(folders, partial=False):
@@ -45,6 +86,7 @@ def insert_folders(folders, partial=False):
                       iso_date.parse(folder['modifiedDate']),
                       folder['status'])
         ef = db.session.query(db.Folder).filter_by(id=folder['id']).first()
+        f.updated = datetime.utcnow()
 
         if not ef:
             db.session.add(f)
@@ -84,11 +126,13 @@ def insert_folders(folders, partial=False):
         logger.info(str(dtd) + ' folder(s) deleted.')
 
     conn = db.engine.connect()
+    trans = conn.begin()
     for f in folders:
         conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
     for rel in parents:
         for p in rel[1]:
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
+    trans.commit()
 
 
 # file movement is detected by updated modifiedDate
@@ -113,6 +157,7 @@ def insert_files(files, partial=False):
                     props['md5'], props['size'],
                     file['status'])
         ef = db.session.query(db.File).filter_by(id=file['id']).first()
+        f.updated = datetime.utcnow()
 
         if not ef:
             db.session.add(f)
@@ -141,7 +186,7 @@ def insert_files(files, partial=False):
     try:
         db.session.commit()
     except ValueError:
-        logger.warning('Error inserting files.')
+        logger.error('Error inserting files.')
         db.session.rollback()
 
     if ins > 0:
@@ -154,8 +199,10 @@ def insert_files(files, partial=False):
         logger.info(str(dtd) + ' file(s) deleted.')
 
     conn = db.engine.connect()
+    trans = conn.begin()
     for f in files:
         conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
     for rel in parents:
         for p in rel[1]:
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
+    trans.commit()

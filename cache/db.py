@@ -5,6 +5,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import timedelta
 
+import cache.sync
+
 logger = logging.getLogger(__name__)
 
 session = None
@@ -12,10 +14,32 @@ engine = None
 
 Base = declarative_base()
 
+DB_SCHEMA_VER = 1
+
 parentage_table = Table('parentage', Base.metadata,
                         Column('parent', String(50), ForeignKey('folders.id'), primary_key=True),
                         Column('child', String(50), ForeignKey('nodes.id'), primary_key=True)
                         )
+
+
+class Metadate(Base):
+    """added in v1"""
+    __tablename__ = 'metadata'
+
+    key = Column(String(64), primary_key=True)
+    value = Column(String)
+
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value
+
+
+class Label(Base):
+    """added in v1"""
+    __tablename__ = 'labels'
+
+    id = Column(String(50), ForeignKey('nodes.id'), primary_key=True)
+    name = Column(String(256), primary_key=True)
 
 
 # TODO: cycle safety for full_path()
@@ -26,9 +50,11 @@ class Node(Base):
     id = Column(String(50), primary_key=True, unique=True)
     type = Column(String(15))
     name = Column(String(256))
+    description = Column(String(500))
 
     created = Column(DateTime)
     modified = Column(DateTime)
+    updated = Column(DateTime)
 
     # "pending" status seems to be reserved for not yet finished uploads
     status = Column(Enum('AVAILABLE', 'TRASH', 'PURGED', 'PENDING'))
@@ -113,7 +139,6 @@ class File(Node):
 
     def full_path(self):
         if len(self.parents) == 0:
-            # print(self, 'has no parent.')
             return self.name
         return self.parents[0].full_path() + self.name
 
@@ -153,8 +178,7 @@ class Folder(Node):
     def full_path(self):
         if len(self.parents) == 0:
             return '/'
-        return self.parents[0].full_path() \
-            + (self.name if self.name is not None else '') + '/'
+        return self.parents[0].full_path() + (self.name if self.name is not None else '') + '/'
 
     def get_child(self, name):
         """ Gets non-trashed child by name. """
@@ -164,25 +188,72 @@ class Folder(Node):
         return
 
 
-# class Label(Base):
-# __tablename__ = 'labels'
-#
-#     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True)
-#     name = Column(String(256), primary_key=True)
-
 """End of 'schema'"""
 
 
 def init(path=''):
+    db_path = os.path.join(path, 'nodes.db')
+
     global session
     global engine
-    engine = create_engine('sqlite:///%s' % os.path.join(path, 'nodes.db'))
+    engine = create_engine('sqlite:///%s' % db_path)
+
+    empty = not os.path.exists(db_path)
+    if not empty:
+        empty = not engine.has_table(Node.__tablename__)
+    if empty:
+        r = engine.execute('PRAGMA user_version = %i;' % DB_SCHEMA_VER)
+        r.close()
+
+    logger.info('Cache %sconsidered empty.' % ('' if empty else 'not '))
+
     Base.metadata.create_all(engine)
     _session = sessionmaker(bind=engine)
     session = _session()
+
+    if empty:
+        return
+
+    r = engine.execute('PRAGMA user_version;')
+    ver = r.first()[0]
+    r.close()
+
+    logger.info('DB schema version is %s.' % ver)
+
+    if DB_SCHEMA_VER > ver:
+        _migrate(ver)
+
+    oldest = cache.sync.max_age()
+    if oldest:
+        logger.info('Oldest node info is %f days old.' % oldest)
+        if oldest > 30:
+            logger.warning('Cache is outdated. Please perform a full sync.')
 
 
 def drop_all():
     Base.metadata.drop_all(engine)
     logger.info('Dropped all tables.')
 
+
+def _migrate(schema):
+    migrations = [_0_to_1]
+
+    conn = engine.connect()
+    trans = conn.begin()
+    try:
+        for update_ in migrations[schema:]:
+            logger.warning('Updating db schema from %i to %i.' % (schema, schema + 1))
+            update_(conn)
+            schema += 1
+        trans.commit()
+    except:
+        trans.rollback()
+        raise
+
+    conn.close()
+
+
+def _0_to_1(conn):
+    conn.execute('ALTER TABLE nodes ADD updated DATETIME;')
+    conn.execute('ALTER TABLE nodes ADD description VARCHAR(500);')
+    conn.execute('PRAGMA user_version = 1;')

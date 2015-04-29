@@ -30,7 +30,7 @@ def tree(root_id=None, trash=False):
 
     folder = db.session.query(db.Folder).filter_by(id=root_id).first()
     if not folder:
-        print('Not a folder or not found: "%s".' % root_id)
+        logger.error('Not a folder or not found: "%s".' % root_id)
         return []
 
     return node_list(folder, True, True, trash)
@@ -52,11 +52,16 @@ def list_children(folder_id, recursive=False, trash=False):
 def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_list=None):
     """
     Generates formatted list of (non-)trashed nodes
-    :db.Folder root: start folder
-    :bool add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
-    :bool recursive: whether to traverse hierarchy
-    :bool trash: whether to include trash
-    :str path: the path on which this method incarnation was reached
+    :param root: start folder
+    :type root: db.Folder
+    :param add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
+    :type add_root: bool
+    :param recursive: whether to traverse hierarchy
+    :type recursive: bool
+    :param trash: whether to include trash
+    :type trash: bool
+    :param path: the path on which this method incarnation was reached
+    :type path: str
     :return: list of nodes in absolute path representation
     """
 

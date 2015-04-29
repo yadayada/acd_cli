@@ -9,7 +9,7 @@ import signal
 import datetime
 
 from cache import sync, query, db
-from acd import oauth, content, metadata, account, trash, changes
+from acd import common, content, metadata, account, trash
 from acd.common import RequestError
 import utils
 
@@ -21,12 +21,18 @@ SETTINGS_PATH = CACHE_PATH
 
 logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
-INIT_FAILED_RETVAL = 1
 INVALID_ARG_RETVAL = 2
-KEYB_INTERR_RETVAL = 3
+INIT_FAILED_RETVAL = 3
+KEYB_INTERR_RETVAL = 4
+
+# additional retval flags
+UL_DL_FAILED = 8
+UL_TIMEOUT = 16
+HASH_MISMATCH = 32
+ERR_CR_FOLDER = 64
 
 
-def signal_handler(signal, frame):
+def signal_handler(signal_, frame):
     if db.session:
         db.session.rollback()
     sys.exit(KEYB_INTERR_RETVAL)
@@ -39,31 +45,42 @@ def pprint(s):
     print(json.dumps(s, indent=4, sort_keys=True))
 
 
-def sync_node_list():
-    try:
-        folders = metadata.get_folder_list()
-        folders.extend(metadata.get_trashed_folders())
-        files = metadata.get_file_list()
-        files.extend(metadata.get_trashed_files())
-    except RequestError:
-        print('Sync failed.')
-        return
+def sync_node_list(full=False):
+    cp = None if full else sync.get_checkpoint()
+    if not full:
+        logger.info('Getting changes with checkpoint "%s".' % cp)
+    r = metadata.get_changes(checkpoint=cp)
+    new_nodes = r['nodes']
+    logger.info('%i nodes in change list.' % len(new_nodes))
+    if len(new_nodes) > 0:
+        sync.insert_nodes(new_nodes, partial=not full)
+        sync.set_checkpoint(r['checkpoint'])
+    return
 
-    sync.insert_folders(folders)
-    sync.insert_files(files)
+    # try:
+    #     folders = metadata.get_folder_list()
+    #     folders.extend(metadata.get_trashed_folders())
+    #     files = metadata.get_file_list()
+    #     files.extend(metadata.get_trashed_files())
+    # except RequestError:
+    #     logger.error('Sync failed.')
+    #     return
+    #
+    # sync.insert_folders(folders)
+    # sync.insert_files(files)
 
 
 def upload(path, parent_id, overwr, force):
     if not os.access(path, os.R_OK):
-        print('Path %s not accessible.' % path)
-        return
+        logger.error('Path %s not accessible.' % path)
+        return INVALID_ARG_RETVAL
 
     if os.path.isdir(path):
         print('Current directory: %s' % path)
-        upload_folder(path, parent_id, overwr, force)
+        return upload_folder(path, parent_id, overwr, force)
     elif os.path.isfile(path):
         print('Current file: %s' % os.path.basename(path))
-        upload_file(path, parent_id, overwr, force)
+        return upload_file(path, parent_id, overwr, force)
 
 
 def upload_file(path, parent_id, overwr, force):
@@ -84,47 +101,51 @@ def upload_file(path, parent_id, overwr, force):
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 hasher.stop()
-                print('Uploading %s failed. Name collision with non-cached file. '
+                logger.error('Uploading %s failed. Name collision with non-cached file. '
                       'If you want to overwrite, please sync and try again.' % short_nm)
                 # colliding node ID is returned in error message -> could be used to continue
-                return
+                return UL_DL_FAILED
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
                 hasher.stop()
-                print('Timeout while uploading "%s".')
+                logger.warning('Timeout while uploading "%s".')
                 # TODO: wait; request parent folder's children
-                return
+                return UL_TIMEOUT
             else:
                 hasher.stop()
-                print('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
-                return
+                logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
+                return UL_DL_FAILED
     else:
         mod_time = (cached_file.modified - datetime.datetime(1970, 1, 1)) / datetime.timedelta(seconds=1)
 
-        logger.info('Remote mtime:' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
+        logger.info('Remote mtime: ' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
                     + ', local ctime: ' + str(os.path.getctime(path)))
 
         if not overwr and not force:
             print('Skipping upload of existing file "%s".' % short_nm)
             hasher.stop()
-            return
+            return 0
 
         # ctime is checked because files can be overwritten by files with older mtime
         if mod_time < os.path.getmtime(path) \
                 or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
                 or force:
-            overwrite(file_id, path, _hash=False)
+            hasher.stop()
+            return overwrite(file_id, path)
         elif not force:
             print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
             hasher.stop()
-            return
+            return 0
 
     # might have changed
     cached_file = query.get_node(file_id)
 
     if hasher.get_result() != cached_file.md5:
-        print('Hash mismatch between local and remote file for "%s".' % short_nm)
+        logger.warning('Hash mismatch between local and remote file for "%s".' % short_nm)
+        return HASH_MISMATCH
     else:
         logger.info('Local and remote hashes match for "%s".' % short_nm)
+
+    return 0
 
 
 def upload_folder(folder, parent_id, overwr, force):
@@ -142,21 +163,23 @@ def upload_folder(folder, parent_id, overwr, force):
             sync.insert_node(r)
             curr_node = query.get_node(r['id'])
         except RequestError as e:
-            print('Error creating remote folder "%s.' % short_nm)
             if e.status_code == 409:
-                print('Folder already exists. Please sync.')
-                logger.error(e)
-            return
-
+                logger.error('Folder "%s" already exists. Please sync.' % short_nm)
+            else:
+                logger.error('Error creating remote folder "%s".' % short_nm)
+            return ERR_CR_FOLDER
     elif curr_node.is_file():
-        print('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
-        return
+        logger.error('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
+        return ERR_CR_FOLDER
 
     entries = sorted(os.listdir(folder))
 
+    ret_val = 0
     for entry in entries:
         full_path = os.path.join(real_path, entry)
-        upload(full_path, curr_node.id, overwr, force)
+        ret_val |= upload(full_path, curr_node.id, overwr, force)
+
+    return ret_val
 
 
 def overwrite(node_id, local_file, _hash=True):
@@ -166,19 +189,21 @@ def overwrite(node_id, local_file, _hash=True):
         r = content.overwrite_file(node_id, local_file)
         sync.insert_node(r)
         if _hash and r['contentProperties']['md5'] != hasher.get_result():
-            print('Hash mismatch between local and remote file for "%s".' % local_file)
+            logger.info('Hash mismatch between local and remote file for "%s".' % local_file)
+            return HASH_MISMATCH
+        return 0
     except RequestError as e:
         if hash:
             hasher.stop()
-        print('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
+        logger.error('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
+        return UL_DL_FAILED
 
 
 def download(node_id, local_path):
     node = query.get_node(node_id)
 
     if node.is_folder():
-        download_folder(node_id, local_path)
-        return
+        return download_folder(node_id, local_path)
     loc_name = node.name
 
     # # downloading a non-cached node
@@ -191,11 +216,15 @@ def download(node_id, local_path):
         print('Current file: %s' % loc_name)
         content.download_file(node_id, loc_name, local_path, hasher.update)
     except RequestError as e:
-        print('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
-        return
+        logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
+        return UL_DL_FAILED
 
     if hasher.get_result() != node.md5:
-        print('Hash mismatch between local and remote file for "%s".' % loc_name)
+        logger.warning('Hash mismatch between local and remote file for "%s".' % loc_name)
+        return HASH_MISMATCH
+
+    logger.info('Local and remote hashes match for "%s".' % loc_name)
+    return 0
 
 
 def download_folder(node_id, local_path):
@@ -209,14 +238,18 @@ def download_folder(node_id, local_path):
     try:
         os.makedirs(curr_path, exist_ok=True)
     except OSError:
-        print('Error creating directory "%s".' % curr_path)
-        return
+        logger.error('Error creating directory "%s".' % curr_path)
+        return ERR_CR_FOLDER
+
     children = sorted(node.children)
+    ret_val = 0
     for child in children:
         if child.is_file():
-            download(child.id, curr_path)
+            ret_val |= download(child.id, curr_path)
         elif child.is_folder():
-            download_folder(child.id, curr_path)
+            ret_val |= download_folder(child.id, curr_path)
+
+    return ret_val
 
 
 def compare(local, remote):
@@ -228,9 +261,8 @@ def compare(local, remote):
 #
 
 def sync_action(args):
-    print('Syncing... ', end='')
-    sys.stdout.flush()
-    sync_node_list()
+    print('Syncing... ')
+    sync_node_list(full=args.full)
     print('Done.')
 
 
@@ -246,34 +278,37 @@ def tree_action(args):
 
 def usage_action(args):
     r = account.get_account_usage()
-    print(r)
+    print(r, end='')
 
 
 def quota_action(args):
-    args
     r = account.get_quota()
     pprint(r)
 
 
 def upload_action(args):
+    ret_val = 0
     for path in args.path:
         if not os.path.exists(path):
-            print('Path "%s" does not exist.' % path)
+            logger.error('Path "%s" does not exist.' % path)
+            ret_val |= INVALID_ARG_RETVAL
             continue
 
-        upload(path, args.parent, args.overwrite, args.force)
+        ret_val |= upload(path, args.parent, args.overwrite, args.force)
+
+    sys.exit(ret_val)
 
 
 def overwrite_action(args):
     if utils.is_uploadable(args.file):
-        overwrite(args.node, args.file)
+        sys.exit(overwrite(args.node, args.file))
     else:
-        print('Invalid file.')
+        logger.error('Invalid file.')
         sys.exit(INVALID_ARG_RETVAL)
 
 
 def download_action(args):
-    download(args.node, args.path)
+    sys.exit(download(args.node, args.path))
 
 
 # TODO
@@ -303,7 +338,7 @@ def create_action(args):
 
     p_path = query.resolve_path(parent)
     if not p_path:
-        print('Invalid parent path.')
+        logger.error('Invalid parent path.')
         sys.exit(INVALID_ARG_RETVAL)
 
     try:
@@ -311,9 +346,9 @@ def create_action(args):
         sync.insert_folders([r], True)
     except RequestError as e:
         if e.status_code == 409:
-            print('Folder "%s" already exists.' % folder)
+            logger.warning('Folder "%s" already exists.' % folder)
         else:
-            print('Error creating folder "%s".' % folder)
+            logger.error('Error creating folder "%s".' % folder)
         logger.debug(str(e.status_code) + e.msg)
 
 
@@ -332,7 +367,7 @@ def restore_action(args):
     try:
         r = trash.restore(args.node)
     except RequestError as e:
-        print('Error restoring "%s"' % args.node, e)
+        logger.error('Error restoring "%s"' % args.node, e)
         return
     sync.insert_node(r)
 
@@ -374,11 +409,6 @@ def remove_child_action(args):
     sync.insert_node(r)
 
 
-def changes_action(args):
-    r = changes.get_changes()
-    pprint(r)
-
-
 def metadata_action(args):
     r = metadata.get_metadata(args.node)
     pprint(r)
@@ -395,11 +425,13 @@ def main():
                '')
     opt_parser.add_argument('-v', '--verbose', action='store_true', help='print more stuff')
     opt_parser.add_argument('-d', '--debug', action='store_true', help='turn on debug mode')
+    opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(dest='action')
     subparsers.required = True
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'], help='refresh node list cache; necessary for many actions')
+    sync_sp.add_argument('--full', '-f', action='store_true', help='force a full sync')
     sync_sp.set_defaults(func=sync_action)
 
     clear_nms = ['clear-cache', 'cc']
@@ -419,7 +451,7 @@ def main():
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
-    upload_sp.add_argument('path', nargs="*", help='a path to a local file or directory')
+    upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
 
@@ -508,50 +540,23 @@ def main():
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
-    chn_sp = subparsers.add_parser('changes', aliases=['ch'], help='list changes (raw JSON)')
-    chn_sp.set_defaults(func=changes_action)
+    # chn_sp = subparsers.add_parser('changes', aliases=['ch'], help='list changes (raw JSON)')
+    # chn_sp.set_defaults(func=changes_action)
 
     args = opt_parser.parse_args()
 
-    # offline actions
-    if args.action not in clear_nms + tree_nms + children_nms + ls_trash_nms + find_nms + resolve_nms:
-        if not oauth.init(CACHE_PATH):
-            sys.exit(INIT_FAILED_RETVAL)
+    format_ = '%(asctime)s.%(msecs).03d [%(name)s] [%(levelname)s] - %(message)s'
+    time_fmt = '%y-%m-%d %H:%M:%S'
 
-    # if args.action in ['create', 'resolve', 'upload'] and not selection.get_root_node():
-    # print('Cache empty. Forcing sync.')
-    # sync_action()
+    if not args.verbose and not args.debug:
+        logging.basicConfig(level=logging.WARNING, format=format_, datefmt=time_fmt)
 
-    db.init(CACHE_PATH)
-
-    # TODO: resolve unique names
-    # auto-resolve node paths
-    for id_attr in ['child', 'parent', 'node']:
-        if hasattr(args, id_attr):
-            val = getattr(args, id_attr)
-            if not val:
-                continue
-            if '/' in val:
-                incl_trash = args.action not in upload_nms + trash_nms
-                val = query.resolve_path(val, trash=incl_trash)
-                if not val:
-                    print('Could not resolve path.')
-                    sys.exit(INVALID_ARG_RETVAL)
-                setattr(args, id_attr, val)
-            elif len(val) != 22:
-                print('Invalid ID format.')
-                sys.exit(INVALID_ARG_RETVAL)
-
-    _format = '%(asctime)s  [%(name)s] [%(levelname)s] - %(message)s'
-
-    if not args.debug and not args.verbose:
-        logging.basicConfig(level=logging.WARNING, format=_format)
-    elif args.verbose:
-        logging.basicConfig(level=logging.INFO, format=_format)
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format=format_, datefmt=time_fmt)
         logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
-    else:
-        logging.basicConfig(level=logging.DEBUG, format=_format)
+    elif args.debug:
+        logging.basicConfig(level=logging.DEBUG, format=format_, datefmt=time_fmt)
 
         # these debug messages (prints) will not show up in log file
         import http.client
@@ -564,6 +569,34 @@ def main():
 
         logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
+
+    # offline actions
+    if args.action not in clear_nms + tree_nms + children_nms + ls_trash_nms + find_nms + resolve_nms:
+        if not common.init(CACHE_PATH):
+            sys.exit(INIT_FAILED_RETVAL)
+
+    db.init(CACHE_PATH)
+
+    if args.no_wait:
+        common.BackOffRequest._wait = lambda: None
+
+    # auto-resolve node paths
+    for id_attr in ['child', 'parent', 'node']:
+        if hasattr(args, id_attr):
+            val = getattr(args, id_attr)
+            if not val:
+                continue
+            if '/' in val:
+                incl_trash = args.action not in upload_nms + trash_nms
+                v = query.resolve_path(val, trash=incl_trash)
+                if not v:
+                    logger.error('Could not resolve path "%s".' % val)
+                    sys.exit(INVALID_ARG_RETVAL)
+                logger.info('Resolved "%s" to "%s"' % (val, v))
+                setattr(args, id_attr, v)
+            elif len(val) != 22:
+                logger.error('Invalid ID format: "%s".' % val)
+                sys.exit(INVALID_ARG_RETVAL)
 
     # call appropriate sub-parser action
     args.func(args)
