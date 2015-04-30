@@ -202,6 +202,9 @@ def overwrite(node_id, local_file, _hash=True):
 def download(node_id, local_path):
     node = query.get_node(node_id)
 
+    if node.status != 'AVAILABLE':
+        return 0
+
     if node.is_folder():
         return download_folder(node_id, local_path)
     loc_name = node.name
@@ -233,7 +236,11 @@ def download_folder(node_id, local_path):
 
     node = query.get_node(node_id)
 
-    curr_path = os.path.join(local_path, node.name)
+    if node.name is None:
+        curr_path = os.path.join(local_path, 'acd')
+    else:
+        curr_path = os.path.join(local_path, node.name)
+
     print('Current path: %s' % curr_path)
     try:
         os.makedirs(curr_path, exist_ok=True)
@@ -244,6 +251,8 @@ def download_folder(node_id, local_path):
     children = sorted(node.children)
     ret_val = 0
     for child in children:
+        if child.status != 'AVAILABLE':
+            continue
         if child.is_file():
             ret_val |= download(child.id, curr_path)
         elif child.is_folder():

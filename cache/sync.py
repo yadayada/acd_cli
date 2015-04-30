@@ -24,7 +24,7 @@ def get_checkpoint():
 def set_checkpoint(cp):
     cp = db.Metadate(_CHECKPOINT_KEY, cp)
     db.session.merge(cp)
-    db.session.cmit()
+    db.session.commit()
 
 
 def max_age():

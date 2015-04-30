@@ -38,6 +38,7 @@ ENDPOINT_VAL_TIME = 259200
 
 CONN_TIMEOUT = 30
 IDLE_TIMEOUT = 60
+REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.0' else IDLE_TIMEOUT
 
 
 def init(path=''):
@@ -122,9 +123,9 @@ class BackOffRequest(object):
         headers = oauth.get_auth_header()
         cls._wait()
         try:
-            r = cls.__session.request(type_, url, headers=headers, timeout=(CONN_TIMEOUT, IDLE_TIMEOUT), **kwargs)
+            r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
         except requests.exceptions.ConnectionError as e:
-            raise RequestError(e.args[0].args[0], e.args[0].args[1])
+            raise RequestError(1001, e)
         if r.status_code in acc_codes:
             cls._success()
         else:

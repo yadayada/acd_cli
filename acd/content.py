@@ -7,6 +7,7 @@ import pycurl
 from io import BytesIO
 import logging
 from requests.exceptions import ConnectionError
+from urllib3.exceptions import ReadTimeoutError
 
 from acd.common import *
 from acd import oauth
@@ -148,7 +149,7 @@ def download_file(node_id, local_name, local_path=None, write_callback=None):
                         write_callback(chunk)
                     curr_ln += len(chunk)
                     pgo.progress(0, 0, total_ln, curr_ln)
-        except ConnectionError:
-            raise RequestError(1000, '[acd_cli] Timeout.')
+        except (ConnectionError, ReadTimeoutError) as e:
+            raise RequestError(1000, '[acd_cli] Timeout. ' + e.__str__())
     print()  # break progress line
     return  # no response text?
