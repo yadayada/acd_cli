@@ -40,14 +40,14 @@ class _Usage(object):
         return str_
 
 
-def get_account_usage():
+def get_account_usage() -> str:
     r = BackOffRequest.get(get_metadata_url() + 'account/usage')
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
     return _Usage(r.json())
 
 
-def get_quota():
+def get_quota() -> dict:
     r = BackOffRequest.get(get_metadata_url() + 'account/quota')
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)

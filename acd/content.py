@@ -7,7 +7,10 @@ import pycurl
 from io import BytesIO
 import logging
 from requests.exceptions import ConnectionError
-from urllib3.exceptions import ReadTimeoutError
+try:
+    from requests.packages.urllib3.exceptions import ReadTimeoutError
+except ImportError:
+    pass
 
 from acd.common import *
 from acd import oauth
@@ -32,7 +35,7 @@ class Progress:
             percentage = round(rate * 100, ndigits=2)
             completed = "#" * int(percentage / 2)
             spaces = " " * (50 - len(completed))
-            sys.stdout.write('[%s%s] %s%% of %s, %s\r'
+            sys.stdout.write('\r[%s%s] %s%% of %s, %s'
                              % (completed, spaces, ('%05.2f' % percentage).rjust(6),
                                 utils.file_size_str(total_to_upload), (utils.speed_str(speed)).ljust(10)))
             sys.stdout.flush()
@@ -57,7 +60,7 @@ def create_folder(name, parent=None):
 
 
 # file must be valid, readable
-def upload_file(file_name, parent=None):
+def upload_file(file_name: str, parent=None):
     params = '?suppress=deduplication'  # suppresses 409 response
 
     metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
@@ -150,6 +153,6 @@ def download_file(node_id, local_name, local_path=None, write_callback=None):
                     curr_ln += len(chunk)
                     pgo.progress(0, 0, total_ln, curr_ln)
         except (ConnectionError, ReadTimeoutError) as e:
-            raise RequestError(1000, '[acd_cli] Timeout. ' + e.__str__())
+            raise RequestError(RequestError.CODE.READ_TIMEOUT, '[acd_cli] Timeout. ' + e.__str__())
     print()  # break progress line
     return  # no response text?

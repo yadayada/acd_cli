@@ -31,7 +31,7 @@ def _oauth_data_changed():
         json.dump(oauth_data, oa, indent=4, sort_keys=True)
 
 
-def init(path):
+def init(path) -> bool:
     global settings_path
     settings_path = path
 
@@ -64,22 +64,22 @@ def _get_data():
             _oauth_data_changed()
 
 
-def _get_auth_token():
+def _get_auth_token() -> str:
     if time.time() > oauth_data[EXP_TIME_KEY]:
         _refresh_auth_token()
     return "Bearer " + oauth_data[ACC_TOKEN_KEY]
 
 
-def get_auth_header():
+def get_auth_header() -> dict:
     return {'Authorization': _get_auth_token()}
 
 
-def get_auth_header_curl():
+def get_auth_header_curl() -> list:
     return ['Authorization: ' + _get_auth_token()]
 
 
 def _treat_auth_token(token, curr_time):
-    """Adds expiration time to Amazon OAUTH dict"""
+    """Adds expiration time to Amazon OAuth dict"""
     if not token:
         return
     try:

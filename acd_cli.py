@@ -31,6 +31,8 @@ UL_TIMEOUT = 16
 HASH_MISMATCH = 32
 ERR_CR_FOLDER = 64
 
+SERVER_ERR = 512
+
 
 def signal_handler(signal_, frame):
     if db.session:
@@ -46,31 +48,38 @@ def pprint(s):
 
 
 def sync_node_list(full=False):
-    cp = None if full else sync.get_checkpoint()
+    cp = sync.get_checkpoint()
     if not full:
-        logger.info('Getting changes with checkpoint "%s".' % cp)
-    r = metadata.get_changes(checkpoint=cp)
-    new_nodes = r['nodes']
-    logger.info('%i nodes in change list.' % len(new_nodes))
-    if len(new_nodes) > 0:
-        sync.insert_nodes(new_nodes, partial=not full)
-        sync.set_checkpoint(r['checkpoint'])
+        logger.info('Getting changes with checkpoint "%s".' % cp if cp else '')
+
+    try:
+        nodes, ncp = metadata.get_changes(checkpoint=None if full else cp)
+    except RequestError:
+        logger.critical('Sync failed.')
+
+    logger.info('%i nodes in change list.' % len(nodes))
+    if len(nodes) > 0:
+        sync.insert_nodes(nodes, partial=not full)
+    sync.set_checkpoint(ncp)
     return
 
-    # try:
-    #     folders = metadata.get_folder_list()
-    #     folders.extend(metadata.get_trashed_folders())
-    #     files = metadata.get_file_list()
-    #     files.extend(metadata.get_trashed_files())
-    # except RequestError:
-    #     logger.error('Sync failed.')
-    #     return
-    #
-    # sync.insert_folders(folders)
-    # sync.insert_files(files)
+
+def old_sync():
+    try:
+        folders = metadata.get_folder_list()
+        folders.extend(metadata.get_trashed_folders())
+        files = metadata.get_file_list()
+        files.extend(metadata.get_trashed_files())
+    except RequestError:
+        logger.critical('Sync failed.')
+        return
+
+    sync.insert_folders(folders)
+    sync.insert_files(files)
+    sync.set_checkpoint('')
 
 
-def upload(path, parent_id, overwr, force):
+def upload(path, parent_id, overwr, force) -> int:
     if not os.access(path, os.R_OK):
         logger.error('Path %s not accessible.' % path)
         return INVALID_ARG_RETVAL
@@ -83,7 +92,7 @@ def upload(path, parent_id, overwr, force):
         return upload_file(path, parent_id, overwr, force)
 
 
-def upload_file(path, parent_id, overwr, force):
+def upload_file(path, parent_id, overwr, force) -> int:
     hasher = utils.Hasher(path)
     short_nm = os.path.basename(path)
 
@@ -148,7 +157,7 @@ def upload_file(path, parent_id, overwr, force):
     return 0
 
 
-def upload_folder(folder, parent_id, overwr, force):
+def upload_folder(folder, parent_id, overwr, force) -> int:
     if parent_id is None:
         parent_id = query.get_root_id()
     parent = query.get_node(parent_id)
@@ -182,7 +191,7 @@ def upload_folder(folder, parent_id, overwr, force):
     return ret_val
 
 
-def overwrite(node_id, local_file, _hash=True):
+def overwrite(node_id, local_file, _hash=True) -> int:
     if hash:
         hasher = utils.Hasher(local_file)
     try:
@@ -199,7 +208,7 @@ def overwrite(node_id, local_file, _hash=True):
         return UL_DL_FAILED
 
 
-def download(node_id, local_path):
+def download(node_id, local_path) -> int:
     node = query.get_node(node_id)
 
     if node.status != 'AVAILABLE':
@@ -230,7 +239,7 @@ def download(node_id, local_path):
     return 0
 
 
-def download_folder(node_id, local_path):
+def download_folder(node_id, local_path) -> int:
     if not local_path:
         local_path = os.getcwd()
 
@@ -272,6 +281,12 @@ def compare(local, remote):
 def sync_action(args):
     print('Syncing... ')
     sync_node_list(full=args.full)
+    print('Done.')
+
+
+def old_sync_action(args):
+    print('Syncing...')
+    old_sync()
     print('Done.')
 
 
@@ -333,7 +348,11 @@ def open_action(args):
     # return
 
     r = metadata.get_metadata(args.node)
-    link = r['tempLink']
+    try:
+        link = r['tempLink']
+    except KeyError:
+        logger.critical('Could not get temporary URL for "%s".' % n.simple_name())
+        return SERVER_ERR
 
     if sys.platform == 'linux':
         subprocess.call(['mimeopen', '--no-ask', link + '#' + n.simple_name()])
@@ -341,17 +360,23 @@ def open_action(args):
 
 def create_action(args):
     # TODO: try to resolve first
+
     parent, folder = os.path.split(args.new_folder)
+    # no trailing slash
     if not folder:
         parent, folder = os.path.split(parent)
 
-    p_path = query.resolve_path(parent)
-    if not p_path:
-        logger.error('Invalid parent path.')
+    if not folder:
+        logger.error('Cannot create folder with empty name.')
+        sys.exit(INVALID_ARG_RETVAL)
+
+    p_id = query.resolve_path(parent)
+    if not p_id:
+        logger.error('Invalid parent path "%s".' % parent)
         sys.exit(INVALID_ARG_RETVAL)
 
     try:
-        r = content.create_folder(folder, p_path)
+        r = content.create_folder(folder, p_id)
         sync.insert_folders([r], True)
     except RequestError as e:
         if e.status_code == 409:
@@ -427,9 +452,9 @@ def main():
     opt_parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
-               ' * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
-               ' * The "tree" and "list" actions may optionally list trashed nodes (-t)\n'
-               ' * If you need to enter a node ID that contains a leading dash (minus) sign, '
+               '  * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
+               '  * The "tree" and "list" actions may optionally list trashed nodes (-t)\n'
+               '  * If you need to enter a node ID that contains a leading dash (minus) sign, '
                'precede it by two dashes and a space, e.g. \'-- -xfH...\''
                '')
     opt_parser.add_argument('-v', '--verbose', action='store_true', help='print more stuff')
@@ -442,6 +467,9 @@ def main():
     sync_sp = subparsers.add_parser('sync', aliases=['s'], help='refresh node list cache; necessary for many actions')
     sync_sp.add_argument('--full', '-f', action='store_true', help='force a full sync')
     sync_sp.set_defaults(func=sync_action)
+
+    old_sync_sp = subparsers.add_parser('old-sync', help='old (full) syncing')
+    old_sync_sp.set_defaults(func=old_sync_action)
 
     clear_nms = ['clear-cache', 'cc']
     clear_sp = subparsers.add_parser(clear_nms[0], aliases=clear_nms[1:], help='clear node cache [offline operation]')

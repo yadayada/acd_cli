@@ -5,26 +5,26 @@ import cache.db as db
 logger = logging.getLogger(__name__)
 
 
-def get_node(node_id):
+def get_node(node_id) -> db.Node:
     return db.session.query(db.Node).filter_by(id=node_id).first()
 
 
 # may be broken
-def get_root_node():
+def get_root_node() -> db.Folder:
     return db.session.query(db.Folder).filter_by(name=None).first()
 
 
-def get_root_id():
+def get_root_id() -> str:
     root = get_root_node()
     if root:
         return root.id
 
 
-def is_folder(node_id):
+def is_folder(node_id) -> bool:
     return db.session.query(db.Folder).filter_by(id=node_id).first() is not None
 
 
-def tree(root_id=None, trash=False):
+def tree(root_id=None, trash=False) -> list:
     if root_id is None:
         return node_list(trash=trash)
 
@@ -49,11 +49,10 @@ def list_children(folder_id, recursive=False, trash=False):
     return node_list(folder, False, recursive, trash)
 
 
-def node_list(root=None, add_root=True, recursive=True, trash=False, path='', n_list=None):
+def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, path='', n_list=None):
     """
     Generates formatted list of (non-)trashed nodes
     :param root: start folder
-    :type root: db.Folder
     :param add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
     :type add_root: bool
     :param recursive: whether to traverse hierarchy
@@ -103,7 +102,7 @@ def list_trash(recursive=False):
     return nodes
 
 
-def find(name):
+def find(name) -> list:
     q = db.session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
     q = sorted(q, key=lambda x: x.full_path())
 
@@ -113,7 +112,7 @@ def find(name):
     return nodes
 
 
-def resolve_path(path, root=None, trash=True):
+def resolve_path(path, root=None, trash=True) -> db.Node:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
         return

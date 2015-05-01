@@ -74,30 +74,34 @@ class Node(Base):
             return False
         return self.name < other.name
 
-    def is_file(self):
+    def is_file(self) -> bool:
         return isinstance(self, File)
 
-    def is_folder(self):
+    def is_folder(self) -> bool:
         return isinstance(self, Folder)
 
-    def id_str(self):
+    def is_available(self) -> bool:
+        return self.status == 'AVAILABLE'
+
+    def id_str(self) -> str:
+        """short id string containing id, stat, name"""
         return '[{}] [{}] {}'.format(self.id, self.status[0], self.simple_name())
 
-    def long_id_str(self, path=None):
+    def long_id_str(self, path=None) -> str:
+        """long id string containing id, stat, path + name"""
         if path is None:
             path = self.containing_folder()
         return '[{}] [{}] {}{}'.format(self.id, self.status[0], path,
                                        ('' if not self.name else self.name)
                                        + ('/' if isinstance(self, Folder) else ''))
 
-    def containing_folder(self):
+    def containing_folder(self) -> str:
         if len(self.parents) == 0:
             return ''
         return self.parents[0].full_path()
 
     parents = relationship('Folder', secondary=parentage_table,
                            primaryjoin=id == parentage_table.c.child,
-                           secondaryjoin=id == parentage_table.c.parent,
                            backref='children'
                            )
 
@@ -134,10 +138,12 @@ class File(Node):
     def __repr__(self):
         return 'File(%r, %r)' % (self.id, self.name)
 
-    def simple_name(self):
+    def simple_name(self) -> str:
+        """file name"""
         return self.name
 
-    def full_path(self):
+    def full_path(self) -> str:
+        """absolute path of file (first containing folder chain)"""
         if len(self.parents) == 0:
             return self.name
         return self.parents[0].full_path() + self.name
@@ -172,15 +178,15 @@ class Folder(Node):
         return 'Folder(%r, %r)' % (self.id, self.name)
 
     def simple_name(self):
-        return (self.name if self.name is not None else '') + '/'
+        return (self.name if self.name else '') + '/'
 
     # path of first occurrence
     def full_path(self):
         if len(self.parents) == 0:
             return '/'
-        return self.parents[0].full_path() + (self.name if self.name is not None else '') + '/'
+        return self.parents[0].full_path() + self.simple_name()
 
-    def get_child(self, name):
+    def get_child(self, name) -> Node:
         """ Gets non-trashed child by name. """
         for child in self.children:
             if child.name == name and child.status != 'TRASH':
@@ -235,7 +241,11 @@ def drop_all():
     logger.info('Dropped all tables.')
 
 
-def _migrate(schema):
+def _migrate(schema: int):
+    """ Migrate database to highest schema
+    :param schema: current (cache file) schema version to upgrade from
+    """
+
     migrations = [_0_to_1]
 
     conn = engine.connect()

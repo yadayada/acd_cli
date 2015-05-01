@@ -16,25 +16,26 @@ logger = logging.getLogger(__name__)
 _CHECKPOINT_KEY = 'checkpoint'
 
 
-def get_checkpoint():
+def get_checkpoint() -> str:
     cp = db.session.query(db.Metadate).filter_by(key=_CHECKPOINT_KEY).first()
     return cp.value if cp else None
 
 
-def set_checkpoint(cp):
+def set_checkpoint(cp: str):
     cp = db.Metadate(_CHECKPOINT_KEY, cp)
     db.session.merge(cp)
     db.session.commit()
 
 
-def max_age():
+def max_age() -> float:
     oldest = db.session.query(func.max(db.Node.updated)).scalar()
     if not oldest:
         return 0
     return (datetime.utcnow() - oldest) / timedelta(days=1)
 
 
-def insert_nodes(nodes, partial=True):
+def insert_nodes(nodes: list, partial=True):
+    """Inserts mixed list of files and folders into cache."""
     files = []
     folders = []
     for node in nodes:
@@ -51,7 +52,8 @@ def insert_nodes(nodes, partial=True):
     insert_files(files, partial)
 
 
-def insert_node(node):
+def insert_node(node: db.Node):
+    """Inserts single file or folder into cache."""
     if not node:
         pass
     kind = node['kind']
@@ -63,9 +65,8 @@ def insert_node(node):
         logger.warning('Cannot insert unknown node type "%s".' % kind)
 
 
-def insert_folders(folders, partial=False):
-    """
-    Inserts lists folders
+def insert_folders(folders: list, partial=False):
+    """ Inserts list of folders into cache. Sets 'update' column to current date.
     :param folders: list of raw dict-type folders
     :param partial: whether the list of folders is not complete
     """
@@ -136,7 +137,7 @@ def insert_folders(folders, partial=False):
 
 
 # file movement is detected by updated modifiedDate
-def insert_files(files, partial=False):
+def insert_files(files: list, partial=False):
     ins = 0
     dup = 0
     upd = 0

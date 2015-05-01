@@ -35,8 +35,11 @@ def get_trashed_files():
     return get_node_list(filters='status:TRASH AND kind:FILE')
 
 
-def get_changes(checkpoint='', include_purged=False):
+def get_changes(checkpoint='', include_purged=False) -> (list, str):
     """https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes"""
+
+    import io
+
     body = {}
     if checkpoint:
         body['checkpoint'] = checkpoint
@@ -44,14 +47,35 @@ def get_changes(checkpoint='', include_purged=False):
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
 
-    # return format: '{}\n{"end": true}'
-    ro = str.splitlines(r.text)
+    # return format: '{}\n{}\n [...] \n{"end": true}'
+    buf = io.StringIO(r.text)
 
-    status = json.loads(ro[1])
-    if not status['end']:
+    nodes = []
+
+    end = False
+    while not end:
+        line = buf.readline()
+        o = json.loads(line)
+        try:
+            if o['end']:
+                end = True
+                continue
+        except KeyError:
+            pass
+
+        # could this actually happen?
+        if o['statusCode'] not in OK_CODES:
+            raise RequestError(RequestError.CODE.FAILED_SUBREQUEST, '[acd_cli] Partial failure in change request.')
+
+        nodes.extend(o['nodes'])
+        checkpoint = o['checkpoint']
+
+    buf.close()
+
+    if not end:
         logger.warning('End of change request not reached.')
 
-    return json.loads(ro[0])
+    return nodes, checkpoint
 
 
 def get_metadata(node_id):

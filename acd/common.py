@@ -41,14 +41,14 @@ IDLE_TIMEOUT = 60
 REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.0' else IDLE_TIMEOUT
 
 
-def init(path=''):
+def init(path='') -> bool:
     global settings_path
     settings_path = path
 
     return oauth.init(path) and _load_endpoints()
 
 
-def _load_endpoints():
+def _load_endpoints() -> bool:
     global endpoint_data
 
     if not os.path.isfile(endpoint_data_path()):
@@ -62,7 +62,7 @@ def _load_endpoints():
     return True
 
 
-def _get_endpoints():
+def _get_endpoints() -> dict:
     global endpoint_data
     r = requests.get(AMZ_ENDPOINT_REQ_URL, headers=oauth.get_auth_header())
     try:
@@ -83,6 +83,12 @@ def _save_endpoint_data():
 
 
 class RequestError(Exception):
+    class CODE(object):
+        READ_TIMEOUT = 1000
+        WRITE_TIMEOUT = 1001
+        FAILED_SUBREQUEST = 1002
+        INCOMPLETE_RESULT = 1003
+
     def __init__(self, status_code, msg):
         self.status_code = status_code
         if msg:
@@ -95,7 +101,9 @@ class RequestError(Exception):
 
 
 class BackOffRequest(object):
-    """Wrapper for Requests/pycurl that implements timed back-off algorithm"""
+    """Wrapper for Requests/pycurl that implements timed back-off algorithm
+    https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices"""
+
     __session = None
     __retries = 0
     random.seed()
@@ -110,9 +118,12 @@ class BackOffRequest(object):
 
     @classmethod
     def _wait(cls):
+        """Randomly waits in a range of seconds, depending on number of failed previous tries (r):
+        [0,2^r], maximum interval [0,256]"""
+
         duration = random.random() * 2 ** min(cls.__retries, 8)
         if duration > 5:
-            logger.info('Waiting %f s because of error/s.' % duration)
+            logger.warning('Waiting %f s because of error(s).' % duration)
         logger.info('Retry %i, waiting %f secs' % (cls.__retries, duration))
         sleep(duration)
 
@@ -125,7 +136,7 @@ class BackOffRequest(object):
         try:
             r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
         except requests.exceptions.ConnectionError as e:
-            raise RequestError(1001, e)
+            raise RequestError(RequestError.CODE.READ_TIMEOUT, e)
         if r.status_code in acc_codes:
             cls._success()
         else:

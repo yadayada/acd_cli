@@ -61,6 +61,18 @@ Please run ``./acd_cli.py --help`` to get a current list of the available action
 
 You may provide most node arguments as a 22 character ID or a UNIX-style path. Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
+When uploading/downloading large amounts of files, it is advisable to save the log messages to a file. 
+This can be done by appending `2> >(tee acd.log >&2)` to the command.
+
+When the script is done running, its exit status can be checked for flags. If no error occurs, the exit status 
+will be 0. The flag values are: 
+argument error -- 2,
+failed file transfer -- 8,
+upload timeout -- 16,
+hash mismatch -- 32,
+error creating folder -- 64.
+If multiple errors  occur, their values will be compounded by a binary OR operation.
+
 ##Usage example
 
 ```
@@ -97,7 +109,7 @@ Feel free to use the bug tracker to add issues. You might find the `--verbose` a
 
  * dateutils
  * pycurl
- * requests
+ * requests >= 1.0.0
  * sqlalchemy
 
 If you are using a Debian-based distribution, the necessary packages are ``python3-dateutil python3-pycurl python3-requests python3-sqlalchemy``.

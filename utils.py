@@ -3,7 +3,7 @@ import hashlib
 import threading
 import logging
 
-logger = logging.getLogger('utils')
+logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
 
 class Hasher(object):
