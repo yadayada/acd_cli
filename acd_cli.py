@@ -93,7 +93,6 @@ def upload(path, parent_id, overwr, force) -> int:
 
 
 def upload_file(path, parent_id, overwr, force) -> int:
-    hasher = utils.Hasher(path)
     short_nm = os.path.basename(path)
 
     cached_file = query.get_node(parent_id).get_child(short_nm)
@@ -104,6 +103,7 @@ def upload_file(path, parent_id, overwr, force) -> int:
 
     if not file_id:
         try:
+            hasher = utils.Hasher(path)
             r = content.upload_file(path, parent_id)
             sync.insert_node(r)
             file_id = r['id']
@@ -131,19 +131,19 @@ def upload_file(path, parent_id, overwr, force) -> int:
 
         if not overwr and not force:
             print('Skipping upload of existing file "%s".' % short_nm)
-            hasher.stop()
             return 0
 
         # ctime is checked because files can be overwritten by files with older mtime
         if mod_time < os.path.getmtime(path) \
                 or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
                 or force:
-            hasher.stop()
             return overwrite(file_id, path)
         elif not force:
             print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
-            hasher.stop()
             return 0
+        else:
+            hasher = utils.Hasher(path)
+
 
     # might have changed
     cached_file = query.get_node(file_id)
