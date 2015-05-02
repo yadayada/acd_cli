@@ -4,9 +4,9 @@ import os
 import json
 import argparse
 import logging
-import subprocess
 import signal
 import datetime
+import re
 
 from cache import sync, query, db
 from acd import common, content, metadata, account, trash
@@ -79,27 +79,40 @@ def old_sync():
     sync.set_checkpoint('')
 
 
-def upload(path, parent_id, overwr, force) -> int:
+def upload(path: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
     if not os.access(path, os.R_OK):
-        logger.error('Path %s not accessible.' % path)
+        logger.error('Path "%s" is not accessible.' % path)
         return INVALID_ARG_RETVAL
 
     if os.path.isdir(path):
         print('Current directory: %s' % path)
-        return upload_folder(path, parent_id, overwr, force)
+        return upload_folder(path, parent_id, overwr, force, exclude)
     elif os.path.isfile(path):
-        print('Current file: %s' % os.path.basename(path))
+        short_nm = os.path.basename(path)
+        for reg in exclude:
+            if re.match(reg, short_nm):
+                print('Skipping upload of "%s" because of exclusion pattern.' % short_nm)
+                return 0
+        print('Current file: %s' % short_nm)
         return upload_file(path, parent_id, overwr, force)
 
 
-def upload_file(path, parent_id, overwr, force) -> int:
+def compare_hashes(hash1: str, hash2: str, file_name: str):
+    if hash1 != hash2:
+        logger.warning('Hash mismatch between local and remote file for "%s".' % file_name)
+        return HASH_MISMATCH
+
+    logger.info('Local and remote hashes match for "%s".' % file_name)
+    return 0
+
+
+def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
     short_nm = os.path.basename(path)
 
     cached_file = query.get_node(parent_id).get_child(short_nm)
+    file_id = None
     if cached_file:
         file_id = cached_file.id
-    else:
-        file_id = None
 
     if not file_id:
         try:
@@ -107,11 +120,14 @@ def upload_file(path, parent_id, overwr, force) -> int:
             r = content.upload_file(path, parent_id)
             sync.insert_node(r)
             file_id = r['id']
+            cached_file = query.get_node(file_id)
+            return compare_hashes(hasher.get_result(), cached_file.md5, short_nm)
+
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 hasher.stop()
-                logger.error('Uploading %s failed. Name collision with non-cached file. '
-                      'If you want to overwrite, please sync and try again.' % short_nm)
+                logger.error('Uploading "%s" failed. Name collision with non-cached file. '
+                             'If you want to overwrite, please sync and try again.' % short_nm)
                 # colliding node ID is returned in error message -> could be used to continue
                 return UL_DL_FAILED
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
@@ -123,41 +139,30 @@ def upload_file(path, parent_id, overwr, force) -> int:
                 hasher.stop()
                 logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return UL_DL_FAILED
+
+    # else: file exists
+    mod_time = (cached_file.modified - datetime.datetime(1970, 1, 1)) / datetime.timedelta(seconds=1)
+
+    logger.info('Remote mtime: ' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
+                + ', local ctime: ' + str(os.path.getctime(path)))
+
+    if not overwr and not force:
+        print('Skipping upload of existing file "%s".' % short_nm)
+        return 0
+
+    # ctime is checked because files can be overwritten by files with older mtime
+    if mod_time < os.path.getmtime(path) \
+            or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
+            or force:
+        return overwrite(file_id, path)
+    elif not force:
+        print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
+        return 0
     else:
-        mod_time = (cached_file.modified - datetime.datetime(1970, 1, 1)) / datetime.timedelta(seconds=1)
-
-        logger.info('Remote mtime: ' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
-                    + ', local ctime: ' + str(os.path.getctime(path)))
-
-        if not overwr and not force:
-            print('Skipping upload of existing file "%s".' % short_nm)
-            return 0
-
-        # ctime is checked because files can be overwritten by files with older mtime
-        if mod_time < os.path.getmtime(path) \
-                or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
-                or force:
-            return overwrite(file_id, path)
-        elif not force:
-            print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
-            return 0
-        else:
-            hasher = utils.Hasher(path)
+        hasher = utils.Hasher(path)
 
 
-    # might have changed
-    cached_file = query.get_node(file_id)
-
-    if hasher.get_result() != cached_file.md5:
-        logger.warning('Hash mismatch between local and remote file for "%s".' % short_nm)
-        return HASH_MISMATCH
-    else:
-        logger.info('Local and remote hashes match for "%s".' % short_nm)
-
-    return 0
-
-
-def upload_folder(folder, parent_id, overwr, force) -> int:
+def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
     if parent_id is None:
         parent_id = query.get_root_id()
     parent = query.get_node(parent_id)
@@ -186,41 +191,43 @@ def upload_folder(folder, parent_id, overwr, force) -> int:
     ret_val = 0
     for entry in entries:
         full_path = os.path.join(real_path, entry)
-        ret_val |= upload(full_path, curr_node.id, overwr, force)
+        ret_val |= upload(full_path, curr_node.id, overwr, force, exclude)
 
     return ret_val
 
 
-def overwrite(node_id, local_file, _hash=True) -> int:
-    if hash:
-        hasher = utils.Hasher(local_file)
+def overwrite(node_id, local_file) -> int:
+    hasher = utils.Hasher(local_file)
     try:
         r = content.overwrite_file(node_id, local_file)
         sync.insert_node(r)
-        if _hash and r['contentProperties']['md5'] != hasher.get_result():
-            logger.info('Hash mismatch between local and remote file for "%s".' % local_file)
-            return HASH_MISMATCH
-        return 0
+        node = query.get_node(r['id'])
+        return compare_hashes(node.md5, hasher.get_result(), local_file)
     except RequestError as e:
-        if hash:
-            hasher.stop()
+        hasher.stop()
         logger.error('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
         return UL_DL_FAILED
 
 
-def download(node_id, local_path) -> int:
+def download(node_id: str, local_path: str, exclude: list) -> int:
     node = query.get_node(node_id)
 
-    if node.status != 'AVAILABLE':
+    if not node.is_available():
         return 0
 
     if node.is_folder():
-        return download_folder(node_id, local_path)
+        return download_folder(node_id, local_path, exclude)
+
     loc_name = node.name
 
     # # downloading a non-cached node
     # if not loc_name:
     # loc_name = node_id
+
+    for reg in exclude:
+        if re.match(reg, loc_name):
+            print('Skipping download of "%s" because of exclusion pattern.' % loc_name)
+            return 0
 
     hasher = utils.IncrementalHasher()
 
@@ -231,15 +238,10 @@ def download(node_id, local_path) -> int:
         logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
         return UL_DL_FAILED
 
-    if hasher.get_result() != node.md5:
-        logger.warning('Hash mismatch between local and remote file for "%s".' % loc_name)
-        return HASH_MISMATCH
-
-    logger.info('Local and remote hashes match for "%s".' % loc_name)
-    return 0
+    return compare_hashes(hasher.get_result(), node.md5, loc_name)
 
 
-def download_folder(node_id, local_path) -> int:
+def download_folder(node_id: str, local_path: str, exclude: list) -> int:
     if not local_path:
         local_path = os.getcwd()
 
@@ -263,9 +265,9 @@ def download_folder(node_id, local_path) -> int:
         if child.status != 'AVAILABLE':
             continue
         if child.is_file():
-            ret_val |= download(child.id, curr_path)
+            ret_val |= download(child.id, curr_path, exclude)
         elif child.is_folder():
-            ret_val |= download_folder(child.id, curr_path)
+            ret_val |= download_folder(child.id, curr_path, exclude)
 
     return ret_val
 
@@ -310,7 +312,24 @@ def quota_action(args):
     pprint(r)
 
 
+def regex_helper(args):
+    excl_re = []
+    for re_ in args.exclude_re:
+        try:
+            excl_re.append(re.compile(re_, flags=re.IGNORECASE))
+        except re.error as e:
+            logger.critical('Invalid regular expression: %s. %s' % (re_, e))
+            sys.exit(INVALID_ARG_RETVAL)
+
+    for ending in args.exclude_fe:
+        excl_re.append(re.compile('^.*\.' + re.escape(ending) + '$', flags=re.IGNORECASE))
+
+    return excl_re
+
+
 def upload_action(args):
+    excl_re = regex_helper(args)
+
     ret_val = 0
     for path in args.path:
         if not os.path.exists(path):
@@ -318,7 +337,7 @@ def upload_action(args):
             ret_val |= INVALID_ARG_RETVAL
             continue
 
-        ret_val |= upload(path, args.parent, args.overwrite, args.force)
+        ret_val |= upload(path, args.parent, args.overwrite, args.force, excl_re)
 
     sys.exit(ret_val)
 
@@ -332,11 +351,15 @@ def overwrite_action(args):
 
 
 def download_action(args):
-    sys.exit(download(args.node, args.path))
+    excl_re = regex_helper(args)
+
+    sys.exit(download(args.node, args.path, excl_re))
 
 
 # TODO
 def open_action(args):
+    import subprocess
+
     n = query.get_node(args.node)
     # mime = mimetypes.guess_type(n.simple_name())[0]
     #
@@ -448,14 +471,27 @@ def metadata_action(args):
     pprint(r)
 
 
+class Argument(object):
+    """"""
+    args = None
+    kwargs = None
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def attach(self, subparser: argparse._ActionsContainer):
+        subparser.add_argument(*self.args, **self.kwargs)
+
+
 def main():
     opt_parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
                '  * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
-               '  * The "tree" and "list" actions may optionally list trashed nodes (-t)\n'
                '  * If you need to enter a node ID that contains a leading dash (minus) sign, '
-               'precede it by two dashes and a space, e.g. \'-- -xfH...\''
+               'precede it by two dashes and a space, e.g. \'-- -xfH...\'\n'
+               '  * actions marked with [+] have optional arguments'
                '')
     opt_parser.add_argument('-v', '--verbose', action='store_true', help='print more stuff')
     opt_parser.add_argument('-d', '--debug', action='store_true', help='turn on debug mode')
@@ -464,7 +500,8 @@ def main():
     subparsers = opt_parser.add_subparsers(dest='action')
     subparsers.required = True
 
-    sync_sp = subparsers.add_parser('sync', aliases=['s'], help='refresh node list cache; necessary for many actions')
+    sync_sp = subparsers.add_parser('sync', aliases=['s'],
+                                    help='[+] refresh node list cache; necessary for many actions')
     sync_sp.add_argument('--full', '-f', action='store_true', help='force a full sync')
     sync_sp.set_defaults(func=sync_action)
 
@@ -476,18 +513,27 @@ def main():
     clear_sp.set_defaults(func=clear_action)
 
     tree_nms = ['tree', 't']
-    tree_sp = subparsers.add_parser(tree_nms[0], aliases=tree_nms[1:], help='print directory tree [offline operation]')
+    tree_sp = subparsers.add_parser(tree_nms[0], aliases=tree_nms[1:],
+                                    help='[+] print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
     tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
 
+    xe_arg = Argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
+                      help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
+    xr_arg = Argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
+                      help='exclude files whose names match the given regular expression,'
+                           ' e.g. "^thumbs\.db$" [case insensitive]')
+
     upload_nms = ['upload', 'ul']
     upload_sp = subparsers.add_parser(upload_nms[0], aliases=upload_nms[1:],
-                                      help='file and directory upload to a remote destination')
+                                      help='[+] file and directory upload to a remote destination')
     upload_sp.add_argument('--overwrite', '-o', action='store_true',
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
+    xe_arg.attach(upload_sp)
+    xr_arg.attach(upload_sp)
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
@@ -500,11 +546,13 @@ def main():
 
     download_sp = subparsers.add_parser('download', aliases=['dl'],
                                         help='download a remote folder or file; will overwrite local files')
+    xe_arg.attach(download_sp)
+    xr_arg.attach(download_sp)
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
 
-    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node')
+    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node [experimental]')
     open_sp.add_argument('node')
     open_sp.set_defaults(func=open_action)
 
@@ -514,7 +562,7 @@ def main():
 
     ls_trash_nms = ['list-trash', 'lt']
     trash_sp = subparsers.add_parser(ls_trash_nms[0], aliases=ls_trash_nms[1:],
-                                     help='list trashed nodes [offline operation]')
+                                     help='[+] list trashed nodes [offline operation]')
     trash_sp.add_argument('--recursive', '-r', action='store_true')
     trash_sp.set_defaults(func=list_trash_action)
 
@@ -529,7 +577,7 @@ def main():
 
     children_nms = ['children', 'ls']
     list_c_sp = subparsers.add_parser(children_nms[0], aliases=children_nms[1:],
-                                      help='list folder\'s children [offline operation]')
+                                      help='[+] list folder\'s children [offline operation]')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node')
@@ -551,7 +599,8 @@ def main():
     res_sp.set_defaults(func=resolve_action)
 
     find_nms = ['find', 'f']
-    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:], help='find nodes by name [offline operation]')
+    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:],
+                                    help='find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
 
@@ -570,10 +619,10 @@ def main():
     usage_sp = subparsers.add_parser('usage', aliases=['u'], help='show drive usage data')
     usage_sp.set_defaults(func=usage_action)
 
-    quota_sp = subparsers.add_parser('quota', aliases=['q'], help='show drive quota (raw JSON)')
+    quota_sp = subparsers.add_parser('quota', aliases=['q'], help='show drive quota [raw JSON]')
     quota_sp.set_defaults(func=quota_action)
 
-    meta_sp = subparsers.add_parser('metadata', aliases=['m'], help='print a node\'s metadata (raw JSON)')
+    meta_sp = subparsers.add_parser('metadata', aliases=['m'], help='print a node\'s metadata [raw JSON]')
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 

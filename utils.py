@@ -7,7 +7,8 @@ logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
 
 class Hasher(object):
-    """MD5 hash generator. Performs background hashing if file size threshold is exceeded."""
+    """MD5 hash generator. Performs background hashing starting with initialization if file size threshold is exceeded.
+    Smaller file will be hashed synchronously if MD5 is requested by invoking get_result()."""
 
     BG_HASHING_THR = 500 * 1024 ** 2
 
@@ -31,12 +32,12 @@ class Hasher(object):
             self.thr = threading.Thread(target=self.generate_md5_hash)
             logger.info('Starting background hashing of "%s"' % self.short_name)
             self.thr.start()
-        else:
-            self.generate_md5_hash()
 
-    def get_result(self):
+    def get_result(self) -> str:
         if self.thr:
             self.thr.join()
+        else:
+            self.generate_md5_hash()
 
         return self.md5
 

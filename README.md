@@ -53,16 +53,22 @@ The following actions are built in
     add-child (ac)      add a node to a parent folder
     remove-child (rc)   remove a node from a parent folder
     usage (u)           show drive usage data
-    quota (q)           show drive quota (raw JSON)
-    metadata (m)        print a node's metadata (raw JSON)
+    quota (q)           show drive quota [raw JSON]
+    metadata (m)        print a node's metadata [raw JSON]
 ```
 
-Please run ``./acd_cli.py --help`` to get a current list of the available actions. You may also get a list of  further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
+Please run ``./acd_cli.py --help`` to get a current list of the available actions. 
+You may also get a list of further arguments and their order of an action by calling ``./acd_cli.py [action] --help``.
 
-You may provide most node arguments as a 22 character ID or a UNIX-style path. Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
+You may provide most node arguments as a 22 character ID or a UNIX-style path. 
+Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
 When uploading/downloading large amounts of files, it is advisable to save the log messages to a file. 
 This can be done by appending `2> >(tee acd.log >&2)` to the command.
+
+Files can be excluded via optional parameter by file ending, e.g. `-xe bak`, 
+or regular expression on the whole file name, e.g. `-xr "^thumb\.db$"`. 
+Both exclusion methods are case insensitive. 
 
 When the script is done running, its exit status can be checked for flags. If no error occurs, the exit status 
 will be 0. The flag values are: 

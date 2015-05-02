@@ -20,24 +20,32 @@ logger = logging.getLogger(__name__)
 
 
 class Progress:
-    """progress wrapper"""
+    """line progress indicator"""
     start = None
 
-    def progress(self, total_to_download, total_downloaded, total_to_upload, total_uploaded):
+    def curl_ul_progress(self, total_dl_sz, downloaded, total_ul_sz, uploaded):
+        self.print_progress(total_ul_sz, uploaded)
 
+    def print_progress(self, total_sz, current):
         if not self.start:
             self.start = time.time()
 
-        if total_to_upload:
+        if total_sz:
             duration = time.time() - self.start
-            speed = total_uploaded / duration
-            rate = float(total_uploaded) / total_to_upload
+            if duration:
+                speed = current / duration
+            else:
+                speed = 0
+            if total_sz:
+                rate = float(current) / total_sz
+            else:
+                rate = 1
             percentage = round(rate * 100, ndigits=2)
             completed = "#" * int(percentage / 2)
             spaces = " " * (50 - len(completed))
             sys.stdout.write('\r[%s%s] %s%% of %s, %s'
                              % (completed, spaces, ('%05.2f' % percentage).rjust(6),
-                                utils.file_size_str(total_to_upload), (utils.speed_str(speed)).ljust(10)))
+                                utils.file_size_str(total_sz), (utils.speed_str(speed)).ljust(10)))
             sys.stdout.flush()
 
 
@@ -76,7 +84,7 @@ def upload_file(file_name: str, parent=None):
                           ('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
     pgo = Progress()
     c.setopt(c.NOPROGRESS, 0)
-    c.setopt(c.PROGRESSFUNCTION, pgo.progress)
+    c.setopt(c.PROGRESSFUNCTION, pgo.curl_ul_progress)
 
     ok_codes = [http.CREATED]
     try:
@@ -108,7 +116,7 @@ def overwrite_file(node_id, file_name):
     c.setopt(c.CUSTOMREQUEST, 'PUT')
     pgo = Progress()
     c.setopt(c.NOPROGRESS, 0)
-    c.setopt(c.PROGRESSFUNCTION, pgo.progress)
+    c.setopt(c.PROGRESSFUNCTION, pgo.curl_ul_progress)
 
     try:
         BackOffRequest.perform(c)
@@ -151,7 +159,7 @@ def download_file(node_id, local_name, local_path=None, write_callback=None):
                     if write_callback:
                         write_callback(chunk)
                     curr_ln += len(chunk)
-                    pgo.progress(0, 0, total_ln, curr_ln)
+                    pgo.print_progress(total_ln, curr_ln)
         except (ConnectionError, ReadTimeoutError) as e:
             raise RequestError(RequestError.CODE.READ_TIMEOUT, '[acd_cli] Timeout. ' + e.__str__())
     print()  # break progress line
