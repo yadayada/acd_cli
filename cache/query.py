@@ -120,7 +120,6 @@ def find_md5(md5) -> list:
     nodes = []
     for node in q:
         nodes.append(node.long_id_str())
-        print(node.md5)
     return nodes
 
 
