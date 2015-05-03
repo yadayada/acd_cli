@@ -439,6 +439,11 @@ def find_action(args):
         print(node)
 
 
+def find_md5_action(args):
+    node = query.find_md5(args.md5)
+    print(node)
+
+
 def children_action(args):
     c_list = query.list_children(args.node, args.recursive, args.include_trash)
     if c_list:
@@ -603,6 +608,11 @@ def main():
                                     help='find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
+
+    findhash_nms = ['find-md5', 'fh']
+    findhash_sp = subparsers.add_parser(findhash_nms[0], aliases=findhash_nms[1:], help='find files by md5 hash [offline operation]')
+    findhash_sp.add_argument('md5')
+    findhash_sp.set_defaults(func=find_md5_action)
 
     # maybe the child operations should not be exposed
     # they can be used for creating hardlinks

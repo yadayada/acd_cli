@@ -112,6 +112,18 @@ def find(name) -> list:
     return nodes
 
 
+def find_md5(md5) -> list:
+    # allow us to find potential duplicates easily
+    q = db.session.query(db.File).filter_by(md5=md5) #.first()
+    q = sorted(q, key=lambda x: x.full_path())
+
+    nodes = []
+    for node in q:
+        nodes.append(node.long_id_str())
+        print(node.md5)
+    return nodes
+
+
 def resolve_path(path, root=None, trash=True) -> db.Node:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
