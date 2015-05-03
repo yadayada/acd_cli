@@ -656,7 +656,7 @@ def main():
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
-    upload_sp.add_argument('--chk_md5', '-c', action='store_true', help='check for duplicate files via md5 hash')
+    upload_sp.add_argument('--chk-md5', '-c', action='store_true', help='check for duplicate files via md5 hash')
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
