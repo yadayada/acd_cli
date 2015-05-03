@@ -105,14 +105,14 @@ def old_sync():
     sync.insert_files(files)
 
 
-def upload(path: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
+def upload(path: str, parent_id: str, overwr: bool, force: bool, chk_md5: bool, exclude: list) -> int:
     if not os.access(path, os.R_OK):
         logger.error('Path "%s" is not accessible.' % path)
         return INVALID_ARG_RETVAL
 
     if os.path.isdir(path):
         print('Current directory: %s' % path)
-        return upload_folder(path, parent_id, overwr, force, exclude)
+        return upload_folder(path, parent_id, overwr, force, chk_md5, exclude)
     elif os.path.isfile(path):
         short_nm = os.path.basename(path)
         for reg in exclude:
@@ -120,7 +120,7 @@ def upload(path: str, parent_id: str, overwr: bool, force: bool, exclude: list) 
                 print('Skipping upload of "%s" because of exclusion pattern.' % short_nm)
                 return 0
         print('Current file: %s' % short_nm)
-        return upload_file(path, parent_id, overwr, force)
+        return upload_file(path, parent_id, overwr, force, chk_md5)
 
 
 def compare_hashes(hash1: str, hash2: str, file_name: str):
@@ -132,7 +132,7 @@ def compare_hashes(hash1: str, hash2: str, file_name: str):
     return 0
 
 
-def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
+def upload_file(path: str, parent_id: str, overwr: bool, force: bool, chk_md5: bool) -> int:
     short_nm = os.path.basename(path)
 
     cached_file = query.get_node(parent_id).get_child(short_nm)
@@ -143,6 +143,18 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
     if not file_id:
         try:
             hasher = utils.Hasher(path)
+
+            # check if there may be a duplicate under a different name with the same md5 hash value
+            if chk_md5:
+                nodes = query.find_md5(hasher.get_result())
+                if len(nodes) > 0:
+                    print('Skipping upload of duplicate file "%s" in consideration of existing files.' % short_nm)
+                    logger.info('Duplicates of "%s" found by comparing md5 hash values. '
+                                 'If you wish to ignore this, please sync, disable md5 check and try again.'
+                                 % short_nm)
+                    logger.info('Location of duplicates: %s' % nodes)
+                    return 0
+
             r = content.upload_file(path, parent_id)
             sync.insert_node(r)
             file_id = r['id']
@@ -188,7 +200,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
         hasher = utils.Hasher(path)
 
 
-def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
+def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, chk_md5: bool, exclude: list) -> int:
     if parent_id is None:
         parent_id = query.get_root_id()
     parent = query.get_node(parent_id)
@@ -217,7 +229,7 @@ def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, exclud
     ret_val = 0
     for entry in entries:
         full_path = os.path.join(real_path, entry)
-        ret_val |= upload(full_path, curr_node.id, overwr, force, exclude)
+        ret_val |= upload(full_path, curr_node.id, overwr, force, chk_md5, exclude)
 
     return ret_val
 
@@ -367,7 +379,7 @@ def upload_action(args: argparse.Namespace) -> int:
             ret_val |= INVALID_ARG_RETVAL
             continue
 
-        ret_val |= upload(path, args.parent, args.overwrite, args.force, excl_re)
+        ret_val |= upload(path, args.parent, args.overwrite, args.force, args.chk_md5, excl_re)
 
     return ret_val
 
@@ -644,6 +656,7 @@ def main():
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
+    upload_sp.add_argument('--chk_md5', '-c', action='store_true', help='check for duplicate files via md5 hash')
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
