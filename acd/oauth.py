@@ -49,8 +49,8 @@ def _get_data():
 
     if not os.path.isfile(oauth_data_path()):
         webbrowser.open_new_tab(APPSPOT_URL)
-        input('A browser tab will been opened. Please accept the request '
-              'and save the plaintext response data into a file called "%s" in the application directory. '
+        input('A browser tab will have/be opened at %s.\nPlease accept the request ' % APPSPOT_URL +
+              'and save the plaintext response data into a file called "%s" in the application directory.\n'
               'Then, press a key to continue.\n' % OAUTH_DATA_FILE)
 
         if not os.path.isfile(oauth_data_path()):
@@ -84,6 +84,7 @@ def _treat_auth_token(token, curr_time):
         return
     try:
         token[EXP_TIME_KEY] = curr_time + token[EXP_IN_KEY] - 120
+        logger.info('Auth token expiration ')
     except KeyError as e:
         logger.critical('Fatal error: Token key "%s" not found.' % EXP_IN_KEY)
         raise e

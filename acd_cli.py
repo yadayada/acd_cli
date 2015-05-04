@@ -8,18 +8,30 @@ import signal
 import datetime
 import re
 
+from bundled import appdirs
+
 from cache import sync, query, db
 from acd import common, content, metadata, account, trash
 from acd.common import RequestError
 import utils
 
 __version__ = '0.1.3'
+_app_name = os.path.basename(__file__).split('.')[0]
 
-# TODO: this should be xdg conforming
-CACHE_PATH = os.path.dirname(os.path.realpath(__file__))
-SETTINGS_PATH = CACHE_PATH
+logger = logging.getLogger(_app_name)
 
-logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
+cp = os.environ.get('ACD_CLI_CACHE_PATH')
+sp = os.environ.get('ACD_CLI_SETTINGS_PATH')
+
+CACHE_PATH = cp if cp else appdirs.user_cache_dir(_app_name)
+SETTINGS_PATH = sp if sp else appdirs.user_config_dir(_app_name)
+
+if not os.path.isdir(CACHE_PATH):
+    try:
+        os.makedirs(CACHE_PATH, mode=0o0700)  # private data
+    except OSError:
+        logger.critical('Error creating cache directory "%s"' % CACHE_PATH)
+        sys.exit(1)
 
 INVALID_ARG_RETVAL = 2
 INIT_FAILED_RETVAL = 3
@@ -49,22 +61,25 @@ def pprint(s):
 
 def sync_node_list(full=False):
     cp = sync.get_checkpoint()
-    if not full:
-        logger.info('Getting changes with checkpoint "%s".' % cp if cp else '')
 
     try:
-        nodes, ncp = metadata.get_changes(checkpoint=None if full else cp)
+        nodes, ncp, full = metadata.get_changes(checkpoint=None if full else cp)
     except RequestError:
         logger.critical('Sync failed.')
 
-    logger.info('%i nodes in change list.' % len(nodes))
+    if full:
+        db.drop_all()
+        db.init(CACHE_PATH)
+
     if len(nodes) > 0:
-        sync.insert_nodes(nodes, partial=not full)
+        sync.insert_nodes(nodes, partial=True)
     sync.set_checkpoint(ncp)
     return
 
 
 def old_sync():
+    db.drop_all()
+    db.init(CACHE_PATH)
     try:
         folders = metadata.get_folder_list()
         folders.extend(metadata.get_trashed_folders())
@@ -74,8 +89,8 @@ def old_sync():
         logger.critical('Sync failed.')
         return
 
-    sync.insert_folders(folders)
-    sync.insert_files(files)
+    sync.insert_folders(folders, partial=True)
+    sync.insert_files(files, partial=True)
     sync.set_checkpoint('')
 
 
@@ -280,39 +295,40 @@ def compare(local, remote):
 # """Subparser actions"""
 #
 
-def sync_action(args):
+def sync_action(args: argparse.Namespace):
     print('Syncing... ')
     sync_node_list(full=args.full)
     print('Done.')
 
 
-def old_sync_action(args):
+def old_sync_action(args: argparse.Namespace):
     print('Syncing...')
     old_sync()
     print('Done.')
 
 
-def clear_action(args):
+def clear_action(args: argparse.Namespace):
     db.drop_all()
 
 
-def tree_action(args):
+def tree_action(args: argparse.Namespace):
     tree = query.tree(args.node, args.include_trash)
     for node in tree:
         print(node)
 
 
-def usage_action(args):
+def usage_action(args: argparse.Namespace):
     r = account.get_account_usage()
     print(r, end='')
 
 
-def quota_action(args):
+def quota_action(args: argparse.Namespace):
     r = account.get_quota()
     pprint(r)
 
 
-def regex_helper(args):
+def regex_helper(args: argparse.Namespace):
+    """Pre-compiles regex string from"""
     excl_re = []
     for re_ in args.exclude_re:
         try:
@@ -327,7 +343,7 @@ def regex_helper(args):
     return excl_re
 
 
-def upload_action(args):
+def upload_action(args: argparse.Namespace):
     excl_re = regex_helper(args)
 
     ret_val = 0
@@ -342,22 +358,22 @@ def upload_action(args):
     sys.exit(ret_val)
 
 
-def overwrite_action(args):
-    if utils.is_uploadable(args.file):
+def overwrite_action(args: argparse.Namespace):
+    if os.path.isfile(args.file):
         sys.exit(overwrite(args.node, args.file))
     else:
         logger.error('Invalid file.')
         sys.exit(INVALID_ARG_RETVAL)
 
 
-def download_action(args):
+def download_action(args: argparse.Namespace):
     excl_re = regex_helper(args)
 
     sys.exit(download(args.node, args.path, excl_re))
 
 
-# TODO
-def open_action(args):
+# experimental
+def open_action(args: argparse.Namespace):
     import subprocess
 
     n = query.get_node(args.node)
@@ -381,9 +397,7 @@ def open_action(args):
         subprocess.call(['mimeopen', '--no-ask', link + '#' + n.simple_name()])
 
 
-def create_action(args):
-    # TODO: try to resolve first
-
+def create_action(args: argparse.Namespace):
     parent, folder = os.path.split(args.new_folder)
     # no trailing slash
     if not folder:
@@ -402,25 +416,26 @@ def create_action(args):
         r = content.create_folder(folder, p_id)
         sync.insert_folders([r], True)
     except RequestError as e:
+        logger.debug(str(e.status_code) + e.msg)
         if e.status_code == 409:
             logger.warning('Folder "%s" already exists.' % folder)
         else:
             logger.error('Error creating folder "%s".' % folder)
-        logger.debug(str(e.status_code) + e.msg)
+            sys.exit(ERR_CR_FOLDER)
 
 
-def list_trash_action(args):
+def list_trash_action(args: argparse.Namespace):
     t_list = query.list_trash(args.recursive)
     if t_list:
         print('\n'.join(t_list))
 
 
-def trash_action(args):
+def trash_action(args: argparse.Namespace):
     r = trash.move_to_trash(args.node)
     sync.insert_node(r)
 
 
-def restore_action(args):
+def restore_action(args: argparse.Namespace):
     try:
         r = trash.restore(args.node)
     except RequestError as e:
@@ -429,59 +444,116 @@ def restore_action(args):
     sync.insert_node(r)
 
 
-def resolve_action(args):
-    print(query.resolve_path(args.path))
+def resolve_action(args: argparse.Namespace):
+    node = query.resolve_path(args.path)
+    if node:
+        print(node)
+    else:
+        sys.exit(INVALID_ARG_RETVAL)
 
 
-def find_action(args):
+def find_action(args: argparse.Namespace):
     r = query.find(args.name)
     for node in r:
         print(node)
+    if not r:
+        sys.exit(INVALID_ARG_RETVAL)
 
 
-def children_action(args):
+def children_action(args: argparse.Namespace):
     c_list = query.list_children(args.node, args.recursive, args.include_trash)
     if c_list:
         for entry in c_list:
             print(entry)
 
 
-def move_action(args):
+def move_action(args: argparse.Namespace):
     r = metadata.move_node(args.child, args.parent)
     sync.insert_node(r)
 
 
-def rename_action(args):
+def rename_action(args: argparse.Namespace):
     r = metadata.rename_node(args.node, args.name)
     sync.insert_node(r)
 
 
-def add_child_action(args):
+def add_child_action(args: argparse.Namespace):
     r = metadata.add_child(args.parent, args.child)
     sync.insert_node(r)
 
 
-def remove_child_action(args):
+def remove_child_action(args: argparse.Namespace):
     r = metadata.remove_child(args.parent, args.child)
     sync.insert_node(r)
 
 
-def metadata_action(args):
+def metadata_action(args: argparse.Namespace):
     r = metadata.get_metadata(args.node)
     pprint(r)
 
 
-class Argument(object):
-    """"""
-    args = None
-    kwargs = None
+#
+# helper methods
+#
 
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
+# added for version 0.1.3 on 15-05-04
+def migrate_cache_files():
+    files = ['oauth_data', 'endpoint_data', 'nodes.db']
+    old_dir = os.path.dirname(os.path.realpath(__file__))
+    for file in files:
+        curr_path = os.path.join(old_dir, file)
+        if os.path.isfile(curr_path) and os.path.isfile(curr_path):
+            new_path = os.path.join(CACHE_PATH, file)
+            try:
+                if not os.path.exists(new_path):
+                    logger.info('Moving file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
+                    os.rename(curr_path, new_path)
+            except OSError:
+                logger.warning('Error moving cache file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
 
-    def attach(self, subparser: argparse._ActionsContainer):
-        subparser.add_argument(*self.args, **self.kwargs)
+
+def resolve_remote_path_args(args: argparse.Namespace, attrs: list, exclude_actions: list):
+    """Changes certain"""
+    for id_attr in attrs:
+        if hasattr(args, id_attr):
+            val = getattr(args, id_attr)
+            if not val:
+                continue
+            if '/' in val:
+                incl_trash = args.action not in exclude_actions
+                v = query.resolve_path(val, trash=incl_trash)
+                if not v:
+                    logger.error('Could not resolve path "%s".' % val)
+                    sys.exit(INVALID_ARG_RETVAL)
+                logger.info('Resolved "%s" to "%s"' % (val, v))
+                setattr(args, id_attr, v)
+            elif len(val) != 22:
+                logger.critical('Invalid ID format: "%s".' % val)
+                sys.exit(INVALID_ARG_RETVAL)
+
+
+def set_log_level(args: argparse.Namespace):
+    format_ = '%(asctime)s.%(msecs).03d [%(name)s] [%(levelname)s] - %(message)s'
+    time_fmt = '%y-%m-%d %H:%M:%S'
+
+    if not args.verbose and not args.debug:
+        logging.basicConfig(level=logging.WARNING, format=format_, datefmt=time_fmt)
+
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format=format_, datefmt=time_fmt)
+        if args.verbose > 1:
+            logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+            logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
+    elif args.debug:
+        logging.basicConfig(level=logging.DEBUG, format=format_, datefmt=time_fmt)
+
+        # these debug messages (prints) will not show up in log file
+        import http.client
+
+        http.client.HTTPConnection.debuglevel = 1
+
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
 
 
 def main():
@@ -493,11 +565,12 @@ def main():
                'precede it by two dashes and a space, e.g. \'-- -xfH...\'\n'
                '  * actions marked with [+] have optional arguments'
                '')
-    opt_parser.add_argument('-v', '--verbose', action='store_true', help='print more stuff')
+    opt_parser.add_argument('-v', '--verbose', action='count',
+                            help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info.')
     opt_parser.add_argument('-d', '--debug', action='store_true', help='turn on debug mode')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
-    subparsers = opt_parser.add_subparsers(dest='action')
+    subparsers = opt_parser.add_subparsers(title='action', dest='action')
     subparsers.required = True
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
@@ -519,21 +592,34 @@ def main():
     tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
 
-    xe_arg = Argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
-                      help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
-    xr_arg = Argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
-                      help='exclude files whose names match the given regular expression,'
-                           ' e.g. "^thumbs\.db$" [case insensitive]')
+    children_nms = ['children', 'ls', 'dir']
+    list_c_sp = subparsers.add_parser(children_nms[0], aliases=children_nms[1:],
+                                      help='[+] list folder\'s children [offline operation]')
+    list_c_sp.add_argument('--include-trash', '-t', action='store_true')
+    list_c_sp.add_argument('--recursive', '-r', action='store_true')
+    list_c_sp.add_argument('node')
+    list_c_sp.set_defaults(func=children_action)
+
+    find_nms = ['find', 'f']
+    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:],
+                                    help='find nodes by name [offline operation] [case insensitive]')
+    find_sp.add_argument('name')
+    find_sp.set_defaults(func=find_action)
+
+    re_dummy_sp = subparsers.add_parser('dummy', add_help=False)
+    re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
+                             help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
+    re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
+                             help='exclude files whose names match the given regular expression,'
+                                  ' e.g. "^thumbs\.db$" [case insensitive]')
 
     upload_nms = ['upload', 'ul']
-    upload_sp = subparsers.add_parser(upload_nms[0], aliases=upload_nms[1:],
+    upload_sp = subparsers.add_parser(upload_nms[0], aliases=upload_nms[1:], parents=[re_dummy_sp],
                                       help='[+] file and directory upload to a remote destination')
     upload_sp.add_argument('--overwrite', '-o', action='store_true',
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
-    xe_arg.attach(upload_sp)
-    xr_arg.attach(upload_sp)
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
@@ -544,17 +630,11 @@ def main():
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)
 
-    download_sp = subparsers.add_parser('download', aliases=['dl'],
+    download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
                                         help='download a remote folder or file; will overwrite local files')
-    xe_arg.attach(download_sp)
-    xr_arg.attach(download_sp)
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
-
-    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node [experimental]')
-    open_sp.add_argument('node')
-    open_sp.set_defaults(func=open_action)
 
     cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder using an absolute path')
     cr_fo_sp.add_argument('new_folder', help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
@@ -575,14 +655,6 @@ def main():
     rest_sp.add_argument('node', help='ID of the node')
     rest_sp.set_defaults(func=restore_action)
 
-    children_nms = ['children', 'ls']
-    list_c_sp = subparsers.add_parser(children_nms[0], aliases=children_nms[1:],
-                                      help='[+] list folder\'s children [offline operation]')
-    list_c_sp.add_argument('--include-trash', '-t', action='store_true')
-    list_c_sp.add_argument('--recursive', '-r', action='store_true')
-    list_c_sp.add_argument('node')
-    list_c_sp.set_defaults(func=children_action)
-
     move_sp = subparsers.add_parser('move', aliases=['mv'], help='move node A into folder B')
     move_sp.add_argument('child')
     move_sp.add_argument('parent')
@@ -597,12 +669,6 @@ def main():
     res_sp = subparsers.add_parser(resolve_nms[0], aliases=resolve_nms[1:], help='resolve a path to a node ID')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
-
-    find_nms = ['find', 'f']
-    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:],
-                                    help='find nodes by name [offline operation] [case insensitive]')
-    find_sp.add_argument('name')
-    find_sp.set_defaults(func=find_action)
 
     # maybe the child operations should not be exposed
     # they can be used for creating hardlinks
@@ -626,63 +692,34 @@ def main():
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
+    # exp_sub = opt_parser.add_subparsers(title='experimental actions', dest='action')
+    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node [experimental]')
+    open_sp.add_argument('node')
+    open_sp.set_defaults(func=open_action)
+
     # chn_sp = subparsers.add_parser('changes', aliases=['ch'], help='list changes (raw JSON)')
     # chn_sp.set_defaults(func=changes_action)
 
     args = opt_parser.parse_args()
 
-    format_ = '%(asctime)s.%(msecs).03d [%(name)s] [%(levelname)s] - %(message)s'
-    time_fmt = '%y-%m-%d %H:%M:%S'
+    set_log_level(args)
 
-    if not args.verbose and not args.debug:
-        logging.basicConfig(level=logging.WARNING, format=format_, datefmt=time_fmt)
-
-    if args.verbose:
-        logging.basicConfig(level=logging.INFO, format=format_, datefmt=time_fmt)
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
-        logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
-    elif args.debug:
-        logging.basicConfig(level=logging.DEBUG, format=format_, datefmt=time_fmt)
-
-        # these debug messages (prints) will not show up in log file
-        import http.client
-
-        http.client.HTTPConnection.debuglevel = 1
-
-        r_logger = logging.getLogger("requests")
-        r_logger.setLevel(logging.DEBUG)
-        r_logger.propagate = True
-
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-        logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
+    migrate_cache_files()
 
     # offline actions
-    if args.action not in clear_nms + tree_nms + children_nms + ls_trash_nms + find_nms + resolve_nms:
+    if args.func not in [clear_action, tree_action, children_action, list_trash_action, find_action, resolve_action]:
         if not common.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
 
-    db.init(CACHE_PATH)
+    # online actions
+    if args.func not in [usage_action, quota_action]:
+        db.init(CACHE_PATH)
 
     if args.no_wait:
         common.BackOffRequest._wait = lambda: None
 
-    # auto-resolve node paths
-    for id_attr in ['child', 'parent', 'node']:
-        if hasattr(args, id_attr):
-            val = getattr(args, id_attr)
-            if not val:
-                continue
-            if '/' in val:
-                incl_trash = args.action not in upload_nms + trash_nms
-                v = query.resolve_path(val, trash=incl_trash)
-                if not v:
-                    logger.error('Could not resolve path "%s".' % val)
-                    sys.exit(INVALID_ARG_RETVAL)
-                logger.info('Resolved "%s" to "%s"' % (val, v))
-                setattr(args, id_attr, v)
-            elif len(val) != 22:
-                logger.error('Invalid ID format: "%s".' % val)
-                sys.exit(INVALID_ARG_RETVAL)
+    autoresolve_attrs = ['child', 'parent', 'node']
+    resolve_remote_path_args(args, autoresolve_attrs, upload_nms + trash_nms)
 
     # call appropriate sub-parser action
     args.func(args)

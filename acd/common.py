@@ -42,6 +42,8 @@ REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.
 
 
 def init(path='') -> bool:
+    logger.info('Initializing acd with path "%s".' % path)
+
     global settings_path
     settings_path = path
 
@@ -57,6 +59,7 @@ def _load_endpoints() -> bool:
         with open(endpoint_data_path()) as ep:
             endpoint_data = json.load(ep)
         if time.time() > endpoint_data[EXP_TIME_KEY]:
+            logger.info('Endpoint data expired.')
             endpoint_data = _get_endpoints()
 
     return True
@@ -94,7 +97,7 @@ class RequestError(Exception):
         if msg:
             self.msg = msg
         else:
-            self.msg = '{"message": "[acd_cli] no body received."}'
+            self.msg = '[acd_cli] no body received.'
 
     def __str__(self):
         return 'RequestError: ' + str(self.status_code) + ', ' + self.msg
@@ -133,6 +136,7 @@ class BackOffRequest(object):
             cls.__session = requests.session()
         headers = oauth.get_auth_header()
         cls._wait()
+        logger.info('%s "%s"' % (type_, url))
         try:
             r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
         except requests.exceptions.ConnectionError as e:

@@ -112,7 +112,7 @@ def find(name) -> list:
     return nodes
 
 
-def resolve_path(path, root=None, trash=True) -> db.Node:
+def resolve_path(path, root=None, trash=True) -> str:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
         return

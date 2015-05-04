@@ -23,6 +23,7 @@ class Progress:
     """line progress indicator"""
     start = None
 
+    # noinspection PyUnusedLocal
     def curl_ul_progress(self, total_dl_sz, downloaded, total_ul_sz, uploaded):
         self.print_progress(total_ul_sz, uploaded)
 
@@ -41,11 +42,11 @@ class Progress:
             else:
                 rate = 1
             percentage = round(rate * 100, ndigits=2)
-            completed = "#" * int(percentage / 2)
-            spaces = " " * (50 - len(completed))
+            completed = "#" * int(percentage / 3)
+            spaces = " " * (33 - len(completed))
             sys.stdout.write('\r[%s%s] %s%% of %s, %s'
-                             % (completed, spaces, ('%05.2f' % percentage).rjust(6),
-                                utils.file_size_str(total_sz), (utils.speed_str(speed)).ljust(10)))
+                             % (completed, spaces, ('%4.1f' % percentage).rjust(5),
+                                (utils.file_size_str(total_sz)).rjust(9), (utils.speed_str(speed)).rjust(10)))
             sys.stdout.flush()
 
 

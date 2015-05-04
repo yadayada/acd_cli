@@ -1,7 +1,8 @@
 acd_cli
 =======
 
-**acd_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3. It is currently in alpha stage.
+**acd_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3. 
+It is currently in alpha stage.
 
 ##Features
 
@@ -15,9 +16,9 @@ acd_cli
  * moving/renaming nodes
 
 ##Planned
- 
- * "smart" folder syncing
+
  * shell completion for remote paths
+ * "smart" folder syncing (maybe)
  * ... minor stuff
 
 ##Quick start
@@ -25,7 +26,7 @@ acd_cli
 On the first start of the program (try ``./acd_cli.py sync``), you will have to complete the OAuth procedure.
 A browser tab will open and you will be asked to log in or grant access for 'acd_cli_oa'.
 Signing in or clicking on 'Continue' will download a JSON file named `oauth_data`,
-which must be placed in the application directory.
+which must be placed in the cache directory displayed on screen (e.g. `/home/<USER>/.cache/acd_cli`).
 
 You may view the Appspot source code at https://tensile-runway-92512.appspot.com/src. 
 
@@ -67,7 +68,7 @@ When uploading/downloading large amounts of files, it is advisable to save the l
 This can be done by appending `2> >(tee acd.log >&2)` to the command.
 
 Files can be excluded via optional parameter by file ending, e.g. `-xe bak`, 
-or regular expression on the whole file name, e.g. `-xr "^thumb\.db$"`. 
+or regular expression on the whole file name, e.g. `-xr "^thumbs\.db$"`. 
 Both exclusion methods are case insensitive. 
 
 When the script is done running, its exit status can be checked for flags. If no error occurs, the exit status 

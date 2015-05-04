@@ -35,8 +35,12 @@ def get_trashed_files():
     return get_node_list(filters='status:TRASH AND kind:FILE')
 
 
-def get_changes(checkpoint='', include_purged=False) -> (list, str):
-    """https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes"""
+def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
+    """ https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
+    :returns (list, str, bool) list of nodes, last checkpoint, reset
+    """
+
+    logger.info('Getting changes with checkpoint "%s".' % checkpoint)
 
     import io
 
@@ -47,13 +51,24 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str):
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
 
-    # return format: '{}\n{}\n [...] \n{"end": true}'
+    logger.info('Change response text length is %i.' % len(r.text))
+
+    """ return format should be:
+    {"checkpoint": str, "reset": bool, "nodes": []}
+    {"checkpoint": str, "reset": false, "nodes": []}
+    {"end": true}
+    """
     buf = io.StringIO(r.text)
 
+    reset = False
     nodes = []
 
     end = False
+    pages = 0
+
     while not end:
+        pages += 1
+
         line = buf.readline()
         o = json.loads(line)
         try:
@@ -62,6 +77,10 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str):
                 continue
         except KeyError:
             pass
+
+        if o['reset']:
+            logger.info('Found "reset" tag in changes.')
+            reset = True
 
         # could this actually happen?
         if o['statusCode'] not in OK_CODES:
@@ -72,10 +91,11 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str):
 
     buf.close()
 
+    logger.info('%i pages, %i nodes in changes.' % (pages, len(nodes)))
     if not end:
         logger.warning('End of change request not reached.')
 
-    return nodes, checkpoint
+    return nodes, checkpoint, reset
 
 
 def get_metadata(node_id):

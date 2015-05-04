@@ -5,8 +5,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import timedelta
 
-import cache.sync
-
 logger = logging.getLogger(__name__)
 
 session = None
@@ -158,6 +156,7 @@ class Folder(Node):
         'polymorphic_identity': 'folder'
     }
 
+    # noinspection PyShadowingBuiltins
     def __init__(self, id, name, created, modified, status):
         self.id = id
         self.name = name
@@ -198,27 +197,30 @@ class Folder(Node):
 
 
 def init(path=''):
+    logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
     db_path = os.path.join(path, 'nodes.db')
 
     global session
     global engine
     engine = create_engine('sqlite:///%s' % db_path)
 
-    empty = not os.path.exists(db_path)
-    if not empty:
-        empty = not engine.has_table(Node.__tablename__)
-    if empty:
+    uninitialized = not os.path.exists(db_path)
+    if not uninitialized:
+        uninitialized = not engine.has_table(Node.__tablename__)
+    if uninitialized:
         r = engine.execute('PRAGMA user_version = %i;' % DB_SCHEMA_VER)
         r.close()
 
-    logger.info('Cache %sconsidered empty.' % ('' if empty else 'not '))
+    logger.info('Cache %sconsidered uninitialized.' % ('' if uninitialized else 'not '))
 
     Base.metadata.create_all(engine)
     _session = sessionmaker(bind=engine)
     session = _session()
 
-    if empty:
+    if uninitialized:
         return
+
+    import cache.sync
 
     r = engine.execute('PRAGMA user_version;')
     ver = r.first()[0]
