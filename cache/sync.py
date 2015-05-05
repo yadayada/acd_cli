@@ -34,6 +34,15 @@ def max_age() -> float:
     return (datetime.utcnow() - oldest) / timedelta(days=1)
 
 
+def remove_purged(purged: list):
+    for p_id in purged:
+        n = db.session.query(db.Node).filter_by(id=p_id).first()
+        if n:
+            db.session.delete(n)
+    db.session.commit()
+    logger.info('Purged %i nodes.' % len(purged))
+
+
 def insert_nodes(nodes: list, partial=True):
     """Inserts mixed list of files and folders into cache."""
     files = []

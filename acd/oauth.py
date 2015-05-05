@@ -9,7 +9,7 @@ __all__ = ['init', 'get_auth_header', 'get_auth_header_curl']
 
 logger = logging.getLogger(__name__)
 
-settings_path = ''
+cache_path = ''
 OAUTH_DATA_FILE = 'oauth_data'
 
 # json key names
@@ -19,7 +19,7 @@ REFR_TOKEN_KEY = 'refresh_token'
 
 EXP_TIME_KEY = 'exp_time'
 
-oauth_data_path = lambda: os.path.join(settings_path, OAUTH_DATA_FILE)
+oauth_data_path = lambda: os.path.join(cache_path, OAUTH_DATA_FILE)
 oauth_data = {}
 
 # remote request URLs
@@ -32,8 +32,8 @@ def _oauth_data_changed():
 
 
 def init(path) -> bool:
-    global settings_path
-    settings_path = path
+    global cache_path
+    cache_path = path
 
     try:
         _get_data()
@@ -50,8 +50,8 @@ def _get_data():
     if not os.path.isfile(oauth_data_path()):
         webbrowser.open_new_tab(APPSPOT_URL)
         input('A browser tab will have/be opened at %s.\nPlease accept the request ' % APPSPOT_URL +
-              'and save the plaintext response data into a file called "%s" in the application directory.\n'
-              'Then, press a key to continue.\n' % OAUTH_DATA_FILE)
+              'and save the plaintext response data into a file called "%s"' % OAUTH_DATA_FILE +
+              ' in the directory "%s".\nThen, press a key to continue.\n' % cache_path)
 
         if not os.path.isfile(oauth_data_path()):
             logger.error('File "%s" not found.' % OAUTH_DATA_FILE)

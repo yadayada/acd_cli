@@ -355,21 +355,21 @@ def upload_action(args: argparse.Namespace):
 
         ret_val |= upload(path, args.parent, args.overwrite, args.force, excl_re)
 
-    sys.exit(ret_val)
+    return ret_val
 
 
 def overwrite_action(args: argparse.Namespace):
     if os.path.isfile(args.file):
-        sys.exit(overwrite(args.node, args.file))
+        return overwrite(args.node, args.file)
     else:
         logger.error('Invalid file.')
-        sys.exit(INVALID_ARG_RETVAL)
+        return INVALID_ARG_RETVAL
 
 
 def download_action(args: argparse.Namespace):
     excl_re = regex_helper(args)
 
-    sys.exit(download(args.node, args.path, excl_re))
+    return download(args.node, args.path, excl_re)
 
 
 # experimental
@@ -405,12 +405,12 @@ def create_action(args: argparse.Namespace):
 
     if not folder:
         logger.error('Cannot create folder with empty name.')
-        sys.exit(INVALID_ARG_RETVAL)
+        return INVALID_ARG_RETVAL
 
     p_id = query.resolve_path(parent)
     if not p_id:
         logger.error('Invalid parent path "%s".' % parent)
-        sys.exit(INVALID_ARG_RETVAL)
+        return INVALID_ARG_RETVAL
 
     try:
         r = content.create_folder(folder, p_id)
@@ -421,7 +421,7 @@ def create_action(args: argparse.Namespace):
             logger.warning('Folder "%s" already exists.' % folder)
         else:
             logger.error('Error creating folder "%s".' % folder)
-            sys.exit(ERR_CR_FOLDER)
+            return ERR_CR_FOLDER
 
 
 def list_trash_action(args: argparse.Namespace):
@@ -449,7 +449,7 @@ def resolve_action(args: argparse.Namespace):
     if node:
         print(node)
     else:
-        sys.exit(INVALID_ARG_RETVAL)
+        return INVALID_ARG_RETVAL
 
 
 def find_action(args: argparse.Namespace):
@@ -457,7 +457,7 @@ def find_action(args: argparse.Namespace):
     for node in r:
         print(node)
     if not r:
-        sys.exit(INVALID_ARG_RETVAL)
+        return INVALID_ARG_RETVAL
 
 
 def children_action(args: argparse.Namespace):
@@ -581,27 +581,23 @@ def main():
     old_sync_sp = subparsers.add_parser('old-sync', help='old (full) syncing')
     old_sync_sp.set_defaults(func=old_sync_action)
 
-    clear_nms = ['clear-cache', 'cc']
-    clear_sp = subparsers.add_parser(clear_nms[0], aliases=clear_nms[1:], help='clear node cache [offline operation]')
+    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache [offline operation]')
     clear_sp.set_defaults(func=clear_action)
 
-    tree_nms = ['tree', 't']
-    tree_sp = subparsers.add_parser(tree_nms[0], aliases=tree_nms[1:],
+    tree_sp = subparsers.add_parser('tree', aliases=['t'],
                                     help='[+] print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
     tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
     tree_sp.set_defaults(func=tree_action)
 
-    children_nms = ['children', 'ls', 'dir']
-    list_c_sp = subparsers.add_parser(children_nms[0], aliases=children_nms[1:],
+    list_c_sp = subparsers.add_parser('children', aliases=['ls', 'dir'],
                                       help='[+] list folder\'s children [offline operation]')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node')
     list_c_sp.set_defaults(func=children_action)
 
-    find_nms = ['find', 'f']
-    find_sp = subparsers.add_parser(find_nms[0], aliases=find_nms[1:],
+    find_sp = subparsers.add_parser('find', aliases=['f'],
                                     help='find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
@@ -613,8 +609,7 @@ def main():
                              help='exclude files whose names match the given regular expression,'
                                   ' e.g. "^thumbs\.db$" [case insensitive]')
 
-    upload_nms = ['upload', 'ul']
-    upload_sp = subparsers.add_parser(upload_nms[0], aliases=upload_nms[1:], parents=[re_dummy_sp],
+    upload_sp = subparsers.add_parser('upload', aliases=['ul'], parents=[re_dummy_sp],
                                       help='[+] file and directory upload to a remote destination')
     upload_sp.add_argument('--overwrite', '-o', action='store_true',
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
@@ -640,14 +635,12 @@ def main():
     cr_fo_sp.add_argument('new_folder', help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
 
-    ls_trash_nms = ['list-trash', 'lt']
-    trash_sp = subparsers.add_parser(ls_trash_nms[0], aliases=ls_trash_nms[1:],
+    trash_sp = subparsers.add_parser('list-trash', aliases=['lt'],
                                      help='[+] list trashed nodes [offline operation]')
     trash_sp.add_argument('--recursive', '-r', action='store_true')
     trash_sp.set_defaults(func=list_trash_action)
 
-    trash_nms = ['trash', 'rm']
-    m_trash_sp = subparsers.add_parser(trash_nms[0], aliases=trash_nms[1:], help='move node to trash')
+    m_trash_sp = subparsers.add_parser('trash', aliases=['rm'], help='move node to trash')
     m_trash_sp.add_argument('node')
     m_trash_sp.set_defaults(func=trash_action)
 
@@ -665,8 +658,7 @@ def main():
     rename_sp.add_argument('name')
     rename_sp.set_defaults(func=rename_action)
 
-    resolve_nms = ['resolve', 'rs']
-    res_sp = subparsers.add_parser(resolve_nms[0], aliases=resolve_nms[1:], help='resolve a path to a node ID')
+    res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node ID')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
 
@@ -697,8 +689,8 @@ def main():
     open_sp.add_argument('node')
     open_sp.set_defaults(func=open_action)
 
-    # chn_sp = subparsers.add_parser('changes', aliases=['ch'], help='list changes (raw JSON)')
-    # chn_sp.set_defaults(func=changes_action)
+    dn_sp = subparsers.add_parser('init', aliases=['i'], add_help=False)
+    dn_sp.set_defaults(func=lambda x: None)
 
     args = opt_parser.parse_args()
 
@@ -719,10 +711,10 @@ def main():
         common.BackOffRequest._wait = lambda: None
 
     autoresolve_attrs = ['child', 'parent', 'node']
-    resolve_remote_path_args(args, autoresolve_attrs, upload_nms + trash_nms)
+    resolve_remote_path_args(args, autoresolve_attrs, [upload_action, list_trash_action])
 
     # call appropriate sub-parser action
-    args.func(args)
+    sys.exit(args.func(args))
 
 
 if __name__ == "__main__":

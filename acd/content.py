@@ -137,7 +137,7 @@ def overwrite_file(node_id, file_name):
     return json.loads(body)
 
 
-# local name must be checked prior to call
+# local name be valid (must be checked prior to call)
 # existing file will be overwritten
 def download_file(node_id, local_name, local_path=None, write_callback=None):
     r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id, stream=True)

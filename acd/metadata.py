@@ -47,6 +47,8 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
     body = {}
     if checkpoint:
         body['checkpoint'] = checkpoint
+    if include_purged:
+        body['includePurged'] = True
     r = BackOffRequest.post(get_metadata_url() + 'changes', data=json.dumps(body))
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)

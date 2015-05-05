@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 # status codes that indicate request success
 OK_CODES = [http.OK]
 
-settings_path = ''
+cache_path = ''
 ENDPOINT_DATA_FILE = 'endpoint_data'
-endpoint_data_path = lambda: os.path.join(settings_path, ENDPOINT_DATA_FILE)
+endpoint_data_path = lambda: os.path.join(cache_path, ENDPOINT_DATA_FILE)
 
 # json key names
 EXP_IN_KEY = 'expires_in'
@@ -44,7 +44,7 @@ REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.
 def init(path='') -> bool:
     logger.info('Initializing acd with path "%s".' % path)
 
-    global settings_path
+    global cache_path
     settings_path = path
 
     return oauth.init(path) and _load_endpoints()
