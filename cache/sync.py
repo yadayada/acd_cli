@@ -43,7 +43,7 @@ def remove_purged(purged: list):
     logger.info('Purged %i nodes.' % len(purged))
 
 
-def insert_nodes(nodes: list, partial=True):
+def insert_nodes(nodes: list):
     """Inserts mixed list of files and folders into cache."""
     files = []
     folders = []
@@ -57,8 +57,8 @@ def insert_nodes(nodes: list, partial=True):
             folders.append(node)
         elif kind != 'ASSET':
             logger.warning('Cannot insert unknown node type "%s".' % kind)
-    insert_folders(folders, partial)
-    insert_files(files, partial)
+    insert_folders(folders)
+    insert_files(files)
 
 
 def insert_node(node: db.Node):
@@ -67,17 +67,16 @@ def insert_node(node: db.Node):
         pass
     kind = node['kind']
     if kind == 'FILE':
-        insert_files([node], True)
+        insert_files([node])
     elif kind == 'FOLDER':
-        insert_folders([node], True)
+        insert_folders([node])
     elif kind != 'ASSET':
         logger.warning('Cannot insert unknown node type "%s".' % kind)
 
 
-def insert_folders(folders: list, partial=False):
+def insert_folders(folders: list):
     """ Inserts list of folders into cache. Sets 'update' column to current date.
     :param folders: list of raw dict-type folders
-    :param partial: whether the list of folders is not complete
     """
 
     ins = 0
@@ -85,7 +84,7 @@ def insert_folders(folders: list, partial=False):
     upd = 0
     dtd = 0
 
-    parents = []
+    parent_pairs = []
     for folder in folders:
         logger.debug(folder)
 
@@ -109,16 +108,7 @@ def insert_folders(folders: list, partial=False):
             # this should keep the children intact
             db.session.merge(f)
 
-        parents.append((f.id, folder['parents']))
-
-    if not partial:
-        for db_folder in db.session.query(db.Folder):
-            for folder in folders:
-                if db_folder.id == folder['id']:
-                    break
-            else:
-                db.session.delete(db_folder)
-                dtd += 1
+        parent_pairs.append((f.id, folder['parents']))
 
     try:
         db.session.commit()
@@ -139,20 +129,20 @@ def insert_folders(folders: list, partial=False):
     trans = conn.begin()
     for f in folders:
         conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
-    for rel in parents:
+    for rel in parent_pairs:
         for p in rel[1]:
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
     trans.commit()
 
 
 # file movement is detected by updated modifiedDate
-def insert_files(files: list, partial=False):
+def insert_files(files: list):
     ins = 0
     dup = 0
     upd = 0
     dtd = 0
 
-    parents = []
+    parent_pairs = []
     for file in files:
         props = {}
         try:
@@ -180,18 +170,7 @@ def insert_files(files: list, partial=False):
             db.session.delete(ef)
             db.session.add(f)
 
-        parents.append((f.id, file['parents']))
-
-    if not partial:
-        for db_file in db.session.query(db.File):
-            found = False
-            for file in files:
-                if db_file.id == file['id']:
-                    found = True
-                    break
-            if not found:
-                db.session.delete(db_file)
-                dtd += 1
+        parent_pairs.append((f.id, file['parents']))
 
     try:
         db.session.commit()
@@ -212,7 +191,7 @@ def insert_files(files: list, partial=False):
     trans = conn.begin()
     for f in files:
         conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
-    for rel in parents:
+    for rel in parent_pairs:
         for p in rel[1]:
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
     trans.commit()

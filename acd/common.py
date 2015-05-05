@@ -45,7 +45,7 @@ def init(path='') -> bool:
     logger.info('Initializing acd with path "%s".' % path)
 
     global cache_path
-    settings_path = path
+    cache_path = path
 
     return oauth.init(path) and _load_endpoints()
 

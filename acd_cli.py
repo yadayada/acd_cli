@@ -63,16 +63,20 @@ def sync_node_list(full=False):
     cp = sync.get_checkpoint()
 
     try:
-        nodes, ncp, full = metadata.get_changes(checkpoint=None if full else cp)
-    except RequestError:
+        nodes, purged, ncp, full = metadata.get_changes(checkpoint=None if full else cp, include_purged=not full)
+    except RequestError as e:
         logger.critical('Sync failed.')
+        print(e)
+        return 1
 
     if full:
         db.drop_all()
         db.init(CACHE_PATH)
+    else:
+        sync.remove_purged(purged)
 
     if len(nodes) > 0:
-        sync.insert_nodes(nodes, partial=True)
+        sync.insert_nodes(nodes)
     sync.set_checkpoint(ncp)
     return
 
@@ -85,12 +89,13 @@ def old_sync():
         folders.extend(metadata.get_trashed_folders())
         files = metadata.get_file_list()
         files.extend(metadata.get_trashed_files())
-    except RequestError:
+    except RequestError as e:
         logger.critical('Sync failed.')
-        return
+        print(e)
+        return 1
 
-    sync.insert_folders(folders, partial=True)
-    sync.insert_files(files, partial=True)
+    sync.insert_folders(folders)
+    sync.insert_files(files)
     sync.set_checkpoint('')
 
 
@@ -147,7 +152,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
                 return UL_DL_FAILED
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
                 hasher.stop()
-                logger.warning('Timeout while uploading "%s".')
+                logger.warning('Timeout while uploading "%s".' % short_nm)
                 # TODO: wait; request parent folder's children
                 return UL_TIMEOUT
             else:
@@ -297,14 +302,16 @@ def compare(local, remote):
 
 def sync_action(args: argparse.Namespace):
     print('Syncing... ')
-    sync_node_list(full=args.full)
+    r = sync_node_list(full=args.full)
     print('Done.')
+    return r
 
 
 def old_sync_action(args: argparse.Namespace):
     print('Syncing...')
-    old_sync()
+    r = old_sync()
     print('Done.')
+    return r
 
 
 def clear_action(args: argparse.Namespace):
@@ -414,7 +421,7 @@ def create_action(args: argparse.Namespace):
 
     try:
         r = content.create_folder(folder, p_id)
-        sync.insert_folders([r], True)
+        sync.insert_folders([r])
     except RequestError as e:
         logger.debug(str(e.status_code) + e.msg)
         if e.status_code == 409:
@@ -431,8 +438,12 @@ def list_trash_action(args: argparse.Namespace):
 
 
 def trash_action(args: argparse.Namespace):
-    r = trash.move_to_trash(args.node)
-    sync.insert_node(r)
+    try:
+        r = trash.move_to_trash(args.node)
+        sync.insert_node(r)
+    except RequestError as e:
+        print(e)
+        return 1
 
 
 def restore_action(args: argparse.Namespace):
@@ -440,7 +451,7 @@ def restore_action(args: argparse.Namespace):
         r = trash.restore(args.node)
     except RequestError as e:
         logger.error('Error restoring "%s"' % args.node, e)
-        return
+        return 1
     sync.insert_node(r)
 
 
@@ -468,33 +479,53 @@ def children_action(args: argparse.Namespace):
 
 
 def move_action(args: argparse.Namespace):
-    r = metadata.move_node(args.child, args.parent)
-    sync.insert_node(r)
+    try:
+        r = metadata.move_node(args.child, args.parent)
+        sync.insert_node(r)
+    except RequestError as e:
+        print(e)
+        return 1
 
 
 def rename_action(args: argparse.Namespace):
-    r = metadata.rename_node(args.node, args.name)
-    sync.insert_node(r)
+    try:
+        r = metadata.rename_node(args.node, args.name)
+        sync.insert_node(r)
+    except RequestError as e:
+        print(e)
+        return 1
 
 
 def add_child_action(args: argparse.Namespace):
-    r = metadata.add_child(args.parent, args.child)
-    sync.insert_node(r)
+    try:
+        r = metadata.add_child(args.parent, args.child)
+        sync.insert_node(r)
+    except RequestError as e:
+        print(e)
+        return 1
 
 
 def remove_child_action(args: argparse.Namespace):
-    r = metadata.remove_child(args.parent, args.child)
-    sync.insert_node(r)
+    try:
+        r = metadata.remove_child(args.parent, args.child)
+        sync.insert_node(r)
+    except RequestError as e:
+        print(e)
+        return 1
 
 
 def metadata_action(args: argparse.Namespace):
-    r = metadata.get_metadata(args.node)
-    pprint(r)
-
+    try:
+        r = metadata.get_metadata(args.node)
+        pprint(r)
+    except RequestError as e:
+        print(e)
+        return INVALID_ARG_RETVAL
 
 #
 # helper methods
 #
+
 
 # added for version 0.1.3 on 15-05-04
 def migrate_cache_files():

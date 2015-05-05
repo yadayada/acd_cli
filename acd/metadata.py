@@ -37,7 +37,7 @@ def get_trashed_files():
 
 def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
     """ https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
-    :returns (list, str, bool) list of nodes, last checkpoint, reset
+    :returns (list, purged, str, bool) list of nodes, list of purged nodes, last checkpoint, reset flag
     """
 
     logger.info('Getting changes with checkpoint "%s".' % checkpoint)
@@ -48,31 +48,32 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
     if checkpoint:
         body['checkpoint'] = checkpoint
     if include_purged:
-        body['includePurged'] = True
-    r = BackOffRequest.post(get_metadata_url() + 'changes', data=json.dumps(body))
+        body['includePurged'] = 'true'
+    r = BackOffRequest.post(get_metadata_url() + 'changes', data=json.dumps(body), stream=True)
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
-
-    logger.info('Change response text length is %i.' % len(r.text))
+        r.close()
 
     """ return format should be:
     {"checkpoint": str, "reset": bool, "nodes": []}
     {"checkpoint": str, "reset": false, "nodes": []}
     {"end": true}
     """
-    buf = io.StringIO(r.text)
-
     reset = False
     nodes = []
+    purged_nodes = []
 
     end = False
-    pages = 0
+    pages = -1
 
-    while not end:
+    for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
+        # filter out keep-alive new lines
+        if not line:
+            continue
+
         pages += 1
 
-        line = buf.readline()
-        o = json.loads(line)
+        o = json.loads(line.decode('utf-8'))
         try:
             if o['end']:
                 end = True
@@ -88,23 +89,27 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
         if o['statusCode'] not in OK_CODES:
             raise RequestError(RequestError.CODE.FAILED_SUBREQUEST, '[acd_cli] Partial failure in change request.')
 
-        nodes.extend(o['nodes'])
+        for node in o['nodes']:
+            if node['status'] == 'PURGED':
+                purged_nodes.append(node['id'])
+            else:
+                nodes.append(node)
         checkpoint = o['checkpoint']
 
-    buf.close()
+    r.close()
 
     logger.info('%i pages, %i nodes in changes.' % (pages, len(nodes)))
     if not end:
         logger.warning('End of change request not reached.')
 
-    return nodes, checkpoint, reset
+    return nodes, purged_nodes, checkpoint, reset
 
 
 def get_metadata(node_id):
     params = {'tempLink': 'true'}
     r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id, params=params)
     if r.status_code not in OK_CODES:
-        return RequestError(r.status_code, r.text)
+        raise RequestError(r.status_code, r.text)
     return r.json()
 
 
@@ -123,7 +128,7 @@ def get_root_id():
     r = BackOffRequest.get(get_metadata_url() + 'nodes', params=params)
 
     if r.status_code not in OK_CODES:
-        return RequestError(r.status_code, r.text)
+        raise RequestError(r.status_code, r.text)
 
     data = r.json()
 

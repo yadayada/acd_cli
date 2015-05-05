@@ -164,4 +164,5 @@ def download_file(node_id, local_name, local_path=None, write_callback=None):
         except (ConnectionError, ReadTimeoutError) as e:
             raise RequestError(RequestError.CODE.READ_TIMEOUT, '[acd_cli] Timeout. ' + e.__str__())
     print()  # break progress line
+    r.close()
     return  # no response text?
