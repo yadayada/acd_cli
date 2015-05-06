@@ -4,6 +4,7 @@ import requests
 import time
 import logging
 import webbrowser
+import datetime
 
 __all__ = ['init', 'get_auth_header', 'get_auth_header_curl']
 
@@ -31,7 +32,7 @@ def _oauth_data_changed():
         json.dump(oauth_data, oa, indent=4, sort_keys=True)
 
 
-def init(path) -> bool:
+def init(path: str) -> bool:
     global cache_path
     cache_path = path
 
@@ -66,7 +67,17 @@ def _get_data():
 
 def _get_auth_token() -> str:
     if time.time() > oauth_data[EXP_TIME_KEY]:
-        _refresh_auth_token()
+        global oauth_data
+        logger.info('Token expired at %s.' % datetime.datetime.fromtimestamp(oauth_data[EXP_TIME_KEY]).isoformat(' '))
+
+        # if multiple instances are running, check for updated file
+        with open(oauth_data_path()) as oa:
+            oauth_data = json.load(oa)
+
+        if time.time() > oauth_data[EXP_TIME_KEY]:
+            _refresh_auth_token()
+        else:
+            logger.info('Externally updated token found in oauth file.')
     return "Bearer " + oauth_data[ACC_TOKEN_KEY]
 
 
@@ -78,13 +89,13 @@ def get_auth_header_curl() -> list:
     return ['Authorization: ' + _get_auth_token()]
 
 
-def _treat_auth_token(token, curr_time):
+def _treat_auth_token(token: str, curr_time: float):
     """Adds expiration time to Amazon OAuth dict"""
     if not token:
         return
     try:
         token[EXP_TIME_KEY] = curr_time + token[EXP_IN_KEY] - 120
-        logger.info('Auth token expiration ')
+        logger.info('New token expires at %s.' % datetime.datetime.fromtimestamp(token[EXP_TIME_KEY]).isoformat(' '))
     except KeyError as e:
         logger.critical('Fatal error: Token key "%s" not found.' % EXP_IN_KEY)
         raise e

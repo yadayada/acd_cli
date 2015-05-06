@@ -44,7 +44,7 @@ class Progress:
             percentage = round(rate * 100, ndigits=2)
             completed = "#" * int(percentage / 3)
             spaces = " " * (33 - len(completed))
-            sys.stdout.write('\r[%s%s] %s%% of %s, %s'
+            sys.stdout.write('[%s%s] %s%% of %s, %s\r'
                              % (completed, spaces, ('%4.1f' % percentage).rjust(5),
                                 (utils.file_size_str(total_sz)).rjust(9), (utils.speed_str(speed)).rjust(10)))
             sys.stdout.flush()
@@ -69,7 +69,7 @@ def create_folder(name, parent=None):
 
 
 # file must be valid, readable
-def upload_file(file_name: str, parent=None):
+def upload_file(file_name: str, parent=None, read_callback=None):
     params = '?suppress=deduplication'  # suppresses 409 response
 
     metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
@@ -82,7 +82,7 @@ def upload_file(file_name: str, parent=None):
     c.setopt(c.HTTPHEADER, oauth.get_auth_header_curl())
     c.setopt(c.WRITEDATA, buffer)
     c.setopt(c.HTTPPOST, [('metadata', json.dumps(metadata)),
-                          ('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
+                          ('content', (c.FORM_FILE, file_name.encode(sys.getfilesystemencoding())))])
     pgo = Progress()
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, pgo.curl_ul_progress)
@@ -106,14 +106,14 @@ def upload_file(file_name: str, parent=None):
     return json.loads(body)
 
 
-def overwrite_file(node_id, file_name):
+def overwrite_file(node_id, file_name, read_callback=None):
     params = '?suppress=deduplication'  # suppresses 409 response
 
     buffer = BytesIO()
     c = pycurl.Curl()
     c.setopt(c.URL, get_content_url() + 'nodes/' + node_id + '/content' + params)
     c.setopt(c.WRITEDATA, buffer)
-    c.setopt(c.HTTPPOST, [('content', (c.FORM_FILE, file_name.encode('UTF-8')))])
+    c.setopt(c.HTTPPOST, [('content', (c.FORM_FILE, file_name.encode(sys.getfilesystemencoding())))])
     c.setopt(c.CUSTOMREQUEST, 'PUT')
     pgo = Progress()
     c.setopt(c.NOPROGRESS, 0)

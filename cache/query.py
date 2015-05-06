@@ -5,6 +5,44 @@ import cache.db as db
 logger = logging.getLogger(__name__)
 
 
+class Bunch:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    def __str__(self):
+        return str(self.__dict__)
+
+
+class ListFormatter(object):
+    @staticmethod
+    def format(bunches: list):
+        """:param bunches Bunch list"""
+        return LongIDFormatter.format(bunches)
+
+
+class LongIDFormatter(ListFormatter):
+    @staticmethod
+    def format(bunches):
+        list_ = []
+        for bunch in bunches:
+            list_.append(bunch.node.long_id_str(bunch.path))
+        return list_
+
+
+# TODO
+class TreeFormatter(ListFormatter):
+    pass
+
+
+class IDFormatter(ListFormatter):
+    @staticmethod
+    def format(bunches: list):
+        list_ = []
+        for bunch in bunches:
+            list_.append(bunch.node.id)
+        return list_
+
+
 def get_node(node_id) -> db.Node:
     return db.session.query(db.Node).filter_by(id=node_id).first()
 
@@ -20,10 +58,6 @@ def get_root_id() -> str:
         return root.id
 
 
-def is_folder(node_id) -> bool:
-    return db.session.query(db.Folder).filter_by(id=node_id).first() is not None
-
-
 def tree(root_id=None, trash=False) -> list:
     if root_id is None:
         return node_list(trash=trash)
@@ -37,7 +71,7 @@ def tree(root_id=None, trash=False) -> list:
 
 
 def list_children(folder_id, recursive=False, trash=False):
-    """ Creates formatted list of folder's children
+    """ Creates Bunch list of folder's children
     :param folder_id: valid folder's id
     :return: list of node names, folders first
     """
@@ -49,19 +83,15 @@ def list_children(folder_id, recursive=False, trash=False):
     return node_list(folder, False, recursive, trash)
 
 
-def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, path='', n_list=None):
-    """
-    Generates formatted list of (non-)trashed nodes
+def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, path='', n_list=None, depth=0) -> list:
+    """ Generates Bunch list of (non-)trashed nodes
     :param root: start folder
     :param add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
-    :type add_root: bool
     :param recursive: whether to traverse hierarchy
-    :type recursive: bool
     :param trash: whether to include trash
-    :type trash: bool
     :param path: the path on which this method incarnation was reached
     :type path: str
-    :return: list of nodes in absolute path representation
+    :return: list of Bunches including node and path attributes
     """
 
     if not root:
@@ -73,7 +103,7 @@ def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, 
         n_list = []
 
     if add_root:
-        n_list.append(root.long_id_str(path))
+        n_list.append(Bunch(node=root, path=path, depth=depth))
         path += root.simple_name()
 
     children = sorted(root.children)
@@ -82,9 +112,9 @@ def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, 
         if child.status == 'TRASH' and not trash:
             continue
         if isinstance(child, db.Folder) and recursive:
-            node_list(child, True, recursive, trash, path, n_list)
+            node_list(child, True, recursive, trash, path, n_list, depth + 1)
         else:
-            n_list.append(child.long_id_str(path))
+            n_list.append(Bunch(node=child, path=path, depth=depth))
 
     return n_list
 
@@ -95,7 +125,7 @@ def list_trash(recursive=False):
 
     nodes = []
     for node in trash_nodes:
-        nodes.append(node.long_id_str())
+        nodes.append(Bunch(node=node, path=node.containing_folder()))
         if isinstance(node, db.Folder) and recursive:
             nodes.extend(node_list(node, False, True, True, node.full_path()))
 
@@ -108,7 +138,7 @@ def find(name) -> list:
 
     nodes = []
     for node in q:
-        nodes.append(node.long_id_str())
+        nodes.append(Bunch(node=node, path=node.containing_folder()))
     return nodes
 
 

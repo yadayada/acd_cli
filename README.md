@@ -7,10 +7,12 @@ It is currently in alpha stage.
 ##Features
 
  * local node caching
- * addressing of nodes via a pathname (e.g. `/Photos/kitten.jpg`)
- * tree listing of files and folders
+ * addressing of remote nodes via a pathname (e.g. `/Photos/kitten.jpg`)
+ * plugin support
+
+###File operations
+ * tree or flat listing of files and folders
  * upload/download of single files and directories
- * background hashing
  * folder creation
  * trashing/restoring
  * moving/renaming nodes

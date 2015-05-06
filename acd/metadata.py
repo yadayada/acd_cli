@@ -42,8 +42,6 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
 
     logger.info('Getting changes with checkpoint "%s".' % checkpoint)
 
-    import io
-
     body = {}
     if checkpoint:
         body['checkpoint'] = checkpoint
@@ -51,8 +49,8 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
         body['includePurged'] = 'true'
     r = BackOffRequest.post(get_metadata_url() + 'changes', data=json.dumps(body), stream=True)
     if r.status_code not in OK_CODES:
-        raise RequestError(r.status_code, r.text)
         r.close()
+        raise RequestError(r.status_code, r.text)
 
     """ return format should be:
     {"checkpoint": str, "reset": bool, "nodes": []}
@@ -98,7 +96,7 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
 
     r.close()
 
-    logger.info('%i pages, %i nodes in changes.' % (pages, len(nodes)))
+    logger.info('%i pages, %i nodes, %i purged nodes in changes.' % (pages, len(nodes), len(purged_nodes)))
     if not end:
         logger.warning('End of change request not reached.')
 

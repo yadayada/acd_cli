@@ -15,6 +15,13 @@ from acd import common, content, metadata, account, trash
 from acd.common import RequestError
 import utils
 
+# dynamically load all plugins
+import plugins
+import pkgutil
+for finder, mod_name, ispkg in pkgutil.iter_modules(['plugins']):
+    if not ispkg:
+        __import__(finder.path + '.' + mod_name)
+
 __version__ = '0.1.3'
 _app_name = os.path.basename(__file__).split('.')[0]
 
@@ -96,7 +103,6 @@ def old_sync():
 
     sync.insert_folders(folders)
     sync.insert_files(files)
-    sync.set_checkpoint('')
 
 
 def upload(path: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
@@ -320,6 +326,7 @@ def clear_action(args: argparse.Namespace):
 
 def tree_action(args: argparse.Namespace):
     tree = query.tree(args.node, args.include_trash)
+    tree = query.ListFormatter.format(tree)
     for node in tree:
         print(node)
 
@@ -334,8 +341,8 @@ def quota_action(args: argparse.Namespace):
     pprint(r)
 
 
-def regex_helper(args: argparse.Namespace):
-    """Pre-compiles regex string from"""
+def regex_helper(args: argparse.Namespace) -> list:
+    """Pre-compiles regex from string"""
     excl_re = []
     for re_ in args.exclude_re:
         try:
@@ -350,7 +357,7 @@ def regex_helper(args: argparse.Namespace):
     return excl_re
 
 
-def upload_action(args: argparse.Namespace):
+def upload_action(args: argparse.Namespace) -> int:
     excl_re = regex_helper(args)
 
     ret_val = 0
@@ -365,7 +372,7 @@ def upload_action(args: argparse.Namespace):
     return ret_val
 
 
-def overwrite_action(args: argparse.Namespace):
+def overwrite_action(args: argparse.Namespace) -> int:
     if os.path.isfile(args.file):
         return overwrite(args.node, args.file)
     else:
@@ -373,38 +380,13 @@ def overwrite_action(args: argparse.Namespace):
         return INVALID_ARG_RETVAL
 
 
-def download_action(args: argparse.Namespace):
+def download_action(args: argparse.Namespace) -> int:
     excl_re = regex_helper(args)
 
     return download(args.node, args.path, excl_re)
 
 
-# experimental
-def open_action(args: argparse.Namespace):
-    import subprocess
-
-    n = query.get_node(args.node)
-    # mime = mimetypes.guess_type(n.simple_name())[0]
-    #
-    # appl = ''
-    # try:
-    # appl = subprocess.check_output(['gvfs-mime', '--query', mime]).decode('utf-8')
-    # appl = (appl.splitlines()[0]).split(':')[1]
-    # except FileNotFoundError:
-    # return
-
-    r = metadata.get_metadata(args.node)
-    try:
-        link = r['tempLink']
-    except KeyError:
-        logger.critical('Could not get temporary URL for "%s".' % n.simple_name())
-        return SERVER_ERR
-
-    if sys.platform == 'linux':
-        subprocess.call(['mimeopen', '--no-ask', link + '#' + n.simple_name()])
-
-
-def create_action(args: argparse.Namespace):
+def create_action(args: argparse.Namespace) -> int:
     parent, folder = os.path.split(args.new_folder)
     # no trailing slash
     if not folder:
@@ -433,11 +415,12 @@ def create_action(args: argparse.Namespace):
 
 def list_trash_action(args: argparse.Namespace):
     t_list = query.list_trash(args.recursive)
-    if t_list:
-        print('\n'.join(t_list))
+    t_list = query.ListFormatter.format(t_list)
+    for node in t_list:
+        print(node)
 
 
-def trash_action(args: argparse.Namespace):
+def trash_action(args: argparse.Namespace) -> int:
     try:
         r = trash.move_to_trash(args.node)
         sync.insert_node(r)
@@ -446,7 +429,7 @@ def trash_action(args: argparse.Namespace):
         return 1
 
 
-def restore_action(args: argparse.Namespace):
+def restore_action(args: argparse.Namespace) -> int:
     try:
         r = trash.restore(args.node)
     except RequestError as e:
@@ -455,7 +438,7 @@ def restore_action(args: argparse.Namespace):
     sync.insert_node(r)
 
 
-def resolve_action(args: argparse.Namespace):
+def resolve_action(args: argparse.Namespace) -> int:
     node = query.resolve_path(args.path)
     if node:
         print(node)
@@ -471,14 +454,17 @@ def find_action(args: argparse.Namespace):
         return INVALID_ARG_RETVAL
 
 
-def children_action(args: argparse.Namespace):
+def children_action(args: argparse.Namespace) -> int:
     c_list = query.list_children(args.node, args.recursive, args.include_trash)
+    c_list = query.ListFormatter.format(c_list)
     if c_list:
         for entry in c_list:
             print(entry)
+    else:
+        return 1
 
 
-def move_action(args: argparse.Namespace):
+def move_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.move_node(args.child, args.parent)
         sync.insert_node(r)
@@ -487,7 +473,7 @@ def move_action(args: argparse.Namespace):
         return 1
 
 
-def rename_action(args: argparse.Namespace):
+def rename_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.rename_node(args.node, args.name)
         sync.insert_node(r)
@@ -496,7 +482,7 @@ def rename_action(args: argparse.Namespace):
         return 1
 
 
-def add_child_action(args: argparse.Namespace):
+def add_child_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.add_child(args.parent, args.child)
         sync.insert_node(r)
@@ -505,7 +491,7 @@ def add_child_action(args: argparse.Namespace):
         return 1
 
 
-def remove_child_action(args: argparse.Namespace):
+def remove_child_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.remove_child(args.parent, args.child)
         sync.insert_node(r)
@@ -514,7 +500,7 @@ def remove_child_action(args: argparse.Namespace):
         return 1
 
 
-def metadata_action(args: argparse.Namespace):
+def metadata_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.get_metadata(args.node)
         pprint(r)
@@ -544,7 +530,7 @@ def migrate_cache_files():
 
 
 def resolve_remote_path_args(args: argparse.Namespace, attrs: list, exclude_actions: list):
-    """Changes certain"""
+    """Replaces certain attributes in Namespace by resolved node ID."""
     for id_attr in attrs:
         if hasattr(args, id_attr):
             val = getattr(args, id_attr)
@@ -715,17 +701,24 @@ def main():
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
-    # exp_sub = opt_parser.add_subparsers(title='experimental actions', dest='action')
-    open_sp = subparsers.add_parser('open', aliases=['o'], help='open node [experimental]')
-    open_sp.add_argument('node')
-    open_sp.set_defaults(func=open_action)
-
+    # useful for interactive mode
     dn_sp = subparsers.add_parser('init', aliases=['i'], add_help=False)
-    dn_sp.set_defaults(func=lambda x: None)
+    dn_sp.set_defaults(func=None)
+
+    plugin_log = [str(plugins.Plugin)]
+    for plugin in plugins.Plugin:
+        if plugin.check_version(__version__):
+            log = []
+            plugin.attach(subparsers, log)
+            plugin_log.extend(log)
+        else:
+            plugin_log.append('Script version is not compatible with "%s".' % plugin)
 
     args = opt_parser.parse_args()
 
     set_log_level(args)
+    for msg in plugin_log:
+        logger.info(msg)
 
     migrate_cache_files()
 
@@ -745,7 +738,8 @@ def main():
     resolve_remote_path_args(args, autoresolve_attrs, [upload_action, list_trash_action])
 
     # call appropriate sub-parser action
-    sys.exit(args.func(args))
+    if args.func:
+        sys.exit(args.func(args))
 
 
 if __name__ == "__main__":
