@@ -66,8 +66,8 @@ def _get_data():
 
 
 def _get_auth_token() -> str:
+    global oauth_data
     if time.time() > oauth_data[EXP_TIME_KEY]:
-        global oauth_data
         logger.info('Token expired at %s.' % datetime.datetime.fromtimestamp(oauth_data[EXP_TIME_KEY]).isoformat(' '))
 
         # if multiple instances are running, check for updated file

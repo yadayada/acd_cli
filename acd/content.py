@@ -1,56 +1,34 @@
 import http.client as http
 import sys
 import os
-import time
 import json
 import pycurl
+import io
 from io import BytesIO
 import logging
 from requests.exceptions import ConnectionError
+
 try:
     from requests.packages.urllib3.exceptions import ReadTimeoutError
 except ImportError:
-    pass
+    class ReadTimeoutError(Exception):
+        pass
 
 from acd.common import *
 from acd import oauth
-import utils
+from utils import progress
+
+FS_RW_CHUNK_SZ = 8192
+
+PARTIAL_SUFFIX = '.__incomplete'
+CHUNK_SIZE = 50 * 1024 ** 2  # basically arbitrary
+CHUNK_MAX_RETRY = 5
+CONSECUTIVE_DL_LIMIT = CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
 
 
-class Progress:
-    """line progress indicator"""
-    start = None
-
-    # noinspection PyUnusedLocal
-    def curl_ul_progress(self, total_dl_sz, downloaded, total_ul_sz, uploaded):
-        self.print_progress(total_ul_sz, uploaded)
-
-    def print_progress(self, total_sz, current):
-        if not self.start:
-            self.start = time.time()
-
-        if total_sz:
-            duration = time.time() - self.start
-            if duration:
-                speed = current / duration
-            else:
-                speed = 0
-            if total_sz:
-                rate = float(current) / total_sz
-            else:
-                rate = 1
-            percentage = round(rate * 100, ndigits=2)
-            completed = "#" * int(percentage / 3)
-            spaces = " " * (33 - len(completed))
-            sys.stdout.write('[%s%s] %s%% of %s, %s\r'
-                             % (completed, spaces, ('%4.1f' % percentage).rjust(5),
-                                (utils.file_size_str(total_sz)).rjust(9), (utils.speed_str(speed)).rjust(10)))
-            sys.stdout.flush()
-
-
-def create_folder(name, parent=None):
+def create_folder(name: str, parent=None) -> dict:
     # params = {'localId' : ''}
     body = {'kind': 'FOLDER', 'name': name}
     if parent:
@@ -69,7 +47,7 @@ def create_folder(name, parent=None):
 
 
 # file must be valid, readable
-def upload_file(file_name: str, parent=None, read_callback=None):
+def upload_file(file_name: str, parent: str=None, read_callback=None) -> dict:
     params = '?suppress=deduplication'  # suppresses 409 response
 
     metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
@@ -83,7 +61,7 @@ def upload_file(file_name: str, parent=None, read_callback=None):
     c.setopt(c.WRITEDATA, buffer)
     c.setopt(c.HTTPPOST, [('metadata', json.dumps(metadata)),
                           ('content', (c.FORM_FILE, file_name.encode(sys.getfilesystemencoding())))])
-    pgo = Progress()
+    pgo = progress.Progress()
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, pgo.curl_ul_progress)
 
@@ -106,7 +84,7 @@ def upload_file(file_name: str, parent=None, read_callback=None):
     return json.loads(body)
 
 
-def overwrite_file(node_id, file_name, read_callback=None):
+def overwrite_file(node_id: str, file_name: str, read_callback=None) -> dict:
     params = '?suppress=deduplication'  # suppresses 409 response
 
     buffer = BytesIO()
@@ -115,7 +93,7 @@ def overwrite_file(node_id, file_name, read_callback=None):
     c.setopt(c.WRITEDATA, buffer)
     c.setopt(c.HTTPPOST, [('content', (c.FORM_FILE, file_name.encode(sys.getfilesystemencoding())))])
     c.setopt(c.CUSTOMREQUEST, 'PUT')
-    pgo = Progress()
+    pgo = progress.Progress()
     c.setopt(c.NOPROGRESS, 0)
     c.setopt(c.PROGRESSFUNCTION, pgo.curl_ul_progress)
 
@@ -138,31 +116,132 @@ def overwrite_file(node_id, file_name, read_callback=None):
 
 
 # local name be valid (must be checked prior to call)
-# existing file will be overwritten
-def download_file(node_id, local_name, local_path=None, write_callback=None):
-    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id, stream=True)
+def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
+    """kwargs: write_callback, resume: bool=True"""
+    dl_path = basename
+    if dirname:
+        dl_path = os.path.join(dirname, basename)
+    part_path = dl_path + PARTIAL_SUFFIX
+    offset = 0
+
+    if ('resume' not in kwargs or kwargs['resume']) \
+            and os.path.isfile(part_path):
+        with open(part_path, 'wb') as f:
+            trunc_pos = os.path.getsize(part_path) - 1 - FS_RW_CHUNK_SZ
+            f.truncate(trunc_pos if trunc_pos >= 0 else 0)
+
+        write_callback = kwargs.get('write_callback')
+        if write_callback:
+            with open(part_path, 'rb') as f:
+                while True:
+                    chunk = f.read(FS_RW_CHUNK_SZ)
+                    if not chunk:
+                        break
+                    write_callback(chunk)
+
+        f = open(part_path, 'ab')
+    else:
+        f = open(part_path, 'wb')
+    offset = f.tell()
+
+    total_ln = kwargs.get('length', -1)
+
+    if 0 <= total_ln < CONSECUTIVE_DL_LIMIT and offset == 0:
+        consecutive_download(node_id, f, **kwargs)
+    else:
+        chunked_download(node_id, f, offset=offset, **kwargs)
+
+    if os.path.isfile(dl_path):
+        os.remove(dl_path)
+    os.rename(part_path, dl_path)
+
+
+# to be deprecated later
+def consecutive_download(node_id: str, file: io.BufferedWriter, **kwargs):
+    """Keyword args: write_callback"""
+    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content', stream=True)
     if r.status_code not in OK_CODES:
-        # print('Downloading %s failed.' % node_id)
         raise RequestError(r.status_code, r.text)
 
-    dl_path = local_name
-    if local_path:
-        dl_path = os.path.join(local_path, local_name)
-    pgo = Progress()
-    with open(dl_path, 'wb') as f:
-        total_ln = int(r.headers.get('content-length'))
-        curr_ln = 0
+    write_callback = kwargs.get('write_callback', None)
+
+    total_ln = int(r.headers.get('content-length'))
+    length = kwargs.get('length', None)
+    if length and total_ln != length:
+        logging.info('Length mismatch: argument %d, content %d' % (length, total_ln))
+
+    pgo = progress.Progress()
+    curr_ln = 0
+    try:
+        for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
+            if chunk:  # filter out keep-alive new chunks
+                file.write(chunk)
+                file.flush()
+                if write_callback:
+                    write_callback(chunk)
+                curr_ln += len(chunk)
+                pgo.print_progress(total_ln, curr_ln)
+    except (ConnectionError, ReadTimeoutError) as e:
+        raise RequestError(RequestError.CODE.READ_TIMEOUT, '[acd_cli] Timeout. ' + e.__str__())
+    print()  # break progress line
+    r.close()
+    return
+
+
+def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
+    """Keyword args:
+    offset: byte offset
+    length: total length, equal to end - 1
+    write_callback
+    """
+    ok_codes = [http.PARTIAL_CONTENT]
+
+    write_callback = kwargs.get('write_callback', None)
+
+    length = kwargs.get('length', 100 * 1024 ** 4)
+
+    pgo = progress.Progress()
+    chunk_start = kwargs.get('offset', 0)
+    retries = 0
+    while chunk_start < length:
+        chunk_end = chunk_start + CHUNK_SIZE - 1
+        if chunk_end >= length:
+            chunk_end = length - 1
+
+        if retries >= CHUNK_MAX_RETRY:
+            raise RequestError(RequestError.CODE.FAILED_SUBREQUEST,
+                               '[acd_cli] Downloading chunk failed multiple times.')
+        r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content', stream=True,
+                               acc_codes=ok_codes,
+                               headers={'Range': 'bytes=%d-%d' % (chunk_start, chunk_end)})
+
+        logger.debug('Range %d-%d' % (chunk_start, chunk_end))
+        # this should only happen at the end of unknown-length downloads
+        if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
+            logger.debug('Invalid byte range requested %d-%d' % (chunk_start, chunk_end))
+            break
+        if r.status_code not in ok_codes:
+            r.close()
+            retries += 1
+            logging.debug('Chunk [%d-%d], retry %d.' % (retries, chunk_start, chunk_end))
+            continue
+
         try:
-            for chunk in r.iter_content(chunk_size=8192):
+            curr_ln = 0
+            for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
                 if chunk:  # filter out keep-alive new chunks
-                    f.write(chunk)
-                    f.flush()
+                    file.write(chunk)
+                    file.flush()
                     if write_callback:
                         write_callback(chunk)
                     curr_ln += len(chunk)
-                    pgo.print_progress(total_ln, curr_ln)
+                    pgo.print_progress(length, curr_ln + chunk_start)
+            chunk_start += CHUNK_SIZE
+            retries = 0
+            r.close()
         except (ConnectionError, ReadTimeoutError) as e:
+            file.close()
             raise RequestError(RequestError.CODE.READ_TIMEOUT, '[acd_cli] Timeout. ' + e.__str__())
+
     print()  # break progress line
-    r.close()
-    return  # no response text?
+    return

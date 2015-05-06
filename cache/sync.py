@@ -5,8 +5,15 @@ Syncs Amazon Node API objects with sqlite database
 import logging
 from sqlalchemy.exc import *
 from sqlalchemy.sql.expression import func
-import dateutil.parser as iso_date
 from datetime import datetime, timedelta
+try:
+    import dateutil.parser as iso_date
+except ImportError:
+    # noinspection PyPep8Naming
+    class iso_date(object):
+        @staticmethod
+        def parse(str_: str):
+            return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
 
 
 from cache import db

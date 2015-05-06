@@ -15,14 +15,14 @@ class Bunch:
 
 class ListFormatter(object):
     @staticmethod
-    def format(bunches: list):
+    def format(bunches: list) -> list:
         """:param bunches Bunch list"""
         return LongIDFormatter.format(bunches)
 
 
 class LongIDFormatter(ListFormatter):
     @staticmethod
-    def format(bunches):
+    def format(bunches: list) -> list:
         list_ = []
         for bunch in bunches:
             list_.append(bunch.node.long_id_str(bunch.path))
@@ -43,7 +43,7 @@ class IDFormatter(ListFormatter):
         return list_
 
 
-def get_node(node_id) -> db.Node:
+def get_node(node_id: str) -> db.Node:
     return db.session.query(db.Node).filter_by(id=node_id).first()
 
 
@@ -58,7 +58,7 @@ def get_root_id() -> str:
         return root.id
 
 
-def tree(root_id=None, trash=False) -> list:
+def tree(root_id: str=None, trash=False) -> list:
     if root_id is None:
         return node_list(trash=trash)
 
@@ -70,7 +70,7 @@ def tree(root_id=None, trash=False) -> list:
     return node_list(folder, True, True, trash)
 
 
-def list_children(folder_id, recursive=False, trash=False):
+def list_children(folder_id: str, recursive=False, trash=False) -> list:
     """ Creates Bunch list of folder's children
     :param folder_id: valid folder's id
     :return: list of node names, folders first
@@ -119,7 +119,7 @@ def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, 
     return n_list
 
 
-def list_trash(recursive=False):
+def list_trash(recursive=False) -> list:
     trash_nodes = db.session.query(db.Node).filter(db.Node.status == 'TRASH').all()
     trash_nodes = sorted(trash_nodes)
 
@@ -132,7 +132,7 @@ def list_trash(recursive=False):
     return nodes
 
 
-def find(name) -> list:
+def find(name: str) -> list:
     q = db.session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
     q = sorted(q, key=lambda x: x.full_path())
 
@@ -142,7 +142,7 @@ def find(name) -> list:
     return nodes
 
 
-def find_md5(md5) -> list:
+def find_md5(md5: str) -> list:
     q = db.session.query(db.File).filter_by(md5=md5)
     q = sorted(q, key=lambda x: x.full_path())
 
@@ -152,7 +152,7 @@ def find_md5(md5) -> list:
     return nodes
 
 
-def resolve_path(path, root=None, trash=True) -> str:
+def resolve_path(path: str, root=None, trash=True) -> str:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
         return

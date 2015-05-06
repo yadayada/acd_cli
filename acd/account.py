@@ -1,7 +1,7 @@
 import logging
 
 from acd.common import *
-import utils
+from utils import format
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +27,14 @@ class _Usage(object):
                 sum_count += self.dict_[key]['total']['count']
                 sum_bytes += self.dict_[key]['total']['bytes']
             str_ = _Usage.format_line('Documents', self.dict_['doc']['total']['count'],
-                                     utils.file_size_pair(self.dict_['doc']['total']['bytes'])) + \
+                                     format.file_size_pair(self.dict_['doc']['total']['bytes'])) + \
                    _Usage.format_line('Other', self.dict_['other']['total']['count'],
-                                     utils.file_size_pair(self.dict_['other']['total']['bytes'])) + \
+                                     format.file_size_pair(self.dict_['other']['total']['bytes'])) + \
                    _Usage.format_line('Photos', self.dict_['photo']['total']['count'],
-                                     utils.file_size_pair(self.dict_['photo']['total']['bytes'])) + \
+                                     format.file_size_pair(self.dict_['photo']['total']['bytes'])) + \
                    _Usage.format_line('Videos', self.dict_['video']['total']['count'],
-                                     utils.file_size_pair(self.dict_['video']['total']['bytes'])) + \
-                   _Usage.format_line('Total', sum_count, utils.file_size_pair(sum_bytes))
+                                     format.file_size_pair(self.dict_['video']['total']['bytes'])) + \
+                   _Usage.format_line('Total', sum_count, format.file_size_pair(sum_bytes))
         except KeyError:
             logger.warning('Invalid usage JSON string.')
         return str_

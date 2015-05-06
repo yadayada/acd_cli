@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class Metadate(Base):
     key = Column(String(64), primary_key=True)
     value = Column(String)
 
-    def __init__(self, key, value):
+    def __init__(self, key: str, value: str):
         self.key = key
         self.value = value
 
@@ -85,7 +85,7 @@ class Node(Base):
         """short id string containing id, stat, name"""
         return '[{}] [{}] {}'.format(self.id, self.status[0], self.simple_name())
 
-    def long_id_str(self, path=None) -> str:
+    def long_id_str(self, path: str=None) -> str:
         """long id string containing id, stat, path + name"""
         if path is None:
             path = self.containing_folder()
@@ -115,7 +115,7 @@ class File(Node):
         'polymorphic_identity': 'file'
     }
 
-    def __init__(self, id, name, created, modified, md5, size, status):
+    def __init__(self, id: str, name: str, created: datetime, modified: datetime, md5: str, size: int, status: Enum):
         self.id = id
         self.name = name
         self.created = created.replace(tzinfo=None)
@@ -157,7 +157,7 @@ class Folder(Node):
     }
 
     # noinspection PyShadowingBuiltins
-    def __init__(self, id, name, created, modified, status):
+    def __init__(self, id: str, name: str, created: datetime, modified: datetime, status: Enum):
         self.id = id
         self.name = name
         self.created = created.replace(tzinfo=None)
@@ -176,16 +176,16 @@ class Folder(Node):
     def __repr__(self):
         return 'Folder(%r, %r)' % (self.id, self.name)
 
-    def simple_name(self):
+    def simple_name(self) -> str:
         return (self.name if self.name else '') + '/'
 
     # path of first occurrence
-    def full_path(self):
+    def full_path(self) -> str:
         if len(self.parents) == 0:
             return '/'
         return self.parents[0].full_path() + self.simple_name()
 
-    def get_child(self, name) -> Node:
+    def get_child(self, name: str) -> Node:
         """ Gets non-trashed child by name. """
         for child in self.children:
             if child.name == name and child.status != 'TRASH':

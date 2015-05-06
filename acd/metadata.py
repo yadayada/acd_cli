@@ -7,35 +7,35 @@ logger = logging.getLogger(__name__)
 
 
 # additional parameters are: tempLink='true'
-def get_node_list(**params):
+def get_node_list(**params) -> list:
     q_params = {}
     for param in params.keys():
         q_params[param] = params[param]
 
-    return paginated_get_request(get_metadata_url() + 'nodes', q_params)
+    return BackOffRequest.paginated_get(get_metadata_url() + 'nodes', q_params)
 
 
-def get_file_list():
+def get_file_list() -> list:
     return get_node_list(filters='kind:FILE')
 
 
-def get_folder_list():
+def get_folder_list() -> list:
     return get_node_list(filters='kind:FOLDER')
 
 
-def get_asset_list():
+def get_asset_list() -> list:
     return get_node_list(filters='kind:ASSET')
 
 
-def get_trashed_folders():
+def get_trashed_folders() -> list:
     return get_node_list(filters='status:TRASH AND kind:FOLDER')
 
 
-def get_trashed_files():
+def get_trashed_files() -> list:
     return get_node_list(filters='status:TRASH AND kind:FILE')
 
 
-def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
+def get_changes(checkpoint='', include_purged=False) -> (list, list, str, bool):
     """ https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
     :returns (list, purged, str, bool) list of nodes, list of purged nodes, last checkpoint, reset flag
     """
@@ -103,7 +103,7 @@ def get_changes(checkpoint='', include_purged=False) -> (list, str, bool):
     return nodes, purged_nodes, checkpoint, reset
 
 
-def get_metadata(node_id):
+def get_metadata(node_id: str) -> dict:
     params = {'tempLink': 'true'}
     r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id, params=params)
     if r.status_code not in OK_CODES:
@@ -112,7 +112,7 @@ def get_metadata(node_id):
 
 
 # this will increment the node's version attribute
-def update_metadata(node_id, properties):
+def update_metadata(node_id: str, properties: dict) -> dict:
     body = json.dumps(properties)
     r = BackOffRequest.patch(get_metadata_url() + 'nodes/' + node_id, data=body)
     if r.status_code not in OK_CODES:
@@ -121,7 +121,7 @@ def update_metadata(node_id, properties):
 
 
 # necessary?
-def get_root_id():
+def get_root_id() -> dict:
     params = {'filters': 'isRoot:true'}
     r = BackOffRequest.get(get_metadata_url() + 'nodes', params=params)
 
@@ -135,21 +135,22 @@ def get_root_id():
 
 
 # unused
-def list_children(node_id):
-    r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id + '/children')
-    return r.json
+def list_children(node_id: str) -> list:
+    l = BackOffRequest.paginated_get(get_metadata_url() + 'nodes/' + node_id + '/children')
+    return l
 
 
-def add_child(parent, child):
-    r = BackOffRequest.put(get_metadata_url() + 'nodes/' + parent + '/children/' + child)
+def add_child(parent_id: str, child_id: str) -> dict:
+    r = BackOffRequest.put(get_metadata_url() + 'nodes/' + parent_id + '/children/' + child_id)
     if r.status_code not in OK_CODES:
         logger.error('Adding child failed.')
         raise RequestError(r.status_code, r.text)
     return r.json()
 
 
-def remove_child(parent, child):
-    r = BackOffRequest.delete(get_metadata_url() + 'nodes/' + parent + "/children/" + child)
+def remove_child(parent_id: str, child_id: str) -> dict:
+    r = BackOffRequest.delete(get_metadata_url() + 'nodes/' + parent_id + "/children/" + child_id)
+    # contrary to response code stated in API doc (202 ACCEPTED)
     if r.status_code not in OK_CODES:
         logger.error('Removing child failed.')
         raise RequestError(r.status_code, r.text)
@@ -158,24 +159,24 @@ def remove_child(parent, child):
 
 # preferable to adding child to new parent and removing child from old parent
 # undocumented API feature
-def move_node(child, new_parent):
-    properties = {'parents': [new_parent]}
-    return update_metadata(child, properties)
+def move_node(child_id: str, new_parent_id: str) -> dict:
+    properties = {'parents': [new_parent_id]}
+    return update_metadata(child_id, properties)
 
 
-def rename_node(node_id, new_name):
+def rename_node(node_id: str, new_name: str) -> dict:
     properties = {'name': new_name}
     return update_metadata(node_id, properties)
 
 
 # sets node with 'PENDING' status to 'AVAILABLE'
-def set_available(node_id):
+def set_available(node_id: str) -> dict:
     properties = {'status': 'AVAILABLE'}
     return update_metadata(node_id, properties)
 
 
 # TODO
-def list_properties(node_id):
+def list_properties(node_id: str) -> dict:
     owner_id = ''
     r = BackOffRequest.get(get_metadata_url() + "/nodes/" + node_id + "/properties/" + owner_id)
-    return r.text
+    return r.json

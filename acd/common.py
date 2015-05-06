@@ -11,7 +11,7 @@ import logging
 from acd import oauth
 
 __all__ = ('RequestError', 'BackOffRequest',
-           'OK_CODES', 'init', 'get_metadata_url', 'get_content_url', 'paginated_get_request')
+           'OK_CODES', 'init', 'get_metadata_url', 'get_content_url')
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ ENDPOINT_DATA_FILE = 'endpoint_data'
 endpoint_data_path = lambda: os.path.join(cache_path, ENDPOINT_DATA_FILE)
 
 # json key names
-EXP_IN_KEY = 'expires_in'
 ACC_TOKEN_KEY = 'access_token'
 REFR_TOKEN_KEY = 'refresh_token'
 
@@ -92,7 +91,7 @@ class RequestError(Exception):
         FAILED_SUBREQUEST = 1002
         INCOMPLETE_RESULT = 1003
 
-    def __init__(self, status_code, msg):
+    def __init__(self, status_code: int, msg: str):
         self.status_code = status_code
         if msg:
             self.msg = msg
@@ -108,6 +107,7 @@ class BackOffRequest(object):
     https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices"""
 
     __session = None
+    __last_req_url = ''
     __retries = 0
     random.seed()
 
@@ -131,12 +131,23 @@ class BackOffRequest(object):
         sleep(duration)
 
     @classmethod
-    def _request(cls, type_, url, acc_codes, **kwargs):
+    def _request(cls, type_, url: str, acc_codes: list, **kwargs) -> requests.Response:
         if not cls.__session:
             cls.__session = requests.session()
-        headers = oauth.get_auth_header()
         cls._wait()
-        logger.info('%s "%s"' % (type_, url))
+
+        headers = oauth.get_auth_header()
+        if 'headers' in kwargs:
+            headers = dict(headers, **(kwargs['headers']))
+            del kwargs['headers']
+
+        if url == cls.__last_req_url:
+            logger.debug('%s "%s"' % (type_, url))
+        else:
+            logger.info('%s "%s"' % (type_, url))
+        if 'data' in kwargs.keys():
+            logger.info(kwargs['data'])
+
         try:
             r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
         except requests.exceptions.ConnectionError as e:
@@ -145,26 +156,28 @@ class BackOffRequest(object):
             cls._success()
         else:
             cls._failed()
+
+        cls.__last_req_url = url
         return r
 
     @classmethod
-    def get(cls, url, acc_codes=OK_CODES, **kwargs):
+    def get(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('GET', url, acc_codes, **kwargs)
 
     @classmethod
-    def post(cls, url, acc_codes=OK_CODES, **kwargs):
+    def post(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('POST', url, acc_codes, **kwargs)
 
     @classmethod
-    def patch(cls, url, acc_codes=OK_CODES, **kwargs):
+    def patch(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('PATCH', url, acc_codes, **kwargs)
 
     @classmethod
-    def put(cls, url, acc_codes=OK_CODES, **kwargs):
+    def put(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('PUT', url, acc_codes, **kwargs)
 
     @classmethod
-    def delete(cls, url, acc_codes=OK_CODES, **kwargs):
+    def delete(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('DELETE', url, acc_codes, **kwargs)
 
     @classmethod
@@ -182,24 +195,24 @@ class BackOffRequest(object):
         else:
             cls._failed()
 
+    @classmethod
+    def paginated_get(cls, url: str, params: dict=None) -> list:
+        if params is None:
+            params = {}
+        node_list = []
 
-def paginated_get_request(url, params=None):
-    if params is None:
-        params = {}
-    node_list = []
+        while True:
+            r = cls.get(url, params=params)
+            if r.status_code not in OK_CODES:
+                logger.error("Error getting node list.")
+                raise RequestError(r.status_code, r.text)
+            ret = r.json()
+            node_list.extend(ret['data'])
+            if 'nextToken' in ret.keys():
+                params['startToken'] = ret['nextToken']
+            else:
+                if ret['count'] != len(node_list):
+                    logger.warning('Expected {} items, received {}.'.format(ret['count'], len(node_list)))
+                break
 
-    while True:
-        r = BackOffRequest.get(url, params=params)
-        if r.status_code not in OK_CODES:
-            logger.error("Error getting node list.")
-            raise RequestError(r.status_code, r.text)
-        ret = r.json()
-        node_list.extend(ret['data'])
-        if 'nextToken' in ret.keys():
-            params['startToken'] = ret['nextToken']
-        else:
-            if ret['count'] != len(node_list):
-                logger.warning('Expected {} items, received {}.'.format(ret['count'], len(node_list)))
-            break
-
-    return node_list
+        return node_list

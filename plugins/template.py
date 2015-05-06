@@ -12,7 +12,7 @@ class TestPlugin(Plugin):
     def attach(cls, subparsers: argparse.ArgumentParser, log: list, **kwargs):
         """ Attaches this plugin to the argparse action subparser group
         :param subparsers the action subparser group
-        :param log a list to put log messages in
+        :param log a list to put initialization log messages in
          """
         p = subparsers.add_parser('test', add_help=False)
         p.add_argument('--silent', action='store_true', default=False)

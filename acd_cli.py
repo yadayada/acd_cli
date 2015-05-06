@@ -7,25 +7,44 @@ import logging
 import signal
 import datetime
 import re
-
-from bundled import appdirs
+from pkgutil import walk_packages
+from pkg_resources import iter_entry_points
+import appdirs
 
 from cache import sync, query, db
 from acd import common, content, metadata, account, trash
 from acd.common import RequestError
-import utils
+from utils import hashing
 
-# dynamically load all plugins
 import plugins
-import pkgutil
-for finder, mod_name, ispkg in pkgutil.iter_modules(['plugins']):
-    if not ispkg:
-        __import__(finder.path + '.' + mod_name)
 
-__version__ = '0.1.3'
+# load local modules (default ones, for developers)
+for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plugins.__name__ + '.',
+                                              onerror=lambda x: None):
+    if not ispkg:
+        __import__(modname)
+
+# load additional
+for plug_mod in iter_entry_points(group='acd_cli.plugins', name=None):
+    __import__(plug_mod.module_name)
+
+__version__ = '0.2.0'
 _app_name = os.path.basename(__file__).split('.')[0]
 
 logger = logging.getLogger(_app_name)
+
+# noinspection PyBroadException
+try:
+    import requests.utils
+    old_dau = requests.utils.default_user_agent
+
+    def new_dau():
+        return _app_name + '/' + __version__ + ' ' + old_dau()
+    requests.utils.default_user_agent = new_dau
+except:
+    pass
+
+# path settings
 
 cp = os.environ.get('ACD_CLI_CACHE_PATH')
 sp = os.environ.get('ACD_CLI_SETTINGS_PATH')
@@ -40,7 +59,9 @@ if not os.path.isdir(CACHE_PATH):
         logger.critical('Error creating cache directory "%s"' % CACHE_PATH)
         sys.exit(1)
 
-INVALID_ARG_RETVAL = 2
+# return values
+
+INVALID_ARG_RETVAL = 2  # doubles as flag
 INIT_FAILED_RETVAL = 3
 KEYB_INTERR_RETVAL = 4
 
@@ -62,8 +83,8 @@ def signal_handler(signal_, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 
-def pprint(s):
-    print(json.dumps(s, indent=4, sort_keys=True))
+def pprint(d: dict):
+    print(json.dumps(d, indent=4, sort_keys=True))
 
 
 def sync_node_list(full=False):
@@ -125,7 +146,7 @@ def upload(path: str, parent_id: str, overwr: bool, force: bool, exclude: list) 
 
 def compare_hashes(hash1: str, hash2: str, file_name: str):
     if hash1 != hash2:
-        logger.warning('Hash mismatch between local and remote file for "%s".' % file_name)
+        logger.error('Hash mismatch between local and remote file for "%s".' % file_name)
         return HASH_MISMATCH
 
     logger.info('Local and remote hashes match for "%s".' % file_name)
@@ -142,7 +163,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
 
     if not file_id:
         try:
-            hasher = utils.Hasher(path)
+            hasher = hashing.Hasher(path)
             r = content.upload_file(path, parent_id)
             sync.insert_node(r)
             file_id = r['id']
@@ -185,7 +206,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool) -> int:
         print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         return 0
     else:
-        hasher = utils.Hasher(path)
+        hasher = hashing.Hasher(path)
 
 
 def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, exclude: list) -> int:
@@ -223,7 +244,7 @@ def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, exclud
 
 
 def overwrite(node_id, local_file) -> int:
-    hasher = utils.Hasher(local_file)
+    hasher = hashing.Hasher(local_file)
     try:
         r = content.overwrite_file(node_id, local_file)
         sync.insert_node(r)
@@ -255,11 +276,11 @@ def download(node_id: str, local_path: str, exclude: list) -> int:
             print('Skipping download of "%s" because of exclusion pattern.' % loc_name)
             return 0
 
-    hasher = utils.IncrementalHasher()
+    hasher = hashing.IncrementalHasher()
 
     try:
         print('Current file: %s' % loc_name)
-        content.download_file(node_id, loc_name, local_path, hasher.update)
+        content.download_file(node_id, loc_name, local_path, length=node.size, write_callback=hasher.update)
     except RequestError as e:
         logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
         return UL_DL_FAILED
@@ -516,6 +537,7 @@ def metadata_action(args: argparse.Namespace) -> int:
         print(e)
         return INVALID_ARG_RETVAL
 
+
 #
 # helper methods
 #
@@ -577,13 +599,23 @@ def set_log_level(args: argparse.Namespace):
 
         http.client.HTTPConnection.debuglevel = 1
 
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-        logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
+        if args.debug > 1:
+            logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+            logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
 
 
 def main():
+    utf_flag = False
+    if sys.stdout.isatty():
+        if str.lower(sys.stdout.encoding) != 'utf-8':
+            import io
+
+            sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+            sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
+            utf_flag = True
+
     opt_parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawTextHelpFormatter,
+        prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
                '  * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
                '  * If you need to enter a node ID that contains a leading dash (minus) sign, '
@@ -592,7 +624,7 @@ def main():
                '')
     opt_parser.add_argument('-v', '--verbose', action='count',
                             help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info.')
-    opt_parser.add_argument('-d', '--debug', action='store_true', help='turn on debug mode')
+    opt_parser.add_argument('-d', '--debug', action='count', help='turn on debug mode')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')
@@ -603,7 +635,7 @@ def main():
     sync_sp.add_argument('--full', '-f', action='store_true', help='force a full sync')
     sync_sp.set_defaults(func=sync_action)
 
-    old_sync_sp = subparsers.add_parser('old-sync', help='old (full) syncing')
+    old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
     old_sync_sp.set_defaults(func=old_sync_action)
 
     clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache [offline operation]')
@@ -731,6 +763,8 @@ def main():
     set_log_level(args)
     for msg in plugin_log:
         logger.info(msg)
+    if utf_flag:
+        logger.info('Stdout/stderr encoding changed to UTF-8.')
 
     migrate_cache_files()
 

@@ -1,9 +1,9 @@
-import os
 import hashlib
-import threading
 import logging
+import os
+import threading
 
-logger = logging.getLogger(os.path.basename(__file__).split('.')[0])
+logger = logging.getLogger(__name__)
 
 
 class Hasher(object):
@@ -12,13 +12,13 @@ class Hasher(object):
 
     BG_HASHING_THR = 500 * 1024 ** 2
 
-    def __init__(self, file_name):
+    def __init__(self, file_name: str):
         self.file_name = file_name
         self.short_name = os.path.basename(file_name)
         self.md5 = None
         self.thr = None
         self.halt = False
-        self.start_hashing()
+        self._start_hashing()
 
     def stop(self):
         if self.thr:
@@ -27,7 +27,7 @@ class Hasher(object):
             self.thr.join()
             logger.info('Thread stopped.')
 
-    def start_hashing(self):
+    def _start_hashing(self):
         if os.path.getsize(self.file_name) > Hasher.BG_HASHING_THR:
             self.thr = threading.Thread(target=self.generate_md5_hash)
             logger.info('Starting background hashing of "%s"' % self.short_name)
@@ -62,31 +62,10 @@ class IncrementalHasher():
     def update(self, chunk):
         self.hasher.update(chunk)
 
-    def get_result(self):
+    def get_result(self) -> str:
         return self.hasher.hexdigest()
 
 
-# shamelessly copied from
-# http://stackoverflow.com/questions/1094841/reusable-library-to-get-human-readable-version-of-file-size
-def file_size_str(num, suffix='B'):
-    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
-        if abs(num) < 1024.0:
-            return "%3.1f%s%s" % (num, unit, suffix)
-        num /= 1024.0
-    return "%.1f%s%s" % (num, 'Yi', suffix)
-
-
-def file_size_pair(num, suffix='B'):
-    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
-        if abs(num) < 1024.0:
-            return '%3.1f' % num, '%s%s' % (unit, suffix)
-        num /= 1024.0
-    return '%.1f' % num, '%s%s' % ('Yi', suffix)
-
-
-def speed_str(num, suffix='B', time_unit='s'):
-    for unit in ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z']:
-        if abs(num) < 1000.0:
-            return "%3.1f%s%s/%s" % (num, unit, suffix, time_unit)
-        num /= 1000.0
-    return "%.1f%s%s/%s" % (num, 'Y', suffix, time_unit)
+def hash_file(file_name: str) -> str:
+    hasher = Hasher(file_name)
+    return hasher.get_result()
