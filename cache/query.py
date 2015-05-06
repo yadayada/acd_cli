@@ -142,6 +142,16 @@ def find(name) -> list:
     return nodes
 
 
+def find_md5(md5) -> list:
+    q = db.session.query(db.File).filter_by(md5=md5)
+    q = sorted(q, key=lambda x: x.full_path())
+
+    nodes = []
+    for node in q:
+        nodes.append(Bunch(node=node, path=node.containing_folder()))
+    return nodes
+
+
 def resolve_path(path, root=None, trash=True) -> str:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):
