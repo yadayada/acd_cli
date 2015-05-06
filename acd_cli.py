@@ -448,10 +448,18 @@ def resolve_action(args: argparse.Namespace) -> int:
 
 def find_action(args: argparse.Namespace):
     r = query.find(args.name)
+    r = query.ListFormatter.format(r)
     for node in r:
         print(node)
     if not r:
         return INVALID_ARG_RETVAL
+
+
+def find_md5_action(args: argparse.Namespace):
+    nodes = query.find_md5(args.md5)
+    nodes = query.ListFormatter.format(nodes)
+    for node in nodes:
+        print(node)
 
 
 def children_action(args: argparse.Namespace) -> int:
@@ -618,6 +626,10 @@ def main():
                                     help='find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
+
+    find_hash_sp = subparsers.add_parser('find-md5', aliases=['fh'], help='find files by MD5 hash [offline operation]')
+    find_hash_sp.add_argument('md5')
+    find_hash_sp.set_defaults(func=find_md5_action)
 
     re_dummy_sp = subparsers.add_parser('dummy', add_help=False)
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
