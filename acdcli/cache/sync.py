@@ -6,6 +6,7 @@ import logging
 from sqlalchemy.exc import *
 from sqlalchemy.sql.expression import func
 from datetime import datetime, timedelta
+
 try:
     import dateutil.parser as iso_date
 except ImportError:
@@ -15,8 +16,7 @@ except ImportError:
         def parse(str_: str):
             return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
 
-
-from cache import db
+from acdcli.cache import db
 
 logger = logging.getLogger(__name__)
 

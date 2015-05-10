@@ -1,4 +1,4 @@
-from plugins import *
+from acdcli.plugins import *
 
 
 class StreamPlugin(Plugin):
@@ -17,8 +17,8 @@ class StreamPlugin(Plugin):
         import subprocess
         import logging
         import sys
-        from acd import metadata
-        from cache import query
+        from acdcli.api import metadata
+        from acdcli.cache import query
 
         logger = logging.getLogger(__name__)
 

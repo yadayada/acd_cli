@@ -14,9 +14,9 @@ except ImportError:
     class ReadTimeoutError(Exception):
         pass
 
-from acd.common import *
-from acd import oauth
-from utils import progress
+from acdcli.api.common import *
+from acdcli.api import oauth
+from acdcli.utils import progress
 
 FS_RW_CHUNK_SZ = 8192
 

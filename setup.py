@@ -1,7 +1,7 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
-from acd_cli import _app_name, __version__
+from acd_cli import __version__
 
 
 def read(fname: str) -> str:
@@ -9,7 +9,7 @@ def read(fname: str) -> str:
 
 
 setup(
-    name=_app_name,
+    name='acdcli',
     version=__version__,
     description='a command line interface for Amazon Cloud Drive',
     long_description=read('README.rst'),
@@ -19,8 +19,7 @@ setup(
     keywords='amazon cloud drive clouddrive',
     url='https://github.com/yadayada/acd_cli',
     zip_safe=False,
-    packages=['cache', 'acd', 'utils'],
-    package_data={'': ['README', '*.rst']},
+    packages=find_packages(),
     scripts=['acd_cli.py'],
     entry_points={'console_scripts': ['acd_cli = acd_cli:main', 'acdcli = acd_cli:main'],
                   # 'acd_cli.plugins': ['stream = plugins.stream',

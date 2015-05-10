@@ -1,7 +1,7 @@
 import logging
 
-from acd.common import *
-from utils import format
+from acdcli.api.common import *
+from acdcli.utils import format
 
 logger = logging.getLogger(__name__)
 

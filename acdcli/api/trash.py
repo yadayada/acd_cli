@@ -1,4 +1,4 @@
-from acd.common import *
+from acdcli.api.common import *
 
 
 # retrieves top-level trash list

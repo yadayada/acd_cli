@@ -2,13 +2,13 @@ import os
 import time
 import json
 import http.client as http
-import requests
-from requests.exceptions import ConnectionError
 import random
 from time import sleep
 import logging
+import requests
 
-from acd import oauth
+from acdcli.api import oauth
+
 
 __all__ = ('RequestError', 'BackOffRequest',
            'OK_CODES', 'init', 'get_metadata_url', 'get_content_url')

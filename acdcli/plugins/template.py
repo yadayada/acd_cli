@@ -2,7 +2,7 @@
 This is a template that you can use for adding custom plugins. May be subject to changes in the near future.
 """
 
-from plugins import *
+from acdcli.plugins import *
 
 
 class TestPlugin(Plugin):

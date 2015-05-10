@@ -8,24 +8,26 @@ import signal
 import datetime
 import re
 from pkgutil import walk_packages
+
 from pkg_resources import iter_entry_points
 import appdirs
 
-from cache import sync, query, db
-from acd import common, content, metadata, account, trash
-from acd.common import RequestError
-from utils import hashing
+from acdcli import plugins
 
-import plugins
+from acdcli.cache import query, sync, db
+from acdcli.api import common, content, metadata, account, trash
+from acdcli.api.common import RequestError
 
 # load local modules (default ones, for developers)
+from acdcli.utils import hashing
+
 for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plugins.__name__ + '.',
                                               onerror=lambda x: None):
     if not ispkg:
         __import__(modname)
 
 # load additional
-for plug_mod in iter_entry_points(group='acd_cli.plugins', name=None):
+for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
 __version__ = '0.2.0'

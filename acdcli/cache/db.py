@@ -220,7 +220,7 @@ def init(path=''):
     if uninitialized:
         return
 
-    import cache.sync
+    import acdcli.cache.sync as sync
 
     r = engine.execute('PRAGMA user_version;')
     ver = r.first()[0]
@@ -231,7 +231,7 @@ def init(path=''):
     if DB_SCHEMA_VER > ver:
         _migrate(ver)
 
-    oldest = cache.sync.max_age()
+    oldest = sync.max_age()
     if oldest:
         logger.info('Oldest node info is %f days old.' % oldest)
         if oldest > 30:

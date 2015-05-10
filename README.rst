@@ -7,18 +7,18 @@ It is currently in alpha stage.
 Features
 --------
 
- -  local node caching
- -  addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
- -  basic plugin support
+-  local node caching
+-  addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
+-  basic plugin support
 
 File operations
 ~~~~~~~~~~~~~~~
 
- - tree or flat listing of files and folders
- - upload/download of single files and directories
- - folder creation
- - trashing/restoring
- - moving/renaming nodes
+- tree or flat listing of files and folders
+- upload/download of single files and directories
+- folder creation
+- trashing/restoring
+- moving/renaming nodes
 
 Quick start
 -----------
@@ -89,11 +89,11 @@ Both exclusion methods are case insensitive.
 When the script is done running, its exit status can be checked for flags. If no error occurs,
 the exit status will be 0. Possible flag values are:
 
- - argument error -- 2
- - failed file transfer -- 8
- - upload timeout -- 16
- - hash mismatch -- 32
- - error creating folder -- 64.
+- argument error -- 2
+- failed file transfer -- 8
+- upload timeout -- 16
+- hash mismatch -- 32
+- error creating folder -- 64.
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
 
@@ -129,9 +129,9 @@ Known Issues
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
- -  uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
- -  the maximum (upload) file size seems to be in the range of 40 and 100 GiB
- -  storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
+-  uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
+-  the maximum (upload) file size seems to be in the range of 40 and 100 GiB
+-  storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
 
 Contribute
 ----------
@@ -146,11 +146,11 @@ There is also a :ref:`TODO` list.
 Dependencies
 ------------
 
- - appdirs
- - dateutils (recommended)
- - pycurl
- - requests >= 1.0.0
- - sqlalchemy
+- appdirs
+- dateutils (recommended)
+- pycurl
+- requests >= 1.0.0
+- sqlalchemy
 
 If you want to get these manually and are using a distribution based on Debian 'jessie', 
 the necessary packages are
@@ -161,15 +161,15 @@ Recent Changes
 
 0.2.0
 +++++
- * setuptools support
- * workaround for download of files larger than 10 GiB
- * automatic resuming of downloads
+* setuptools support
+* workaround for download of files larger than 10 GiB
+* automatic resuming of downloads
 
 0.1.3
 +++++
- * plugin mechanism added
- * OAuth now via Appspot; security profile no longer necessary
- * back-off algorithm for API requests implemented
+* plugin mechanism added
+* OAuth now via Appspot; security profile no longer necessary
+* back-off algorithm for API requests implemented
 
 0.1.2
 +++++

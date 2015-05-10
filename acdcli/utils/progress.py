@@ -1,7 +1,7 @@
 import time
 import sys
 
-from utils import format
+from acdcli.utils import format
 
 
 class Progress:

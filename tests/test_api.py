@@ -6,9 +6,9 @@ import os
 import random
 import string
 
-from acd import *
-from acd.common import RequestError
-from utils import hashing
+from acdcli.api import *
+from acdcli.api.common import RequestError
+from acdcli.utils import hashing
 
 logging.basicConfig(level=logging.INFO)
 common.BackOffRequest._wait = lambda: None
