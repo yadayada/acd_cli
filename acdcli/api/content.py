@@ -14,9 +14,9 @@ except ImportError:
     class ReadTimeoutError(Exception):
         pass
 
-from acdcli.api.common import *
-from acdcli.api import oauth
-from acdcli.utils import progress
+from . import oauth
+from .common import *
+from ..utils import progress
 
 FS_RW_CHUNK_SZ = 8192
 
@@ -40,7 +40,6 @@ def create_folder(name: str, parent=None) -> dict:
     r = BackOffRequest.post(get_metadata_url() + 'nodes', acc_codes=acc_codes, data=body_str)
 
     if r.status_code not in acc_codes:
-        # print('Error creating folder "%s"' % name)
         raise RequestError(r.status_code, r.text)
 
     return r.json()
@@ -223,7 +222,7 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
         if r.status_code not in ok_codes:
             r.close()
             retries += 1
-            logging.debug('Chunk [%d-%d], retry %d.' % (retries, chunk_start, chunk_end))
+            logging.debug('Chunk [%d-%d], retry %d.' % (chunk_start, chunk_end, retries))
             continue
 
         try:

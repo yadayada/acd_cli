@@ -1,5 +1,3 @@
-.. _TODO:
-
 TODO
 ----
 
@@ -9,9 +7,12 @@ General
 * favorite support
 * support of node labels
 * support for assets (?)
+* unify the find action
+
 File Transfer
 ~~~~~~~~~~~~~
 
+* autosplit large files (determine maximum size first)
 * job pool (ul/dl) for simultaneous transfers
 * node directory walker (similar to os.walk)
 * more sophisticated progress handler that supports offsets, ETA

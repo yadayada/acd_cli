@@ -73,8 +73,8 @@ The following actions are built in
         quota (q)           show drive quota [raw JSON]
         metadata (m)        print a node's metadata [raw JSON]
 
-Please run ``acd_cli.py --help`` to get a current list of the available actions.
-You may also get a list of further arguments and their order of an action by calling ``acd_cli.py [action] --help``.
+Please run ``acd_cli --help`` to get a current list of the available actions.
+You may also get a list of further arguments and their order of an action by calling ``acd_cli [action] --help``.
 
 You may provide most node arguments as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
@@ -89,11 +89,15 @@ Both exclusion methods are case insensitive.
 When the script is done running, its exit status can be checked for flags. If no error occurs,
 the exit status will be 0. Possible flag values are:
 
-- argument error -- 2
-- failed file transfer -- 8
-- upload timeout -- 16
-- hash mismatch -- 32
-- error creating folder -- 64.
+=====================    =======
+        flag              value
+=====================    =======
+argument error              2
+failed file transfer        8
+upload timeout              16
+hash mismatch               32
+error creating folder       64
+=====================    =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
 
@@ -129,9 +133,10 @@ Known Issues
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
--  uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
--  the maximum (upload) file size seems to be in the range of 40 and 100 GiB
--  storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
+- downloads of files larger than 10 GiB are no longer possible
+- uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
+- the maximum (upload) file size seems to be in the range of 40 and 100 GiB
+- storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
 
 Contribute
 ----------
@@ -139,9 +144,8 @@ Contribute
 Feel free to use the bug tracker to add issues.
 You might find the ``--verbose`` and - to a lesser extent - ``--debug`` options helpful.
 
-If you want to contribute code, have a look at Github's general guide how to do that
-https://guides.github.com/activities/contributing-to-open-source/#contributing
-There is also a :ref:`TODO` list.
+If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that
+There is also a `TODO <TODO.rst>`_ list.
 
 Dependencies
 ------------
@@ -157,22 +161,22 @@ the necessary packages are
 ``python3-appdirs python3-dateutil python3-pycurl python3-requests python3-sqlalchemy``.
 
 Recent Changes
-~~~~~~~~~~~~~~
+--------------
 
 0.2.0
-+++++
+~~~~~
 * setuptools support
 * workaround for download of files larger than 10 GiB
 * automatic resuming of downloads
 
 0.1.3
-+++++
+~~~~~
 * plugin mechanism added
 * OAuth now via Appspot; security profile no longer necessary
 * back-off algorithm for API requests implemented
 
 0.1.2
-+++++
+~~~~~
 new:
  * overwriting of files
  * recursive upload/download

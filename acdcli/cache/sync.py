@@ -16,7 +16,7 @@ except ImportError:
         def parse(str_: str):
             return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
 
-from acdcli.cache import db
+from . import db
 
 logger = logging.getLogger(__name__)
 

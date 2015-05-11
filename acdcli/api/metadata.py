@@ -1,7 +1,7 @@
 import json
 import logging
 
-from acdcli.api.common import *
+from .common import *
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from time import sleep
 import logging
 import requests
 
-from acdcli.api import oauth
+from . import oauth
 
 
 __all__ = ('RequestError', 'BackOffRequest',

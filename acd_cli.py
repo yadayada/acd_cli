@@ -14,11 +14,11 @@ import appdirs
 
 from acdcli import plugins
 
-from acdcli.cache import query, sync, db
-from acdcli.api import common, content, metadata, account, trash
+from acdcli.cache import *
+from acdcli.api import *
 from acdcli.api.common import RequestError
 
-# load local modules (default ones, for developers)
+# load local plugin modules (default ones, for developers)
 from acdcli.utils import hashing
 
 for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plugins.__name__ + '.',
@@ -26,7 +26,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
     if not ispkg:
         __import__(modname)
 
-# load additional
+# load additional plugins from entry point
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
@@ -625,8 +625,9 @@ def main():
                '  * actions marked with [+] have optional arguments'
                '')
     opt_parser.add_argument('-v', '--verbose', action='count',
-                            help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info.')
-    opt_parser.add_argument('-d', '--debug', action='count', help='turn on debug mode')
+                            help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info')
+    opt_parser.add_argument('-d', '--debug', action='count',
+                            help='prints info and debug to stderr; use "-dd" to also get sqlalchemy debug  messages')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')

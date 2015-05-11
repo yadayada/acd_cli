@@ -1,6 +1,6 @@
 import logging
 
-import acdcli.cache.db as db
+from . import db
 
 logger = logging.getLogger(__name__)
 

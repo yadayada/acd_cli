@@ -1,4 +1,4 @@
-from acdcli.plugins import *
+from . import *
 
 
 class StreamPlugin(Plugin):
