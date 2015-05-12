@@ -216,7 +216,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if mod_time < os.path.getmtime(path) \
             or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
             or force:
-        return overwrite(file_id, path, deduplication=dedup)
+        return overwrite(file_id, path, dedup=dedup)
     elif not force:
         print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         return 0
@@ -339,8 +339,22 @@ def compare(local, remote):
 
 
 #
-# """Subparser actions"""
+# Subparser actions. Return value [typeof(None), int] will be used
 #
+
+online_actions = []
+offline_actions = []
+
+
+def online_action(func):
+    online_actions.append(func)
+    return func
+
+
+def offline_action(func):
+    offline_actions.append(func)
+    return func
+
 
 def sync_action(args: argparse.Namespace):
     print('Syncing... ')
@@ -356,10 +370,12 @@ def old_sync_action(args: argparse.Namespace):
     return r
 
 
+@offline_action
 def clear_action(args: argparse.Namespace):
     db.drop_all()
 
 
+@offline_action
 def tree_action(args: argparse.Namespace):
     tree = query.tree(args.node, args.include_trash)
     tree = query.ListFormatter.format(tree)
@@ -367,11 +383,13 @@ def tree_action(args: argparse.Namespace):
         print(node)
 
 
+@online_action
 def usage_action(args: argparse.Namespace):
     r = account.get_account_usage()
     print(r, end='')
 
 
+@online_action
 def quota_action(args: argparse.Namespace):
     r = account.get_quota()
     pprint(r)
@@ -449,6 +467,7 @@ def create_action(args: argparse.Namespace) -> int:
             return ERR_CR_FOLDER
 
 
+@offline_action
 def list_trash_action(args: argparse.Namespace):
     t_list = query.list_trash(args.recursive)
     t_list = query.ListFormatter.format(t_list)
@@ -474,6 +493,7 @@ def restore_action(args: argparse.Namespace) -> int:
     sync.insert_node(r)
 
 
+@offline_action
 def resolve_action(args: argparse.Namespace) -> int:
     node = query.resolve_path(args.path)
     if node:
@@ -482,6 +502,7 @@ def resolve_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
 
+@offline_action
 def find_action(args: argparse.Namespace):
     r = query.find(args.name)
     r = query.ListFormatter.format(r)
@@ -491,6 +512,7 @@ def find_action(args: argparse.Namespace):
         return INVALID_ARG_RETVAL
 
 
+@offline_action
 def find_md5_action(args: argparse.Namespace):
     nodes = query.find_md5(args.md5)
     nodes = query.ListFormatter.format(nodes)
@@ -498,6 +520,7 @@ def find_md5_action(args: argparse.Namespace):
         print(node)
 
 
+@offline_action
 def children_action(args: argparse.Namespace) -> int:
     c_list = query.list_children(args.node, args.recursive, args.include_trash)
     c_list = query.ListFormatter.format(c_list)
@@ -544,6 +567,7 @@ def remove_child_action(args: argparse.Namespace) -> int:
         return 1
 
 
+@online_action
 def metadata_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.get_metadata(args.node)
@@ -679,7 +703,8 @@ def main():
     find_hash_sp.add_argument('md5')
     find_hash_sp.set_defaults(func=find_md5_action)
 
-    re_dummy_sp = subparsers.add_parser('dummy', add_help=False)
+    dummy_p = argparse.ArgumentParser().add_subparsers()
+    re_dummy_sp = dummy_p.add_parser('', add_help=False)
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
                              help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
     re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
@@ -786,12 +811,12 @@ def main():
     migrate_cache_files()
 
     # offline actions
-    if args.func not in [clear_action, tree_action, children_action, list_trash_action, find_action, resolve_action]:
+    if args.func not in offline_actions:
         if not common.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
 
     # online actions
-    if args.func not in [usage_action, quota_action]:
+    if args.func not in online_actions:
         db.init(CACHE_PATH)
 
     if args.no_wait:

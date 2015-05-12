@@ -31,6 +31,8 @@ After downloading, run the appropriate pip command for Python 3 in the project's
 
     pip3 install .
 
+If you do not want to install, have a look at the necessary dependencies_.
+
 First Run
 ~~~~~~~~~
 
@@ -133,7 +135,7 @@ Known Issues
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
-- downloads of files larger than 10 GiB are no longer possible
+- downloads of files larger than 9 GiB (?) are no longer possible
 - uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
 - the maximum (upload) file size seems to be in the range of 40 and 100 GiB
 - storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
@@ -142,10 +144,13 @@ Contribute
 ----------
 
 Feel free to use the bug tracker to add issues.
-You might find the ``--verbose`` and - to a lesser extent - ``--debug`` options helpful.
+You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options helpful.
 
 If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that
 There is also a `TODO <TODO.rst>`_ list.
+
+
+.. _dependencies:
 
 Dependencies
 ------------
