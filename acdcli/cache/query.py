@@ -43,6 +43,15 @@ class IDFormatter(ListFormatter):
         return list_
 
 
+class PathFormatter(ListFormatter):
+    @staticmethod
+    def format(bunches: list):
+        list_ = []
+        for bunch in bunches:
+            list_.append(bunch.node.full_path())
+        return list_
+
+
 def get_node(node_id: str) -> db.Node:
     return db.session.query(db.Node).filter_by(id=node_id).first()
 
@@ -150,6 +159,11 @@ def find_md5(md5: str) -> list:
     for node in q:
         nodes.append(Bunch(node=node, path=node.containing_folder()))
     return nodes
+
+
+def file_size_exists(size: int) -> bool:
+    """Returns whether cache contains one or more file(s) of given size."""
+    return db.session.query(db.File).filter_by(size=size).count()
 
 
 def resolve_path(path: str, root=None, trash=True) -> str:

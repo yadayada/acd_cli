@@ -46,8 +46,10 @@ def create_folder(name: str, parent=None) -> dict:
 
 
 # file must be valid, readable
-def upload_file(file_name: str, parent: str=None, read_callback=None) -> dict:
-    params = '?suppress=deduplication'  # suppresses 409 response
+def upload_file(file_name: str, parent: str=None, read_callback=None, deduplication=False) -> dict:
+    params = ''
+    if not deduplication:
+        params = '?suppress=deduplication'  # suppresses 409 response
 
     metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
     if parent:
@@ -83,8 +85,10 @@ def upload_file(file_name: str, parent: str=None, read_callback=None) -> dict:
     return json.loads(body)
 
 
-def overwrite_file(node_id: str, file_name: str, read_callback=None) -> dict:
-    params = '?suppress=deduplication'  # suppresses 409 response
+def overwrite_file(node_id: str, file_name: str, read_callback=None, deduplication=False) -> dict:
+    params = ''
+    if not deduplication:
+        params = '?suppress=deduplication'  # suppresses 409 response
 
     buffer = BytesIO()
     c = pycurl.Curl()
