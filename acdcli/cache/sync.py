@@ -22,11 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 def remove_purged(purged: list):
+    session = db.Session()
     for p_id in purged:
-        n = db.session.query(db.Node).filter_by(id=p_id).first()
+        n = session.query(db.Node).filter_by(id=p_id).first()
         if n:
-            db.session.delete(n)
-    db.session.commit()
+            session.delete(n)
+    session.commit()
     logger.info('Purged %i nodes.' % len(purged))
 
 
@@ -71,6 +72,7 @@ def insert_folders(folders: list):
     upd = 0
     dtd = 0
 
+    session = db.Session()
     parent_pairs = []
     for folder in folders:
         logger.debug(folder)
@@ -81,11 +83,11 @@ def insert_folders(folders: list):
                       iso_date.parse(folder['createdDate']),
                       iso_date.parse(folder['modifiedDate']),
                       folder['status'])
-        ef = db.session.query(db.Folder).filter_by(id=folder['id']).first()
+        ef = session.query(db.Folder).filter_by(id=folder['id']).first()
         f.updated = datetime.utcnow()
 
         if not ef:
-            db.session.add(f)
+            session.add(f)
             ins += 1
         else:
             if f == ef:
@@ -93,15 +95,15 @@ def insert_folders(folders: list):
             else:
                 upd += 1
             # this should keep the children intact
-            db.session.merge(f)
+            session.merge(f)
 
         parent_pairs.append((f.id, folder['parents']))
 
     try:
-        db.session.commit()
+        session.commit()
     except IntegrityError:
         logger.warning('Error inserting folders.')
-        db.session.rollback()
+        session.rollback()
 
     if ins > 0:
         logger.info(str(ins) + ' folder(s) inserted.')
@@ -129,6 +131,7 @@ def insert_files(files: list):
     upd = 0
     dtd = 0
 
+    session = db.Session()
     parent_pairs = []
     for file in files:
         props = {}
@@ -143,27 +146,27 @@ def insert_files(files: list):
                     iso_date.parse(file['modifiedDate']),
                     props['md5'], props['size'],
                     file['status'])
-        ef = db.session.query(db.File).filter_by(id=file['id']).first()
+        ef = session.query(db.File).filter_by(id=file['id']).first()
         f.updated = datetime.utcnow()
 
         if not ef:
-            db.session.add(f)
+            session.add(f)
             ins += 1
         else:
             if f == ef:
                 dup += 1
             else:
                 upd += 1
-            db.session.delete(ef)
-            db.session.add(f)
+            session.delete(ef)
+            session.add(f)
 
         parent_pairs.append((f.id, file['parents']))
 
     try:
-        db.session.commit()
+        session.commit()
     except ValueError:
         logger.error('Error inserting files.')
-        db.session.rollback()
+        session.rollback()
 
     if ins > 0:
         logger.info(str(ins) + ' file(s) inserted.')

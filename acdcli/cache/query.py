@@ -53,12 +53,12 @@ class PathFormatter(ListFormatter):
 
 
 def get_node(node_id: str) -> db.Node:
-    return db.session.query(db.Node).filter_by(id=node_id).first()
+    return db.Session.query(db.Node).filter_by(id=node_id).first()
 
 
 # may be broken
 def get_root_node() -> db.Folder:
-    return db.session.query(db.Folder).filter_by(name=None).first()
+    return db.Session.query(db.Folder).filter_by(name=None).first()
 
 
 def get_root_id() -> str:
@@ -71,7 +71,7 @@ def tree(root_id: str=None, trash=False) -> list:
     if root_id is None:
         return node_list(trash=trash)
 
-    folder = db.session.query(db.Folder).filter_by(id=root_id).first()
+    folder = db.Session.query(db.Folder).filter_by(id=root_id).first()
     if not folder:
         logger.error('Not a folder or not found: "%s".' % root_id)
         return []
@@ -84,7 +84,7 @@ def list_children(folder_id: str, recursive=False, trash=False) -> list:
     :param folder_id: valid folder's id
     :return: list of node names, folders first
     """
-    folder = db.session.query(db.Folder).filter_by(id=folder_id).first()
+    folder = db.Session.query(db.Folder).filter_by(id=folder_id).first()
     if not folder:
         logger.warning('Not a folder or not found: "%s".' % folder_id)
         return []
@@ -129,7 +129,7 @@ def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, 
 
 
 def list_trash(recursive=False) -> list:
-    trash_nodes = db.session.query(db.Node).filter(db.Node.status == 'TRASH').all()
+    trash_nodes = db.Session().query(db.Node).filter(db.Node.status == 'TRASH').all()
     trash_nodes = sorted(trash_nodes)
 
     nodes = []
@@ -142,7 +142,7 @@ def list_trash(recursive=False) -> list:
 
 
 def find(name: str) -> list:
-    q = db.session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
+    q = db.Session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
     q = sorted(q, key=lambda x: x.full_path())
 
     nodes = []
@@ -152,7 +152,7 @@ def find(name: str) -> list:
 
 
 def find_md5(md5: str) -> list:
-    q = db.session.query(db.File).filter_by(md5=md5)
+    q = db.Session.query(db.File).filter_by(md5=md5)
     q = sorted(q, key=lambda x: x.full_path())
 
     nodes = []
@@ -163,7 +163,7 @@ def find_md5(md5: str) -> list:
 
 def file_size_exists(size: int) -> bool:
     """Returns whether cache contains one or more file(s) of given size."""
-    return db.session.query(db.File).filter_by(size=size).count()
+    return db.Session.query(db.File).filter_by(size=size).count()
 
 
 def resolve_path(path: str, root=None, trash=True) -> str:

@@ -2,12 +2,12 @@ import os
 import logging
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, scoped_session, relationship
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-session = None
+Session = None
 engine = None
 
 Base = declarative_base()
@@ -35,7 +35,7 @@ class Metadate(Base):
 class _KeyValueStorage(object):
     @staticmethod
     def __getitem__(key: str):
-        val = session.query(Metadate).filter_by(key=key).first()
+        val = Session.query(Metadate).filter_by(key=key).first()
         if val:
             return val.value
         else:
@@ -44,16 +44,16 @@ class _KeyValueStorage(object):
     @staticmethod
     def __setitem__(key: str, value: str):
         md = Metadate(key, value)
-        session.merge(md)
-        session.commit()
+        Session.merge(md)
+        Session.commit()
 
     @staticmethod
     def __len__():
-        return session.query(Metadate).count()
+        return Session.query(Metadate).count()
 
     @staticmethod
     def get(key: str, default: str=None):
-        val = session.query(Metadate).filter_by(key=key).first()
+        val = Session.query(Metadate).filter_by(key=key).first()
         return val.value if val else default
 
     @classmethod
@@ -233,7 +233,7 @@ def init(path=''):
     logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
     db_path = os.path.join(path, 'nodes.db')
 
-    global session
+    global Session
     global engine
     engine = create_engine('sqlite:///%s' % db_path)
 
@@ -247,8 +247,8 @@ def init(path=''):
     logger.info('Cache %sconsidered uninitialized.' % ('' if uninitialized else 'not '))
 
     Base.metadata.create_all(engine)
-    _session = sessionmaker(bind=engine)
-    session = _session()
+    session_factory = sessionmaker(bind=engine)
+    Session = scoped_session(session_factory)
 
     if uninitialized:
         return
