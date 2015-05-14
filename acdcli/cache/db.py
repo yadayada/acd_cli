@@ -32,6 +32,39 @@ class Metadate(Base):
         self.value = value
 
 
+class _KeyValueStorage(object):
+    @staticmethod
+    def __getitem__(key: str):
+        val = session.query(Metadate).filter_by(key=key).first()
+        if val:
+            return val.value
+        else:
+            raise KeyError
+
+    @staticmethod
+    def __setitem__(key: str, value: str):
+        md = Metadate(key, value)
+        session.merge(md)
+        session.commit()
+
+    @staticmethod
+    def __len__():
+        return session.query(Metadate).count()
+
+    @staticmethod
+    def get(key: str, default: str=None):
+        val = session.query(Metadate).filter_by(key=key).first()
+        return val.value if val else default
+
+    @classmethod
+    def update(cls, dict_: dict):
+        for key in dict_.keys():
+            cls.__setitem__(key, dict_[key])
+
+# next best thing to a subscriptable class
+KeyValueStorage = _KeyValueStorage()
+
+
 class Label(Base):
     """added in v1"""
     __tablename__ = 'labels'
@@ -220,8 +253,6 @@ def init(path=''):
     if uninitialized:
         return
 
-    import acdcli.cache.sync as sync
-
     r = engine.execute('PRAGMA user_version;')
     ver = r.first()[0]
     r.close()
@@ -230,12 +261,6 @@ def init(path=''):
 
     if DB_SCHEMA_VER > ver:
         _migrate(ver)
-
-    oldest = sync.max_age()
-    if oldest:
-        logger.info('Oldest node info is %f days old.' % oldest)
-        if oldest > 30:
-            logger.warning('Cache is outdated. Please perform a full sync.')
 
 
 def drop_all():

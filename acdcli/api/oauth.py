@@ -63,6 +63,8 @@ def _get_data():
         if EXP_TIME_KEY not in oauth_data:
             _treat_auth_token(oauth_data, curr_time)
             _oauth_data_changed()
+        else:
+            _get_auth_token()
 
 
 def _get_auth_token() -> str:
@@ -109,7 +111,11 @@ def _refresh_auth_token():
     ref = {REFR_TOKEN_KEY: oauth_data[REFR_TOKEN_KEY]}
     t = time.time()
 
-    response = requests.post(APPSPOT_URL, data=ref)
+    try:
+        response = requests.post(APPSPOT_URL, data=ref)
+    except:
+        logger.error('Error refreshing authentication token.')
+        raise
     try:
         r = response.json()
     except ValueError as e:

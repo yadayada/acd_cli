@@ -1,5 +1,6 @@
 import json
 import logging
+import http.client as http
 
 from .common import *
 
@@ -8,11 +9,7 @@ logger = logging.getLogger(__name__)
 
 # additional parameters are: tempLink='true'
 def get_node_list(**params) -> list:
-    q_params = {}
-    for param in params.keys():
-        q_params[param] = params[param]
-
-    return BackOffRequest.paginated_get(get_metadata_url() + 'nodes', q_params)
+    return BackOffRequest.paginated_get(get_metadata_url() + 'nodes', params)
 
 
 def get_file_list() -> list:
@@ -175,8 +172,14 @@ def set_available(node_id: str) -> dict:
     return update_metadata(node_id, properties)
 
 
-# TODO
-def list_properties(node_id: str) -> dict:
-    owner_id = ''
-    r = BackOffRequest.get(get_metadata_url() + "/nodes/" + node_id + "/properties/" + owner_id)
-    return r.json
+def list_properties(node_id: str, owner_id) -> dict:
+    r = BackOffRequest.get(get_metadata_url() + '/nodes/' + node_id + '/properties/' + owner_id)
+    return r.json()['data']
+
+
+def add_property(node_id: str, owner_id, key, value) -> dict:
+    """Maximum number of keys per owner is 10, max. value length is 500"""
+    ok_codes = [http.CREATED]
+    r = BackOffRequest.put(get_metadata_url() + '/nodes/' + node_id + '/properties/' + owner_id + '/' + key,
+                           data=json.dumps({'value': value}), acc_codes=ok_codes)
+    return r.json()

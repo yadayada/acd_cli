@@ -25,7 +25,7 @@ setup(
                   # 'acd_cli.plugins': ['stream = plugins.stream',
                   # 'template = plugins.template']
                   },
-    install_requires=['appdirs', 'python-dateutil', 'pycurl', 'requests>=1.0.0', 'sqlalchemy'],
+    install_requires=['appdirs', 'python-dateutil', 'requests>=2.1.0', 'requests-toolbelt', 'sqlalchemy'],
     classifiers=[
         'Environment :: Console',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'

@@ -157,8 +157,8 @@ Dependencies
 
 - appdirs
 - dateutils (recommended)
-- pycurl
-- requests >= 1.0.0
+- requests >= 2.1.0
+- requests-toolbelt (recommended)
 - sqlalchemy
 
 If you want to get these manually and are using a distribution based on Debian 'jessie', 

@@ -40,6 +40,11 @@ class _Usage(object):
         return str_
 
 
+def get_account_info() -> dict:
+    r = BackOffRequest.get(get_metadata_url() + 'account/info')
+    return r.json()
+
+
 def get_account_usage() -> str:
     r = BackOffRequest.get(get_metadata_url() + 'account/usage')
     if r.status_code not in OK_CODES:

@@ -7,11 +7,19 @@ from time import sleep
 import logging
 import requests
 
+from requests.exceptions import ConnectionError
+
+try:
+    from requests.packages.urllib3.exceptions import ReadTimeoutError
+except ImportError:
+    class ReadTimeoutError(Exception):
+        pass
+
 from . import oauth
 
 
 __all__ = ('RequestError', 'BackOffRequest',
-           'OK_CODES', 'init', 'get_metadata_url', 'get_content_url')
+           'OK_CODES', 'init', 'catch_conn_exception', 'get_metadata_url', 'get_content_url')
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +81,7 @@ def _get_endpoints() -> dict:
         endpoint_data = e
         _save_endpoint_data()
     except ValueError as e:
-        logger.critical('Invalid JSON.')
+        logger.critical('Invalid endpoint JSON.')
         raise e
 
     return e
@@ -86,8 +94,7 @@ def _save_endpoint_data():
 
 class RequestError(Exception):
     class CODE(object):
-        READ_TIMEOUT = 1000
-        WRITE_TIMEOUT = 1001
+        CONN_EXCEPTION = 1000
         FAILED_SUBREQUEST = 1002
         INCOMPLETE_RESULT = 1003
 
@@ -102,9 +109,21 @@ class RequestError(Exception):
         return 'RequestError: ' + str(self.status_code) + ', ' + self.msg
 
 
+def catch_conn_exception(func):
+    """Request connection exception decorator"""
+    def decorated(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (ConnectionError, ReadTimeoutError) as e:
+            raise RequestError(RequestError.CODE.CONN_EXCEPTION, e.__str__())
+    return decorated
+
+
 class BackOffRequest(object):
-    """Wrapper for Requests/pycurl that implements timed back-off algorithm
-    https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices"""
+    """Wrapper for requests that implements timed back-off algorithm
+    https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices
+    Caution: this catches all connection errors and may stall for a long time.
+    """
 
     __session = None
     __last_req_url = ''
@@ -112,7 +131,7 @@ class BackOffRequest(object):
     random.seed()
 
     @classmethod
-    def _success(cls):
+    def _succeeded(cls):
         cls.__retries = 0
 
     @classmethod
@@ -131,6 +150,7 @@ class BackOffRequest(object):
         sleep(duration)
 
     @classmethod
+    @catch_conn_exception
     def _request(cls, type_, url: str, acc_codes: list, **kwargs) -> requests.Response:
         if not cls.__session:
             cls.__session = requests.session()
@@ -148,16 +168,14 @@ class BackOffRequest(object):
         if 'data' in kwargs.keys():
             logger.info(kwargs['data'])
 
-        try:
-            r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
-        except requests.exceptions.ConnectionError as e:
-            raise RequestError(RequestError.CODE.READ_TIMEOUT, e)
-        if r.status_code in acc_codes:
-            cls._success()
-        else:
-            cls._failed()
-
         cls.__last_req_url = url
+        cls._failed()
+
+        r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
+
+        if r.status_code in acc_codes:
+            cls._succeeded()
+
         return r
 
     @classmethod
@@ -179,21 +197,6 @@ class BackOffRequest(object):
     @classmethod
     def delete(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('DELETE', url, acc_codes, **kwargs)
-
-    @classmethod
-    def perform(cls, curl_obj, acc_codes=OK_CODES):
-        cls._wait()
-        if logger.getEffectiveLevel() == logging.DEBUG:
-            curl_obj.setopt(curl_obj.VERBOSE, 1)
-        curl_obj.setopt(curl_obj.HTTPHEADER, oauth.get_auth_header_curl())
-        curl_obj.setopt(curl_obj.CONNECTTIMEOUT, CONN_TIMEOUT)
-        curl_obj.setopt(curl_obj.LOW_SPEED_LIMIT, 1)
-        curl_obj.setopt(curl_obj.LOW_SPEED_TIME, IDLE_TIMEOUT)
-        curl_obj.perform()
-        if curl_obj.getinfo(curl_obj.HTTP_CODE) in acc_codes:
-            cls._success()
-        else:
-            cls._failed()
 
     @classmethod
     def paginated_get(cls, url: str, params: dict=None) -> list:

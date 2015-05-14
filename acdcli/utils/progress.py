@@ -8,9 +8,14 @@ class Progress:
     """line progress indicator"""
     start = None
 
-    # noinspection PyUnusedLocal
-    def curl_ul_progress(self, total_dl_sz: int, downloaded: int, total_ul_sz: int, uploaded: int):
-        self.print_progress(total_ul_sz, uploaded)
+    def __init__(self, total_size: int=0, current_size: int=0, hidden=False):
+        self.total_size = total_size
+        self.current_size = current_size
+        self.hidden = hidden
+
+    def __del__(self):
+        if not self.hidden:
+            print()
 
     def print_progress(self, total_sz: int, current: int):
         if not self.start:
@@ -33,3 +38,8 @@ class Progress:
                              % (completed, spaces, ('%4.1f' % percentage).rjust(5),
                                 (format.file_size_str(total_sz)).rjust(9), (format.speed_str(speed)).rjust(10)))
             sys.stdout.flush()
+
+    def new_chunk(self, chunk):
+        self.current_size += sys.getsizeof(chunk)
+        if not self.hidden:
+            self.print_progress(self.total_size, self.current_size)

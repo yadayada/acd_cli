@@ -6,6 +6,7 @@ import argparse
 import logging
 import signal
 import datetime
+import time
 import re
 from pkgutil import walk_packages
 
@@ -36,6 +37,7 @@ _app_name = os.path.basename(__file__).split('.')[0]
 logger = logging.getLogger(_app_name)
 
 # noinspection PyBroadException
+# monkey patch the user agent
 try:
     import requests.utils
     old_dau = requests.utils.default_user_agent
@@ -76,6 +78,12 @@ ERR_CR_FOLDER = 64
 SERVER_ERR = 512
 
 
+class CacheConsts(object):
+    CHECKPOINT_KEY = 'checkpoint'
+    LAST_SYNC_KEY = 'last_sync'
+    MAX_AGE = 30
+
+
 def signal_handler(signal_, frame):
     if db.session:
         db.session.rollback()
@@ -90,7 +98,7 @@ def pprint(d: dict):
 
 
 def sync_node_list(full=False):
-    cp = sync.get_checkpoint()
+    cp = db.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY)
 
     try:
         nodes, purged, ncp, full = metadata.get_changes(checkpoint=None if full else cp, include_purged=not full)
@@ -107,7 +115,7 @@ def sync_node_list(full=False):
 
     if len(nodes) > 0:
         sync.insert_nodes(nodes)
-    sync.set_checkpoint(ncp)
+    db.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: ncp, CacheConsts.LAST_SYNC_KEY: time.time()})
     return
 
 
@@ -126,6 +134,7 @@ def old_sync():
 
     sync.insert_folders(folders)
     sync.insert_files(files)
+    db.KeyValueStorage['sync_date'] = time.time()
 
 
 def upload(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool, exclude: list) -> int:
@@ -164,18 +173,17 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         file_id = cached_file.id
 
     if not file_id:
-        hasher = hashing.Hasher(path)
-
         if dedup and query.file_size_exists(os.path.getsize(path)):
-            nodes = query.find_md5(hasher.get_result())
+            nodes = query.find_md5(hashing.hash_file(path))
             nodes = query.PathFormatter.format(nodes)
             if len(nodes) > 0:
                 print('Skipping upload of duplicate file "%s".' % short_nm)
                 logger.info('Location of duplicates: %s' % nodes)
                 return 0
 
+        hasher = hashing.IncrementalHasher()
         try:
-            r = content.upload_file(path, parent_id, deduplication=dedup)
+            r = content.upload_file(path, parent_id, read_callback=hasher.update, deduplication=dedup)
             sync.insert_node(r)
             file_id = r['id']
             cached_file = query.get_node(file_id)
@@ -183,7 +191,6 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
-                hasher.stop()
                 if not dedup:
                     logger.error('Uploading "%s" failed. Name collision with non-cached file. '
                                  'If you want to overwrite, please sync and try again.' % short_nm)
@@ -193,12 +200,10 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # colliding node ID is returned in error message -> could be used to continue
                 return UL_DL_FAILED
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                hasher.stop()
                 logger.warning('Timeout while uploading "%s".' % short_nm)
                 # TODO: wait; request parent folder's children
                 return UL_TIMEOUT
             else:
-                hasher.stop()
                 logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return UL_DL_FAILED
 
@@ -220,8 +225,6 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     elif not force:
         print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         return 0
-    else:
-        hasher = hashing.Hasher(path)
 
 
 def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, dedup: bool, exclude: list) -> int:
@@ -339,7 +342,7 @@ def compare(local, remote):
 
 
 #
-# Subparser actions. Return value [typeof(None), int] will be used
+# Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
 #
 
 online_actions = []
@@ -347,11 +350,13 @@ offline_actions = []
 
 
 def online_action(func):
+    """Decorator for actions that do not need to read from cache or autoresolve."""
     online_actions.append(func)
     return func
 
 
 def offline_action(func):
+    """Decorator for actions that can be performed without API calls."""
     offline_actions.append(func)
     return func
 
@@ -643,6 +648,18 @@ def set_log_level(args: argparse.Namespace):
             logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
 
 
+def check_cache_age():
+    last_sync = db.KeyValueStorage.get(CacheConsts.LAST_SYNC_KEY)
+    if not last_sync:
+        return
+    last_sync = datetime.datetime.utcfromtimestamp(float(last_sync))
+    age = (datetime.datetime.utcnow() - last_sync) / datetime.timedelta(days=1)
+    if age > CacheConsts.MAX_AGE:
+        logger.warning('Cache data may be outdated. Please sync.')
+    else:
+        logger.info('Last sync at %s.' % last_sync)
+
+
 def main():
     utf_flag = False
     if sys.stdout.isatty():
@@ -810,14 +827,13 @@ def main():
 
     migrate_cache_files()
 
-    # offline actions
     if args.func not in offline_actions:
         if not common.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
 
-    # online actions
     if args.func not in online_actions:
         db.init(CACHE_PATH)
+        check_cache_age()
 
     if args.no_wait:
         common.BackOffRequest._wait = lambda: None

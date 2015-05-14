@@ -20,26 +20,6 @@ from . import db
 
 logger = logging.getLogger(__name__)
 
-_CHECKPOINT_KEY = 'checkpoint'
-
-
-def get_checkpoint() -> str:
-    cp = db.session.query(db.Metadate).filter_by(key=_CHECKPOINT_KEY).first()
-    return cp.value if cp else None
-
-
-def set_checkpoint(cp: str):
-    cp = db.Metadate(_CHECKPOINT_KEY, cp)
-    db.session.merge(cp)
-    db.session.commit()
-
-
-def max_age() -> float:
-    oldest = db.session.query(func.max(db.Node.updated)).scalar()
-    if not oldest:
-        return 0
-    return (datetime.utcnow() - oldest) / timedelta(days=1)
-
 
 def remove_purged(purged: list):
     for p_id in purged:
