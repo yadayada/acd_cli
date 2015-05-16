@@ -52,15 +52,15 @@ class QueuedLoader(object):
     def start(self) -> int:
         _logger.info('%d jobs in queue.' % self.q.qsize())
 
-        for i in range(self.workers):
-            t = Thread(target=self._worker_task, args=(i,), daemon=True, name='worker-' + str(i))
-            t.start()
-
         p = None
         print_progress = self.print_progress and self.q.qsize() > 0
         if print_progress:
             p = Thread(target=self._print_prog, daemon=True)
             p.start()
+
+        for i in range(self.workers):
+            t = Thread(target=self._worker_task, args=(i,), daemon=True, name='worker-' + str(i))
+            t.start()
 
         self.q.join()
         self.halt = True

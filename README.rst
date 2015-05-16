@@ -82,6 +82,8 @@ You may also get a list of further arguments and their order of an action by cal
 You may provide most node arguments as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
+The number of concurrent transfers can be specified using the argument ``-x [no]``.
+
 When uploading/downloading large amounts of files, it is advisable to save the log messages to a file.
 This can be done by using the verbose argument and appending ``2> >(tee acd.log >&2)`` to the command.
 
@@ -112,7 +114,8 @@ Usage example
 ::
 
     $ acd_cli sync
-      Syncing... Done.
+      Syncing...
+      Done.
 
     $ acd_cli tree
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
@@ -148,7 +151,7 @@ Contribute
 Feel free to use the bug tracker to add issues.
 You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options helpful.
 
-If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that
+If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that.
 There is also a `TODO <TODO.rst>`_ list.
 
 
@@ -165,7 +168,7 @@ Dependencies
 
 If you want to get these manually and are using a distribution based on Debian 'jessie', 
 the necessary packages are
-``python3-appdirs python3-dateutil python3-pycurl python3-requests python3-sqlalchemy``.
+``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
 
 Recent Changes
 --------------
