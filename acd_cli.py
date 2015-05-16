@@ -5,22 +5,24 @@ import json
 import argparse
 import logging
 import signal
-import datetime
+from datetime import datetime, timedelta
 import time
 import re
-from pkgutil import walk_packages
-
-from pkg_resources import iter_entry_points
 import appdirs
+from functools import partial
+from collections import namedtuple
 
-from acdcli import plugins
+from pkgutil import walk_packages
+from pkg_resources import iter_entry_points
 
-from acdcli.cache import *
 from acdcli.api import *
 from acdcli.api.common import RequestError
+from acdcli.cache import *
+from acdcli.utils import hashing, progress
+from acdcli.utils.threading import QueuedLoader
 
 # load local plugin modules (default ones, for developers)
-from acdcli.utils import hashing
+from acdcli import plugins
 
 for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plugins.__name__ + '.',
                                               onerror=lambda x: None):
@@ -31,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 _app_name = os.path.basename(__file__).split('.')[0]
 
 logger = logging.getLogger(_app_name)
@@ -40,10 +42,12 @@ logger = logging.getLogger(_app_name)
 # monkey patch the user agent
 try:
     import requests.utils
+
     old_dau = requests.utils.default_user_agent
 
     def new_dau():
         return _app_name + '/' + __version__ + ' ' + old_dau()
+
     requests.utils.default_user_agent = new_dau
 except:
     pass
@@ -74,19 +78,15 @@ UL_DL_FAILED = 8
 UL_TIMEOUT = 16
 HASH_MISMATCH = 32
 ERR_CR_FOLDER = 64
+SIZE_MISMATCH = 128
+CACHE_ASYNC = 256
 
 SERVER_ERR = 512
 
 
-class CacheConsts(object):
-    CHECKPOINT_KEY = 'checkpoint'
-    LAST_SYNC_KEY = 'last_sync'
-    MAX_AGE = 30
-
-
 def signal_handler(signal_, frame):
-    if db.session:
-        db.session.rollback()
+    # if db.Session:
+    #     db.Session.rollback()
     sys.exit(KEYB_INTERR_RETVAL)
 
 
@@ -95,6 +95,17 @@ signal.signal(signal.SIGINT, signal_handler)
 
 def pprint(d: dict):
     print(json.dumps(d, indent=4, sort_keys=True))
+
+
+#
+# Glue functions (API, cache)
+#
+
+
+class CacheConsts(object):
+    CHECKPOINT_KEY = 'checkpoint'
+    LAST_SYNC_KEY = 'last_sync'
+    MAX_AGE = 30
 
 
 def sync_node_list(full=False):
@@ -136,23 +147,21 @@ def old_sync():
     sync.insert_files(files)
     db.KeyValueStorage['sync_date'] = time.time()
 
+#
+# File transfer
+#
 
-def upload(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool, exclude: list) -> int:
-    if not os.access(path, os.R_OK):
-        logger.error('Path "%s" is not accessible.' % path)
-        return INVALID_ARG_RETVAL
+RetryRetVal = namedtuple('RetryRetVal', ['ret', 'retry'])
+RETRY_RETVALS = [UL_DL_FAILED]
 
-    if os.path.isdir(path):
-        print('Current directory: %s' % path)
-        return upload_folder(path, parent_id, overwr, force, dedup, exclude)
-    elif os.path.isfile(path):
-        short_nm = os.path.basename(path)
-        for reg in exclude:
-            if re.match(reg, short_nm):
-                print('Skipping upload of "%s" because of exclusion pattern.' % short_nm)
-                return 0
-        print('Current file: %s' % short_nm)
-        return upload_file(path, parent_id, overwr, force, dedup)
+
+def retry_on(ret_vals: list):
+    def wrap(f):
+        def wrapped(*args, **kwargs):
+            ret_val = f(*args, **kwargs)
+            return RetryRetVal(ret_val, ret_val in ret_vals)
+        return wrapped
+    return wrap
 
 
 def compare_hashes(hash1: str, hash2: str, file_name: str):
@@ -160,85 +169,47 @@ def compare_hashes(hash1: str, hash2: str, file_name: str):
         logger.error('Hash mismatch between local and remote file for "%s".' % file_name)
         return HASH_MISMATCH
 
-    logger.info('Local and remote hashes match for "%s".' % file_name)
+    logger.debug('Local and remote hashes match for "%s".' % file_name)
     return 0
 
 
-def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool) -> int:
-    short_nm = os.path.basename(path)
+def create_upload_jobs(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
+                       exclude: list, jobs: list) -> int:
+    if not os.access(path, os.R_OK):
+        logger.error('Path "%s" is not accessible.' % path)
+        return INVALID_ARG_RETVAL
 
-    cached_file = query.get_node(parent_id).get_child(short_nm)
-    file_id = None
-    if cached_file:
-        file_id = cached_file.id
-
-    if not file_id:
-        if dedup and query.file_size_exists(os.path.getsize(path)):
-            nodes = query.find_md5(hashing.hash_file(path))
-            nodes = query.PathFormatter.format(nodes)
-            if len(nodes) > 0:
-                print('Skipping upload of duplicate file "%s".' % short_nm)
-                logger.info('Location of duplicates: %s' % nodes)
+    if os.path.isdir(path):
+        return traverse_ul_dir(path, parent_id, overwr, force, dedup, exclude, jobs)
+    elif os.path.isfile(path):
+        short_nm = os.path.basename(path)
+        for reg in exclude:
+            if re.match(reg, short_nm):
+                logger.info('Skipping upload of "%s" because of exclusion pattern.' % short_nm)
                 return 0
 
-        hasher = hashing.IncrementalHasher()
-        try:
-            r = content.upload_file(path, parent_id, read_callback=hasher.update, deduplication=dedup)
-            sync.insert_node(r)
-            file_id = r['id']
-            cached_file = query.get_node(file_id)
-            return compare_hashes(hasher.get_result(), cached_file.md5, short_nm)
-
-        except RequestError as e:
-            if e.status_code == 409:  # might happen if cache is outdated
-                if not dedup:
-                    logger.error('Uploading "%s" failed. Name collision with non-cached file. '
-                                 'If you want to overwrite, please sync and try again.' % short_nm)
-                else:
-                    logger.error('Uploading "%s" failed. Name or hash collision with non-cached file.' % short_nm)
-                    logger.info(e)
-                # colliding node ID is returned in error message -> could be used to continue
-                return UL_DL_FAILED
-            elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                logger.warning('Timeout while uploading "%s".' % short_nm)
-                # TODO: wait; request parent folder's children
-                return UL_TIMEOUT
-            else:
-                logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
-                return UL_DL_FAILED
-
-    # else: file exists
-    mod_time = (cached_file.modified - datetime.datetime(1970, 1, 1)) / datetime.timedelta(seconds=1)
-
-    logger.info('Remote mtime: ' + str(mod_time) + ', local mtime: ' + str(os.path.getmtime(path))
-                + ', local ctime: ' + str(os.path.getctime(path)))
-
-    if not overwr and not force:
-        print('Skipping upload of existing file "%s".' % short_nm)
-        return 0
-
-    # ctime is checked because files can be overwritten by files with older mtime
-    if mod_time < os.path.getmtime(path) \
-            or (mod_time < os.path.getctime(path) and cached_file.size != os.path.getsize(path)) \
-            or force:
-        return overwrite(file_id, path, dedup=dedup)
-    elif not force:
-        print('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
+        prog = progress.FileProgress(os.path.getsize(path))
+        fo = partial(upload_file, path, parent_id, overwr, force, dedup, pg_handler=prog)
+        jobs.append(fo)
         return 0
 
 
-def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, dedup: bool, exclude: list) -> int:
+def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
+                  exclude: list, jobs: list) -> int:
+    """Duplicates local directory structure."""
+
     if parent_id is None:
         parent_id = query.get_root_id()
     parent = query.get_node(parent_id)
 
-    real_path = os.path.realpath(folder)
+    real_path = os.path.realpath(directory)
     short_nm = os.path.basename(real_path)
 
     curr_node = parent.get_child(short_nm)
-    if not curr_node or curr_node.status == 'TRASH' or parent.status == 'TRASH':
+    if not curr_node or not curr_node.is_available() or not parent.is_available():
         try:
             r = content.create_folder(short_nm, parent_id)
+            logger.info('Created folder "%s"' % (parent.full_path() + short_nm))
             sync.insert_node(r)
             curr_node = query.get_node(r['id'])
         except RequestError as e:
@@ -251,62 +222,141 @@ def upload_folder(folder: str, parent_id: str, overwr: bool, force: bool, dedup:
         logger.error('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
         return ERR_CR_FOLDER
 
-    entries = sorted(os.listdir(folder))
+    entries = sorted(os.listdir(directory))
 
     ret_val = 0
     for entry in entries:
         full_path = os.path.join(real_path, entry)
-        ret_val |= upload(full_path, curr_node.id, overwr, force, dedup, exclude)
+        ret_val |= create_upload_jobs(full_path, curr_node.id, overwr, force, dedup, exclude, jobs)
 
     return ret_val
 
 
-def overwrite(node_id, local_file, dedup=False) -> int:
-    hasher = hashing.Hasher(local_file)
+@retry_on(RETRY_RETVALS)
+def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
+                pg_handler: progress.FileProgress=None) -> RetryRetVal:
+    short_nm = os.path.basename(path)
+
+    logger.info('Uploading %s' % path)
+
+    cached_file = query.get_node(parent_id).get_child(short_nm)
+    file_id = None
+    if cached_file:
+        file_id = cached_file.id
+
+    if not file_id:
+        if dedup and query.file_size_exists(os.path.getsize(path)):
+            nodes = query.find_md5(hashing.hash_file(path))
+            nodes = query.PathFormatter.format(nodes)
+            if len(nodes) > 0:
+                # print('Skipping upload of duplicate file "%s".' % short_nm)
+                logger.info('Location of duplicates: %s' % nodes)
+                pg_handler.done()
+                return 0
+
+        try:
+            hasher = hashing.IncrementalHasher()
+            r = content.upload_file(path, parent_id, read_callbacks=[hasher.update, pg_handler.update],
+                                    deduplication=dedup)
+            sync.insert_node(r)
+            file_id = r['id']
+            md5 = query.get_node(file_id).md5
+            # db.Session.remove()
+            return compare_hashes(hasher.get_result(), md5, short_nm)
+
+        except RequestError as e:
+            if e.status_code == 409:  # might happen if cache is outdated
+                if not dedup:
+                    logger.error('Uploading "%s" failed. Name collision with non-cached file. '
+                                 'If you want to overwrite, please sync and try again.' % short_nm)
+                else:
+                    logger.error('Uploading "%s" failed. Name or hash collision with non-cached file.' % short_nm)
+                    logger.info(e)
+                # colliding node ID is returned in error message -> could be used to continue
+                return CACHE_ASYNC
+            elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
+                logger.warning('Timeout while uploading "%s".' % short_nm)
+                # TODO: wait; request parent folder's children
+                return UL_TIMEOUT
+            else:
+                logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
+                return UL_DL_FAILED
+
+    # else: file exists
+    rmod = (cached_file.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
+    rmod = datetime.utcfromtimestamp(rmod)
+    lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
+    lcre = datetime.utcfromtimestamp(os.path.getctime(path))
+
+    logger.info('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre ))
+
+    if not overwr and not force:
+        logging.info('Skipping upload of existing file "%s".' % short_nm)
+        pg_handler.done()
+        return 0
+
+    # ctime is checked because files can be overwritten by files with older mtime
+    if rmod < lmod or (rmod < lcre and cached_file.size != os.path.getsize(path)) \
+            or force:
+        return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret
+    elif not force:
+        logging.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
+        pg_handler.done()
+        return 0
+
+
+@retry_on(RETRY_RETVALS)
+def overwrite(node_id, local_file, dedup=False, pg_handler: progress.FileProgress=None) -> RetryRetVal:
+    hasher = hashing.IncrementalHasher()
     try:
-        r = content.overwrite_file(node_id, local_file, deduplication=dedup)
+        r = content.overwrite_file(node_id, local_file,
+                                   read_callbacks=[hasher.update, pg_handler.update], deduplication=dedup)
         sync.insert_node(r)
         node = query.get_node(r['id'])
-        return compare_hashes(node.md5, hasher.get_result(), local_file)
+        md5 = node.md5
+
+        return compare_hashes(md5, hasher.get_result(), local_file)
     except RequestError as e:
-        hasher.stop()
         logger.error('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
         return UL_DL_FAILED
 
 
-def download(node_id: str, local_path: str, exclude: list) -> int:
-    node = query.get_node(node_id)
+def create_dl_jobs(node_id: str, local_path: str, exclude: list, jobs: list) -> int:
+    """Populates passed jobs list with download partials."""
+    local_path = local_path if local_path else ''
 
+    node = query.get_node(node_id)
     if not node.is_available():
         return 0
 
     if node.is_folder():
-        return download_folder(node_id, local_path, exclude)
+        return traverse_dl_folder(node_id, local_path, exclude, jobs)
 
     loc_name = node.name
 
-    # # downloading a non-cached node
-    # if not loc_name:
-    # loc_name = node_id
-
     for reg in exclude:
         if re.match(reg, loc_name):
-            print('Skipping download of "%s" because of exclusion pattern.' % loc_name)
+            logger.info('Skipping download of "%s" because of exclusion pattern.' % loc_name)
             return 0
 
-    hasher = hashing.IncrementalHasher()
+    flp = os.path.join(local_path, loc_name)
+    if os.path.isfile(flp):
+        logger.info('Skipping download of existing file "%s"' % loc_name)
+        if os.path.getsize(flp) != node.size:
+            logger.info('Skipped file "%s" has different size than local file.' % loc_name)
+            return SIZE_MISMATCH
+        return 0
 
-    try:
-        print('Current file: %s' % loc_name)
-        content.download_file(node_id, loc_name, local_path, length=node.size, write_callback=hasher.update)
-    except RequestError as e:
-        logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (loc_name, e.status_code, e.msg))
-        return UL_DL_FAILED
+    prog = progress.FileProgress(node.size)
+    fo = partial(download_file, node_id, local_path, pg_handler=prog)
+    jobs.append(fo)
 
-    return compare_hashes(hasher.get_result(), node.md5, loc_name)
+    return 0
 
 
-def download_folder(node_id: str, local_path: str, exclude: list) -> int:
+def traverse_dl_folder(node_id: str, local_path: str, exclude: list, jobs: list) -> int:
+    """Duplicates remote folder structure."""
+
     if not local_path:
         local_path = os.getcwd()
 
@@ -317,24 +367,36 @@ def download_folder(node_id: str, local_path: str, exclude: list) -> int:
     else:
         curr_path = os.path.join(local_path, node.name)
 
-    print('Current path: %s' % curr_path)
     try:
         os.makedirs(curr_path, exist_ok=True)
     except OSError:
         logger.error('Error creating directory "%s".' % curr_path)
         return ERR_CR_FOLDER
 
-    children = sorted(node.children)
     ret_val = 0
+    children = sorted(node.children)
     for child in children:
-        if child.status != 'AVAILABLE':
-            continue
-        if child.is_file():
-            ret_val |= download(child.id, curr_path, exclude)
-        elif child.is_folder():
-            ret_val |= download_folder(child.id, curr_path, exclude)
-
+        ret_val |= create_dl_jobs(child.id, curr_path, exclude, jobs)
     return ret_val
+
+
+@retry_on(RETRY_RETVALS)
+def download_file(node_id: str, local_path: str, pg_handler: progress.FileProgress=None) -> RetryRetVal:
+    node = query.get_node(node_id)
+    name, md5, size = node.name, node.md5, node.size
+    # db.Session.remove()  # otherwise, sqlalchemy will complain if thread crashes
+
+    logger.info('Downloading "%s"' % name)
+
+    hasher = hashing.IncrementalHasher()
+    try:
+        content.download_file(node_id, name, local_path, length=size,
+                              write_callbacks=[hasher.update, pg_handler.update])
+    except RequestError as e:
+        logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (name, e.status_code, e.msg))
+        return UL_DL_FAILED
+    else:
+        return compare_hashes(hasher.get_result(), md5, name)
 
 
 def compare(local, remote):
@@ -419,6 +481,7 @@ def regex_helper(args: argparse.Namespace) -> list:
 def upload_action(args: argparse.Namespace) -> int:
     excl_re = regex_helper(args)
 
+    jobs = []
     ret_val = 0
     for path in args.path:
         if not os.path.exists(path):
@@ -426,23 +489,38 @@ def upload_action(args: argparse.Namespace) -> int:
             ret_val |= INVALID_ARG_RETVAL
             continue
 
-        ret_val |= upload(path, args.parent, args.overwrite, args.force, args.deduplicate, excl_re)
+        ret_val |= create_upload_jobs(path, args.parent, args.overwrite, args.force, args.deduplicate, excl_re, jobs)
 
-    return ret_val
+    ql = QueuedLoader(args.max_connections)
+    ql.add_jobs(jobs)
+
+    return ret_val | ql.start()
 
 
 def overwrite_action(args: argparse.Namespace) -> int:
-    if os.path.isfile(args.file):
-        return overwrite(args.node, args.file)
-    else:
+    if not os.path.isfile(args.file):
         logger.error('Invalid file.')
         return INVALID_ARG_RETVAL
+
+    pg_handler = progress.FileProgress(os.path.getsize(args.file))
+    ql = QueuedLoader()
+    job = partial(overwrite, args.node, args.file)
+    ql.add_jobs([job])
+
+    return ql.start()
 
 
 def download_action(args: argparse.Namespace) -> int:
     excl_re = regex_helper(args)
 
-    return download(args.node, args.path, excl_re)
+    jobs = []
+    ret_val = 0
+    ret_val |= create_dl_jobs(args.node, args.path, excl_re, jobs)
+
+    ql = QueuedLoader(args.max_connections)
+    ql.add_jobs(jobs)
+
+    return ret_val | ql.start()
 
 
 def create_action(args: argparse.Namespace) -> int:
@@ -614,7 +692,7 @@ def resolve_remote_path_args(args: argparse.Namespace, attrs: list, exclude_acti
                 incl_trash = args.action not in exclude_actions
                 v = query.resolve_path(val, trash=incl_trash)
                 if not v:
-                    logger.error('Could not resolve path "%s".' % val)
+                    logger.critical('Could not resolve path "%s".' % val)
                     sys.exit(INVALID_ARG_RETVAL)
                 logger.info('Resolved "%s" to "%s"' % (val, v))
                 setattr(args, id_attr, v)
@@ -624,7 +702,7 @@ def resolve_remote_path_args(args: argparse.Namespace, attrs: list, exclude_acti
 
 
 def set_log_level(args: argparse.Namespace):
-    format_ = '%(asctime)s.%(msecs).03d [%(name)s] [%(levelname)s] - %(message)s'
+    format_ = '%(asctime)s.%(msecs).03d [%(levelname)s] [%(name)s] - %(message)s'
     time_fmt = '%y-%m-%d %H:%M:%S'
 
     if not args.verbose and not args.debug:
@@ -652,8 +730,8 @@ def check_cache_age():
     last_sync = db.KeyValueStorage.get(CacheConsts.LAST_SYNC_KEY)
     if not last_sync:
         return
-    last_sync = datetime.datetime.utcfromtimestamp(float(last_sync))
-    age = (datetime.datetime.utcnow() - last_sync) / datetime.timedelta(days=1)
+    last_sync = datetime.utcfromtimestamp(float(last_sync))
+    age = (datetime.utcnow() - last_sync) / timedelta(days=1)
     if age > CacheConsts.MAX_AGE:
         logger.warning('Cache data may be outdated. Please sync.')
     else:
@@ -722,6 +800,10 @@ def main():
 
     dummy_p = argparse.ArgumentParser().add_subparsers()
     re_dummy_sp = dummy_p.add_parser('', add_help=False)
+    re_dummy_sp.add_argument('--max-connections', '-x', action='store', type=int, default=1,
+                             help='set the maximum concurrent connections [default: 1]')
+    re_dummy_sp.add_argument('--max-retries', '-r', action='store', type=int, default=0,
+                             help='set the maximum number of retries [default: 0]')
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
                              help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
     re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
@@ -746,7 +828,7 @@ def main():
     overwrite_sp.set_defaults(func=overwrite_action)
 
     download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
-                                        help='download a remote folder or file; will overwrite local files')
+                                        help='download a remote folder or file; will skip existing local files')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)

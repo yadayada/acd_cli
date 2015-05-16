@@ -6,14 +6,18 @@ import random
 from time import sleep
 import logging
 import requests
+from threading import Lock, local
 
 from requests.exceptions import ConnectionError
 
 try:
-    from requests.packages.urllib3.exceptions import ReadTimeoutError
+    from requests.exceptions import ReadTimeout as ReadTimeoutError
 except ImportError:
-    class ReadTimeoutError(Exception):
-        pass
+    try:
+        from requests.packages.urllib3.exceptions import ReadTimeoutError
+    except ImportError:
+        class ReadTimeoutError(Exception):
+            pass
 
 from . import oauth
 
@@ -126,27 +130,32 @@ class BackOffRequest(object):
     """
 
     __session = None
-    __last_req_url = ''
+    __thr_local = local()
     __retries = 0
+    __lock = Lock()
+
     random.seed()
 
     @classmethod
     def _succeeded(cls):
-        cls.__retries = 0
+        with cls.__lock:
+            cls.__retries = 0
 
     @classmethod
     def _failed(cls):
-        cls.__retries += 1
+        with cls.__lock:
+            cls.__retries += 1
 
     @classmethod
     def _wait(cls):
         """Randomly waits in a range of seconds, depending on number of failed previous tries (r):
         [0,2^r], maximum interval [0,256]"""
 
-        duration = random.random() * 2 ** min(cls.__retries, 8)
+        with cls.__lock:
+            duration = random.random() * 2 ** min(cls.__retries, 8)
         if duration > 5:
             logger.warning('Waiting %f s because of error(s).' % duration)
-        logger.info('Retry %i, waiting %f secs' % (cls.__retries, duration))
+        logger.debug('Retry %i, waiting %f secs' % (cls.__retries, duration))
         sleep(duration)
 
     @classmethod
@@ -161,14 +170,15 @@ class BackOffRequest(object):
             headers = dict(headers, **(kwargs['headers']))
             del kwargs['headers']
 
-        if url == cls.__last_req_url:
+        last_url = getattr(cls.__thr_local, 'last_req_url', None)
+        if url == last_url:
             logger.debug('%s "%s"' % (type_, url))
         else:
             logger.info('%s "%s"' % (type_, url))
         if 'data' in kwargs.keys():
-            logger.info(kwargs['data'])
+            logger.debug(kwargs['data'])
 
-        cls.__last_req_url = url
+        cls.__thr_local.last_req_url = url
         cls._failed()
 
         r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)

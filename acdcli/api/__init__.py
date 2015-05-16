@@ -1,4 +1,4 @@
-__version__ = '0.3'
+__version__ = '0.4'
 __all__ = ('account', 'common', 'content', 'metadata', 'trash')
 
 """
@@ -21,7 +21,7 @@ This is the usual node JSON format for a file::
            'kind': 'FILE',
            'labels': [],
            'modifiedDate': '2015-01-01T00:00:00.000Z',
-           'name': 'empty.text',
+           'name': 'empty.txt',
            'parents': ['0123AbCdEfGhIjKlMnOpQr'],
            'restricted': False,
            'status': 'AVAILABLE',
@@ -30,5 +30,7 @@ This is the usual node JSON format for a file::
 
 The ``modifiedDate`` and ``version`` keys get updated each time the content or metadata is updated.
 ``contentProperties['version']`` gets updated on overwrite.
+
+A folder's JSON looks similar, but it lacks the ``contentProperties`` dictionary.
 
 """

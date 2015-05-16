@@ -13,10 +13,8 @@ File Transfer
 ~~~~~~~~~~~~~
 
 * autosplit large files (determine maximum size first)
-* job pool (ul/dl) for simultaneous transfers
-* node directory walker (similar to os.walk)
+* node directory walker (similar to os.walk) ?
 * more sophisticated progress handler that supports offsets, ETA
-* curl on-the-fly hashing OR
 * replace curl by requests-toolbelt
  
 User experience
@@ -26,7 +24,7 @@ User experience
 * output coloring
 * manual shell completion
 * nicer help formatting
-  * segment actions into blocks
+  - segment actions into blocks
 
 Tests
 ~~~~~

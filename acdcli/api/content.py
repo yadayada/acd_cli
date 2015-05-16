@@ -1,5 +1,4 @@
 import http.client as http
-import sys
 import os
 import json
 import io
@@ -12,9 +11,7 @@ try:
 except ImportError:
     from acdcli.bundled.encoder import MultipartEncoder
 
-from . import oauth
 from .common import *
-from ..utils import progress
 
 FS_RW_CHUNK_SZ = 1024 * 64
 
@@ -73,20 +70,16 @@ def _get_mimetype(file_name: str) -> str:
     return mt if mt else 'application/octet-stream'
 
 
-def upload_file(file_name: str, parent: str=None, read_callback=None, deduplication=False) -> dict:
+def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
     params = {} if deduplication else {'suppress': 'deduplication'}
 
     metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
     if parent:
         metadata['parents'] = [parent]
 
-    pgo = progress.Progress(os.path.getsize(file_name))
     mime_type = _get_mimetype(file_name)
-    callbacks = [pgo.new_chunk]
-    if read_callback:
-        callbacks.append(read_callback)
 
-    f = tee_open(file_name, callbacks=callbacks)
+    f = tee_open(file_name, callbacks=read_callbacks)
     m = MultipartEncoder(fields=OrderedDict([('metadata', json.dumps(metadata)),
                                              ('content', (file_name, f, mime_type))]))
 
@@ -99,18 +92,12 @@ def upload_file(file_name: str, parent: str=None, read_callback=None, deduplicat
     return r.json()
 
 
-def overwrite_file(node_id: str, file_name: str, read_callback=None, deduplication=False) -> dict:
+def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplication=False) -> dict:
     params = {} if deduplication else {'suppress': 'deduplication'}
 
-    pgo = progress.Progress(os.path.getsize(file_name))
-
-    callbacks = [pgo.new_chunk]
-    if read_callback:
-        callbacks.append(read_callback)
-
     mime_type = _get_mimetype(file_name)
-    f = tee_open(file_name, callbacks=callbacks)
-    m = MultipartEncoder(fields={('content', ('name=' + file_name, f, 'Content-Type=' + mime_type))})
+    f = tee_open(file_name, callbacks=read_callbacks)
+    m = MultipartEncoder(fields={('content', (file_name, f, mime_type))})
 
     r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params, data=m,
                            stream=True, headers={'Content-Type': m.content_type})
@@ -132,18 +119,16 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
 
     if ('resume' not in kwargs or kwargs['resume']) \
             and os.path.isfile(part_path):
-        with open(part_path, 'wb') as f:
+        with open(part_path, 'ab') as f:
             trunc_pos = os.path.getsize(part_path) - 1 - FS_RW_CHUNK_SZ
             f.truncate(trunc_pos if trunc_pos >= 0 else 0)
 
-        write_callback = kwargs.get('write_callback')
-        if write_callback:
+        write_callbacks = kwargs.get('write_callbacks')
+        if write_callbacks:
             with open(part_path, 'rb') as f:
-                while True:
-                    chunk = f.read(FS_RW_CHUNK_SZ)
-                    if not chunk:
-                        break
-                    write_callback(chunk)
+                for chunk in iter(lambda: f.read(FS_RW_CHUNK_SZ), b''):
+                    for rcb in write_callbacks:
+                        rcb(chunk)
 
         f = open(part_path, 'ab')
     else:
@@ -167,11 +152,10 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """
     ok_codes = [http.PARTIAL_CONTENT]
 
-    write_callback = kwargs.get('write_callback', None)
+    write_callbacks = kwargs.get('write_callbacks', [])
 
     length = kwargs.get('length', 100 * 1024 ** 4)
 
-    pgo = progress.Progress()
     chunk_start = kwargs.get('offset', 0)
     retries = 0
     while chunk_start < length:
@@ -203,10 +187,9 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
             if chunk:  # filter out keep-alive new chunks
                 file.write(chunk)
                 file.flush()
-                if write_callback:
-                    write_callback(chunk)
+                for wcb in write_callbacks:
+                    wcb(chunk)
                 curr_ln += len(chunk)
-                pgo.print_progress(length, curr_ln + chunk_start)
         chunk_start += CHUNK_SIZE
         retries = 0
         r.close()

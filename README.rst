@@ -7,9 +7,10 @@ It is currently in alpha stage.
 Features
 --------
 
--  local node caching
--  addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
--  basic plugin support
+- local node caching
+- addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
+- simultaneous uploads/downloads, retry on error
+- basic plugin support
 
 File operations
 ~~~~~~~~~~~~~~~
@@ -82,7 +83,7 @@ You may provide most node arguments as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
 When uploading/downloading large amounts of files, it is advisable to save the log messages to a file.
-This can be done by appending ``2> >(tee acd.log >&2)`` to the command.
+This can be done by using the verbose argument and appending ``2> >(tee acd.log >&2)`` to the command.
 
 Files can be excluded via optional parameter by file ending, e.g. ``-xe bak``,
 or regular expression on the whole file name, e.g. ``-xr "^thumbs\.db$"``.
@@ -94,11 +95,13 @@ the exit status will be 0. Possible flag values are:
 =====================    =======
         flag              value
 =====================    =======
-argument error              2
-failed file transfer        8
+argument error               2
+failed file transfer         8
 upload timeout              16
 hash mismatch               32
 error creating folder       64
+file size mismatch         128
+cache outdated             256
 =====================    =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
@@ -110,17 +113,16 @@ Usage example
 
     $ acd_cli sync
       Syncing... Done.
+
     $ acd_cli tree
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
+
     $ acd_cli create /egg/
     $ acd_cli create /egg/bacon/
-    $ acd_cli upload local/spam/ /egg/bacon/
-      Current directory: local/spam/
-      Current file: local/spam/sausage
-      [##################################################] 100.00% of 20.0MiB
-      Current file: local/spam/lobster
-      [##################################################] 100.00% of 10.0MiB
-      [...]
+
+    $ acd_cli upload -x 2 local/spam/ /egg/bacon/
+      [################################]   100.0% of  100MiB  12/12  654.4KB/s
+
     $ acd_cli tree
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
       [         ...          ] [A] /egg/
@@ -168,10 +170,17 @@ the necessary packages are
 Recent Changes
 --------------
 
+0.2.1
+~~~~~
+
+* curl dependency removed
+* added job queue, simultaneous transfers
+* retry on error
+
 0.2.0
 ~~~~~
 * setuptools support
-* workaround for download of files larger than 10 GiB
+* workaround for download of files larger than 10 GiB (no longer working)
 * automatic resuming of downloads
 
 0.1.3

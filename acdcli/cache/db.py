@@ -233,9 +233,18 @@ def init(path=''):
     logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
     db_path = os.path.join(path, 'nodes.db')
 
+    import ctypes
+    from ctypes.util import find_library
+    sqlite = ctypes.CDLL(find_library('sqlite3'))
+    if not sqlite.sqlite3_threadsafe():
+        # http://www.sqlite.org/c3ref/threadsafe.html
+        logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
+
     global Session
     global engine
-    engine = create_engine('sqlite:///%s' % db_path)
+    engine = create_engine('sqlite:///%s' % db_path, connect_args={'check_same_thread': False})
+
+    # check for serialized mode
 
     uninitialized = not os.path.exists(db_path)
     if not uninitialized:
