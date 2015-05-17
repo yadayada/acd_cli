@@ -159,6 +159,9 @@ def retry_on(ret_vals: list):
     def wrap(f):
         def wrapped(*args, **kwargs):
             ret_val = f(*args, **kwargs)
+            h = kwargs.get('pg_handler')
+            if h:
+                h.status = ret_val
             return RetryRetVal(ret_val, ret_val in ret_vals)
         return wrapped
     return wrap
@@ -261,7 +264,6 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             sync.insert_node(r)
             file_id = r['id']
             md5 = query.get_node(file_id).md5
-            # db.Session.remove()
             return compare_hashes(hasher.get_result(), md5, short_nm)
 
         except RequestError as e:
@@ -491,7 +493,7 @@ def upload_action(args: argparse.Namespace) -> int:
 
         ret_val |= create_upload_jobs(path, args.parent, args.overwrite, args.force, args.deduplicate, excl_re, jobs)
 
-    ql = QueuedLoader(args.max_connections)
+    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
@@ -503,7 +505,7 @@ def overwrite_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
     pg_handler = progress.FileProgress(os.path.getsize(args.file))
-    ql = QueuedLoader()
+    ql = QueuedLoader(max_retries=args.max_retries)
     job = partial(overwrite, args.node, args.file)
     ql.add_jobs([job])
 
@@ -517,7 +519,7 @@ def download_action(args: argparse.Namespace) -> int:
     ret_val = 0
     ret_val |= create_dl_jobs(args.node, args.path, excl_re, jobs)
 
-    ql = QueuedLoader(args.max_connections)
+    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()

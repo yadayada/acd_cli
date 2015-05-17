@@ -5,7 +5,7 @@ import os
 logger = logging.getLogger(__name__)
 
 
-class IncrementalHasher():
+class IncrementalHasher(object):
     def __init__(self):
         self.hasher = hashlib.md5()
 

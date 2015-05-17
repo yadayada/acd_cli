@@ -173,7 +173,7 @@ def insert_files(files: list):
     if upd > 0:
         logger.info(str(upd) + ' file(s) updated.')
     if dup > 0:
-        logger.info(str(dup) + ' duplicate files not inserted.')
+        logger.info(str(dup) + ' duplicate file(s) not inserted.')
     if dtd > 0:
         logger.info(str(dtd) + ' file(s) deleted.')
 

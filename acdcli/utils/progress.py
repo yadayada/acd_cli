@@ -3,15 +3,12 @@ import sys
 from math import floor, log10
 from collections import deque
 
-from . import format
-
 
 class FileProgress(object):
-    status = None
-
     def __init__(self, total_sz: int, current: int=0):
         self.total = total_sz
         self.current = current
+        self.status = None
 
     def update(self, chunk):
         self.current += sys.getsizeof(chunk)
@@ -35,6 +32,9 @@ class MultiProgress(object):
     def end(self):
         self.print_progress()
         print()
+        failed = sum(1 for s in self._progresses if s.status)
+        if failed:
+            print('%d file(s) failed.' % failed)
 
     def add(self, progress: FileProgress):
         self._progresses.append(progress)
@@ -71,6 +71,22 @@ class MultiProgress(object):
         item_width = floor(log10(total_items))
         sys.stdout.write('[%s%s] %s%% of %s %s/%d %s\r'
                          % (completed, spaces, ('%3.1f' % percentage).rjust(5),
-                            (format.file_size_str(total_sz)).rjust(7), str(done).rjust(item_width + 1), total_items,
-                            (format.speed_str(avg_speed)).rjust(10)))
+                            (file_size_str(total_sz)).rjust(7), str(done).rjust(item_width + 1), total_items,
+                            (speed_str(avg_speed)).rjust(10)))
         sys.stdout.flush()
+
+
+def speed_str(num: int, suffix='B', time_suffix='/s') -> str:
+    for unit in ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z']:
+        if abs(num) < 1000.0:
+            return "%3.1f%s%s%s" % (num, unit, suffix, time_suffix)
+        num /= 1000.0
+    return "%.1f%s%s%s" % (num, 'Y', suffix, time_suffix)
+
+
+def file_size_str(num: int, suffix='B') -> str:
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+        if abs(num) < 1024.0:
+            return "%3.0f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)

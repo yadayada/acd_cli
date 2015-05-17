@@ -154,7 +154,7 @@ class BackOffRequest(object):
         with cls.__lock:
             duration = random.random() * 2 ** min(cls.__retries, 8)
         if duration > 5:
-            logger.warning('Waiting %f s because of error(s).' % duration)
+            logger.warning('Waiting %fs because of error(s).' % duration)
         logger.debug('Retry %i, waiting %f secs' % (cls.__retries, duration))
         sleep(duration)
 

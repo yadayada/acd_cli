@@ -38,6 +38,7 @@ class QueuedLoader(object):
                 if not rr.retry:
                     break
                 f.keywords.get('pg_handler').reset()
+                try_ += 1
 
             with self.stat_lock:
                 self.exit_stat |= rr.ret
