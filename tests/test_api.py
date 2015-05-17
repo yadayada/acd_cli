@@ -6,7 +6,7 @@ import os
 import random
 import string
 
-from acdcli.api import *
+from acdcli.api import account, common, content, metadata, trash
 from acdcli.api.common import RequestError
 from acdcli.utils import hashing
 
@@ -178,7 +178,6 @@ class APIDefaultTestCase(unittest.TestCase):
         self.assertEqual(n['status'], 'AVAILABLE')
         n = trash.move_to_trash(n['id'])
         self.assertEqual(n['status'], 'TRASH')
-        pass
 
     def test_purge(self):
         f_id = self.create_random_dir()

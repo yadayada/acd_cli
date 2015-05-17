@@ -16,7 +16,7 @@ File Transfer
 * node directory walker (similar to os.walk) ?
 * more sophisticated progress handler that supports offsets, ETA
 * replace curl by requests-toolbelt
- 
+
 User experience
 ~~~~~~~~~~~~~~~
 
@@ -24,7 +24,6 @@ User experience
 * output coloring
 * manual shell completion
 * nicer help formatting
-  - segment actions into blocks
 
 Tests
 ~~~~~

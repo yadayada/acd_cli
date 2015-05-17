@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
 
-/conn_data
-/endpoint_data
-/nodes.db
-/oauth_data
+conn_data
+endpoint_data
+nodes.db
+oauth_data

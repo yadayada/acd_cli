@@ -1,7 +1,7 @@
 acd\_cli
 ========
 
-**acd\_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3. 
+**acd\_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3.
 It is currently in alpha stage.
 
 Features
@@ -42,7 +42,7 @@ A browser tab will open and you will be asked to log in or grant access for 'acd
 Signing in or clicking on 'Continue' will download a JSON file named ``oauth_data``,
 which must be placed in the cache directory displayed on screen (e.g. ``/home/<USER>/.cache/acd_cli``).
 
-You may view the Appspot source code at https://tensile-runway-92512.appspot.com/src.
+You may view the source code of the Appspot app that is used to handle the server part of the OAuth procedure at https://tensile-runway-92512.appspot.com/src.
 
 Usage
 -----
@@ -56,22 +56,30 @@ The following actions are built in
 
         sync (s)            refresh node list cache; necessary for many actions
         clear-cache (cc)    clear node cache [offline operation]
+
         tree (t)            print directory tree [offline operation]
         children (ls)       list a folder's children [offline operation]
         find (f)            find nodes by name [offline operation]
         find-md5 (fm)       find files by MD5 hash [offline operation]
+
         upload (ul)         file and directory upload to a remote destination
         overwrite (ov)      overwrite file A [remote] with content of file B [local]
         download (dl)       download a remote folder or file; will overwrite local files
+        
         create (c, mkdir)   create folder using an absolute path
+
         list-trash (lt)     list trashed nodes [offline operation]
         trash (rm)          move node to trash
-        restore (re)        restore from trash
+        restore (re)        restore node from trash
+
         move (mv)           move node A into folder B
         rename (rn)         rename a node
+
         resolve (rs)        resolve a path to a node ID
+
         add-child (ac)      add a node to a parent folder
         remove-child (rc)   remove a node from a parent folder
+
         usage (u)           show drive usage data
         quota (q)           show drive quota [raw JSON]
         metadata (m)        print a node's metadata [raw JSON]
@@ -111,6 +119,8 @@ If multiple errors occur, their values will be compounded by a binary OR operati
 Usage example
 -------------
 
+In this example, a two-level folder hierarchy is created in an empty cloud drive. Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
+
 ::
 
     $ acd_cli sync
@@ -133,6 +143,9 @@ Usage example
       [         ...          ] [A] /egg/bacon/spam/
       [         ...          ] [A] /egg/bacon/spam/sausage
       [...]
+
+
+The standard node listing format includes the node ID, the first letter of its status and its full_path. Possible statuses are "AVAILABLE" and "TRASH".
 
 Known Issues
 ------------
@@ -166,7 +179,7 @@ Dependencies
 - requests-toolbelt (recommended)
 - sqlalchemy
 
-If you want to get these manually and are using a distribution based on Debian 'jessie', 
+If you want to get these manually and are using a distribution based on Debian 'jessie',
 the necessary packages are
 ``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
 

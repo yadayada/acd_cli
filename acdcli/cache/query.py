@@ -29,9 +29,18 @@ class LongIDFormatter(ListFormatter):
         return list_
 
 
-# TODO
 class TreeFormatter(ListFormatter):
-    pass
+    @staticmethod
+    def format(bunches: list) -> list:
+        list_ = []
+        prev = None
+        for bunch in bunches:
+            pref = ''
+            if bunch.depth > 0:
+                pref = ''
+            list_.append(' ' * 4 * bunch.depth + bunch.node.simple_name())
+            prev = bunch
+        return list_
 
 
 class IDFormatter(ListFormatter):
@@ -123,7 +132,7 @@ def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, 
         if isinstance(child, db.Folder) and recursive:
             node_list(child, True, recursive, trash, path, n_list, depth + 1)
         else:
-            n_list.append(Bunch(node=child, path=path, depth=depth))
+            n_list.append(Bunch(node=child, path=path, depth=depth + 1))
 
     return n_list
 

@@ -463,7 +463,7 @@ def quota_action(args: argparse.Namespace):
 
 
 def regex_helper(args: argparse.Namespace) -> list:
-    """Pre-compiles regex from string"""
+    """Pre-compiles regexes from strings in args namespace."""
     excl_re = []
     for re_ in args.exclude_re:
         try:
@@ -759,7 +759,7 @@ def main():
     opt_parser.add_argument('-v', '--verbose', action='count',
                             help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info')
     opt_parser.add_argument('-d', '--debug', action='count',
-                            help='prints info and debug to stderr; use "-dd" to also get sqlalchemy debug  messages')
+                            help='prints info and debug to stderr; use "-dd" to also get sqlalchemy debug messages')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')
@@ -773,7 +773,7 @@ def main():
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
     old_sync_sp.set_defaults(func=old_sync_action)
 
-    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache [offline operation]')
+    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache [offline operation]\n\n')
     clear_sp.set_defaults(func=clear_action)
 
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
@@ -783,7 +783,7 @@ def main():
     tree_sp.set_defaults(func=tree_action)
 
     list_c_sp = subparsers.add_parser('children', aliases=['ls', 'dir'],
-                                      help='[+] list folder\'s children [offline operation]')
+                                      help='[+] list folder\'s children [offline operation]\n\n')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node')
@@ -794,7 +794,8 @@ def main():
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
 
-    find_hash_sp = subparsers.add_parser('find-md5', aliases=['fh'], help='find files by MD5 hash [offline operation]')
+    find_hash_sp = subparsers.add_parser('find-md5', aliases=['fh'],
+                                         help='find files by MD5 hash [offline operation]\n\n')
     find_hash_sp.add_argument('md5')
     find_hash_sp.set_defaults(func=find_md5_action)
 
@@ -828,12 +829,12 @@ def main():
     overwrite_sp.set_defaults(func=overwrite_action)
 
     download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
-                                        help='download a remote folder or file; will skip existing local files')
+                                        help='download a remote folder or file; will skip existing local files\n\n')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
 
-    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder using an absolute path')
+    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder using an absolute path\n\n')
     cr_fo_sp.add_argument('new_folder', help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
 
@@ -846,7 +847,7 @@ def main():
     m_trash_sp.add_argument('node')
     m_trash_sp.set_defaults(func=trash_action)
 
-    rest_sp = subparsers.add_parser('restore', aliases=['re'], help='restore from trash')
+    rest_sp = subparsers.add_parser('restore', aliases=['re'], help='restore node from trash\n\n')
     rest_sp.add_argument('node', help='ID of the node')
     rest_sp.set_defaults(func=restore_action)
 
@@ -855,12 +856,12 @@ def main():
     move_sp.add_argument('parent')
     move_sp.set_defaults(func=move_action)
 
-    rename_sp = subparsers.add_parser('rename', aliases=['rn'], help='rename a node')
+    rename_sp = subparsers.add_parser('rename', aliases=['rn'], help='rename a node\n\n')
     rename_sp.add_argument('node')
     rename_sp.add_argument('name')
     rename_sp.set_defaults(func=rename_action)
 
-    res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node ID')
+    res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node ID\n\n')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
 
@@ -871,7 +872,7 @@ def main():
     add_c_sp.add_argument('child')
     add_c_sp.set_defaults(func=add_child_action)
 
-    rem_c_sp = subparsers.add_parser('remove-child', aliases=['rc'], help='remove a node from a parent folder')
+    rem_c_sp = subparsers.add_parser('remove-child', aliases=['rc'], help='remove a node from a parent folder\n\n')
     rem_c_sp.add_argument('parent')
     rem_c_sp.add_argument('child')
     rem_c_sp.set_defaults(func=remove_child_action)
