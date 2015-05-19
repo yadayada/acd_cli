@@ -3,6 +3,7 @@ import logging
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session, relationship
+from sqlalchemy.exc import DatabaseError
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,7 @@ engine = None
 Base = declarative_base()
 
 DB_SCHEMA_VER = 1
+DB_FILENAME = 'nodes.db'
 
 parentage_table = Table('parentage', Base.metadata,
                         Column('parent', String(50), ForeignKey('folders.id'), primary_key=True),
@@ -231,14 +233,17 @@ class Folder(Node):
 
 def init(path=''):
     logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
-    db_path = os.path.join(path, 'nodes.db')
+    db_path = os.path.join(path, DB_FILENAME)
 
-    import ctypes
-    from ctypes.util import find_library
-    sqlite = ctypes.CDLL(find_library('sqlite3'))
-    if not sqlite.sqlite3_threadsafe():
-        # http://www.sqlite.org/c3ref/threadsafe.html
-        logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
+    # doesn't seem to work on Windows
+    from ctypes import util, CDLL
+
+    lib = util.find_library('sqlite3')
+    if lib:
+        dll = CDLL(lib)
+        if dll and not dll.sqlite3_threadsafe():
+            # http://www.sqlite.org/c3ref/threadsafe.html
+            logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
 
     global Session
     global engine
@@ -248,7 +253,15 @@ def init(path=''):
 
     uninitialized = not os.path.exists(db_path)
     if not uninitialized:
-        uninitialized = not engine.has_table(Node.__tablename__)
+        try:
+            uninitialized = not engine.has_table(Metadate.__tablename__) and \
+                            not engine.has_table(Node.__tablename__) and \
+                            not engine.has_table(File.__tablename__) and \
+                            not engine.has_table(Folder.__tablename__)
+        except DatabaseError:
+            logger.critical('Error opening database.')
+            return False
+
     if uninitialized:
         r = engine.execute('PRAGMA user_version = %i;' % DB_SCHEMA_VER)
         r.close()
@@ -260,7 +273,7 @@ def init(path=''):
     Session = scoped_session(session_factory)
 
     if uninitialized:
-        return
+        return True
 
     r = engine.execute('PRAGMA user_version;')
     ver = r.first()[0]
@@ -271,10 +284,20 @@ def init(path=''):
     if DB_SCHEMA_VER > ver:
         _migrate(ver)
 
+    return True
+
 
 def drop_all():
     Base.metadata.drop_all(engine)
     logger.info('Dropped all tables.')
+
+
+def remove_db_file(path: str):
+    db_path = os.path.join(path, DB_FILENAME)
+    try:
+        os.remove(db_path)
+    except OSError:
+        logger.critical('Error removing database file "%s".' % db_path)
 
 
 def _migrate(schema: int):

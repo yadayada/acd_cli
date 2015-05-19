@@ -34,7 +34,7 @@ for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
 __version__ = '0.2.1'
-_app_name = os.path.basename(__file__).split('.')[0]
+_app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
 
@@ -198,7 +198,7 @@ def create_upload_jobs(path: str, parent_id: str, overwr: bool, force: bool, ded
 
 
 def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
-                  exclude: list, jobs: list) -> int:
+                    exclude: list, jobs: list) -> int:
     """Duplicates local directory structure."""
 
     if parent_id is None:
@@ -225,7 +225,12 @@ def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, d
         logger.error('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
         return ERR_CR_FOLDER
 
-    entries = sorted(os.listdir(directory))
+    try:
+        entries = sorted(os.listdir(directory))
+    except OSError as e:
+        logger.error('Skipping directory %s because of an error.' % directory)
+        logger.info(e)
+        return
 
     ret_val = 0
     for entry in entries:
@@ -290,7 +295,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
 
-    logger.info('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre ))
+    logger.info('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
     if not overwr and not force:
         logging.info('Skipping upload of existing file "%s".' % short_nm)
@@ -404,7 +409,6 @@ def download_file(node_id: str, local_path: str, pg_handler: progress.FileProgre
 def compare(local, remote):
     pass
 
-
 #
 # Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
 #
@@ -439,9 +443,10 @@ def old_sync_action(args: argparse.Namespace):
     return r
 
 
+@online_action
 @offline_action
 def clear_action(args: argparse.Namespace):
-    db.drop_all()
+    db.remove_db_file(CACHE_PATH)
 
 
 @offline_action
@@ -504,7 +509,6 @@ def overwrite_action(args: argparse.Namespace) -> int:
         logger.error('Invalid file.')
         return INVALID_ARG_RETVAL
 
-    pg_handler = progress.FileProgress(os.path.getsize(args.file))
     ql = QueuedLoader(max_retries=args.max_retries)
     job = partial(overwrite, args.node, args.file)
     ql.add_jobs([job])
@@ -742,13 +746,13 @@ def check_cache_age():
 
 def main():
     utf_flag = False
-    if sys.stdout.isatty():
-        if str.lower(sys.stdout.encoding) != 'utf-8':
-            import io
+    enc = str.lower(sys.stdout.encoding)
+    if not enc or (sys.stdout.isatty() and enc != 'utf-8'):
+        import io
 
-            sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
-            sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
-            utf_flag = True
+        sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
+        utf_flag = True
 
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
@@ -917,7 +921,8 @@ def main():
             sys.exit(INIT_FAILED_RETVAL)
 
     if args.func not in online_actions:
-        db.init(CACHE_PATH)
+        if not db.init(CACHE_PATH):
+            sys.exit(INIT_FAILED_RETVAL)
         check_cache_age()
 
     if args.no_wait:

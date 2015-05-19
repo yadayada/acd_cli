@@ -16,7 +16,7 @@ from .common import *
 FS_RW_CHUNK_SZ = 1024 * 64
 
 PARTIAL_SUFFIX = '.__incomplete'
-CHUNK_SIZE = 50 * 1024 ** 2  # basically arbitrary
+CHUNK_SIZE = 500 * 1024 ** 2  # basically arbitrary
 CHUNK_MAX_RETRY = 5
 CONSECUTIVE_DL_LIMIT = CHUNK_SIZE
 
@@ -29,6 +29,7 @@ def tee_open(path: str, **kwargs):
 
 
 class TeeBufferedReader(object):
+    """Creates proxy buffered reader object that allows callbacks on read operations."""
     def __init__(self, file: io.BufferedReader, callbacks: list=None):
         self._file = file
         self._callbacks = callbacks

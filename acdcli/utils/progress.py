@@ -69,7 +69,7 @@ class MultiProgress(object):
         completed = "#" * int(percentage / 3)
         spaces = " " * (33 - len(completed))
         item_width = floor(log10(total_items))
-        sys.stdout.write('[%s%s] %s%% of %s %s/%d %s\r'
+        sys.stdout.write('[%s%s] %s%% of %s  %s/%d %s\r'
                          % (completed, spaces, ('%3.1f' % percentage).rjust(5),
                             (file_size_str(total_sz)).rjust(7), str(done).rjust(item_width + 1), total_items,
                             (speed_str(avg_speed)).rjust(10)))

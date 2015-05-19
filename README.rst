@@ -24,8 +24,8 @@ File operations
 Quick start
 -----------
 
-Installation
-~~~~~~~~~~~~
+Un/Installation
+~~~~~~~~~~~~~~~
 
 After downloading, run the appropriate pip command for Python 3 in the project's root directory like so:
 ::
@@ -33,6 +33,12 @@ After downloading, run the appropriate pip command for Python 3 in the project's
     pip3 install .
 
 If you do not want to install, have a look at the necessary dependencies_.
+
+Uninstalling can be done using the package name:
+::
+
+    pip3 uninstall acdcli
+
 
 First Run
 ~~~~~~~~~
@@ -64,8 +70,8 @@ The following actions are built in
 
         upload (ul)         file and directory upload to a remote destination
         overwrite (ov)      overwrite file A [remote] with content of file B [local]
-        download (dl)       download a remote folder or file; will overwrite local files
-        
+        download (dl)       download a remote folder or file; will skip existing local files
+
         create (c, mkdir)   create folder using an absolute path
 
         list-trash (lt)     list trashed nodes [offline operation]
@@ -153,7 +159,6 @@ Known Issues
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
-- downloads of files larger than 9 GiB (?) are no longer possible
 - uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
 - the maximum (upload) file size seems to be in the range of 40 and 100 GiB
 - storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
@@ -196,7 +201,7 @@ Recent Changes
 0.2.0
 ~~~~~
 * setuptools support
-* workaround for download of files larger than 10 GiB (no longer working)
+* workaround for download of files larger than 10 GiB
 * automatic resuming of downloads
 
 0.1.3

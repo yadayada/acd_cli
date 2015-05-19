@@ -6,7 +6,7 @@ import logging
 import webbrowser
 import datetime
 
-__all__ = ['init', 'get_auth_header', 'get_auth_header_curl']
+__all__ = ['init', 'get_auth_header']
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,6 @@ def _get_auth_token() -> str:
 
 def get_auth_header() -> dict:
     return {'Authorization': _get_auth_token()}
-
-
-def get_auth_header_curl() -> list:
-    return ['Authorization: ' + _get_auth_token()]
 
 
 def _treat_auth_token(token: str, curr_time: float):

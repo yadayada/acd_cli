@@ -56,11 +56,13 @@ class QueuedLoader(object):
         p = None
         print_progress = self.print_progress and self.q.qsize() > 0
         if print_progress:
-            p = Thread(target=self._print_prog, daemon=True)
+            p = Thread(target=self._print_prog)
+            p.daemon = True
             p.start()
 
         for i in range(self.workers):
-            t = Thread(target=self._worker_task, args=(i,), daemon=True, name='worker-' + str(i))
+            t = Thread(target=self._worker_task, args=(i,), name='worker-' + str(i))
+            t.daemon = True
             t.start()
 
         self.q.join()

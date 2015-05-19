@@ -131,8 +131,9 @@ class BackOffRequest(object):
 
     __session = None
     __thr_local = local()
-    __retries = 0
     __lock = Lock()
+    __retries = 0
+    __next_req = time.time()
 
     random.seed()
 
@@ -140,23 +141,32 @@ class BackOffRequest(object):
     def _succeeded(cls):
         with cls.__lock:
             cls.__retries = 0
+        cls.__calc_next()
 
     @classmethod
     def _failed(cls):
         with cls.__lock:
             cls.__retries += 1
+        cls.__calc_next()
+
+    @classmethod
+    def __calc_next(cls):
+        """Calculates minimal acceptable time for next request.
+        Back-off time is in a range of seconds, depending on number of failed previous tries (r):
+        [0,2^r], maximum interval [0,256]"""
+        with cls.__lock:
+            duration = random.random() * 2 ** min(cls.__retries, 8)
+            cls.__next_req = time.time() + duration
 
     @classmethod
     def _wait(cls):
-        """Randomly waits in a range of seconds, depending on number of failed previous tries (r):
-        [0,2^r], maximum interval [0,256]"""
-
         with cls.__lock:
-            duration = random.random() * 2 ** min(cls.__retries, 8)
+            duration = cls.__next_req - time.time()
         if duration > 5:
             logger.warning('Waiting %fs because of error(s).' % duration)
         logger.debug('Retry %i, waiting %f secs' % (cls.__retries, duration))
-        sleep(duration)
+        if duration > 0:
+            sleep(duration)
 
     @classmethod
     @catch_conn_exception
@@ -179,13 +189,14 @@ class BackOffRequest(object):
             logger.debug(kwargs['data'])
 
         cls.__thr_local.last_req_url = url
-        cls._failed()
 
-        r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
+        try:
+            r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
+        except:
+            cls._failed()
+            raise
 
-        if r.status_code in acc_codes:
-            cls._succeeded()
-
+        cls._succeeded() if r.status_code in acc_codes else cls._failed()
         return r
 
     @classmethod
