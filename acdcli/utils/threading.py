@@ -41,7 +41,7 @@ class QueuedLoader(object):
                 try_ += 1
 
             with self.stat_lock:
-                self.exit_stat |= rr.ret
+                self.exit_stat |= rr.ret_val
             self.q.task_done()
 
     def add_jobs(self, jobs: list):

@@ -151,7 +151,7 @@ def old_sync():
 # File transfer
 #
 
-RetryRetVal = namedtuple('RetryRetVal', ['ret', 'retry'])
+RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
 RETRY_RETVALS = [UL_DL_FAILED]
 
 
@@ -305,7 +305,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and cached_file.size != os.path.getsize(path)) \
             or force:
-        return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret
+        return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret_val
     elif not force:
         logging.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()

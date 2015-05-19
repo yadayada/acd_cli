@@ -5,6 +5,7 @@ import io
 import mimetypes
 from collections import OrderedDict
 import logging
+from urllib.parse import quote_plus
 
 try:
     from requests_toolbelt import MultipartEncoder
@@ -74,15 +75,16 @@ def _get_mimetype(file_name: str) -> str:
 def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
     params = {} if deduplication else {'suppress': 'deduplication'}
 
-    metadata = {'kind': 'FILE', 'name': os.path.basename(file_name)}
+    basename = os.path.basename(file_name)
+    metadata = {'kind': 'FILE', 'name': basename}
     if parent:
         metadata['parents'] = [parent]
-
-    mime_type = _get_mimetype(file_name)
-
+    mime_type = _get_mimetype(basename)
     f = tee_open(file_name, callbacks=read_callbacks)
+
+    # basename is ignored
     m = MultipartEncoder(fields=OrderedDict([('metadata', json.dumps(metadata)),
-                                             ('content', (file_name, f, mime_type))]))
+                                             ('content', (quote_plus(basename), f, mime_type))]))
 
     ok_codes = [http.CREATED]
     r = BackOffRequest.post(get_content_url() + 'nodes', params=params, data=m,
@@ -96,9 +98,12 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
 def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplication=False) -> dict:
     params = {} if deduplication else {'suppress': 'deduplication'}
 
-    mime_type = _get_mimetype(file_name)
+    basename = os.path.basename(file_name)
+    mime_type = _get_mimetype(basename)
     f = tee_open(file_name, callbacks=read_callbacks)
-    m = MultipartEncoder(fields={('content', (file_name, f, mime_type))})
+
+    # basename is ignored
+    m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})
 
     r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params, data=m,
                            stream=True, headers={'Content-Type': m.content_type})
