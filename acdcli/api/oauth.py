@@ -113,7 +113,7 @@ def _refresh_auth_token():
 
     if response.status_code != requests.codes.ok:
         raise RequestError(RequestError.CODE.REFRESH_FAILED,
-                           'Error refreshing authentication token: %s' % requests.text)
+                           'Error refreshing authentication token: %s' % response.text)
 
     r = _validate(response.text)
 
@@ -133,7 +133,7 @@ def _validate(oauth: str):
         return o
     except (ValueError, KeyError) as e:
         logger.critical('Invalid authentication token: Invalid JSON or missing key.')
-        raise RequestError(RequestError.CODE.REFRESH_FAILED, e.__str__())
+        raise RequestError(RequestError.CODE.INVALID_TOKEN, e.__str__())
 
 
 def _write_oauth_data():

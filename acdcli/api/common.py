@@ -115,6 +115,7 @@ class RequestError(Exception):
         FAILED_SUBREQUEST = 1002
         INCOMPLETE_RESULT = 1003
         REFRESH_FAILED = 1004
+        INVALID_TOKEN = 1005
 
     def __init__(self, status_code: int, msg: str):
         self.status_code = status_code
