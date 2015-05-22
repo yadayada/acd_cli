@@ -6,7 +6,7 @@ import logging
 import webbrowser
 import datetime
 
-__all__ = ['init', 'get_auth_header']
+__all__ = ('init', 'get_auth_header')
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +27,15 @@ oauth_data = {}
 APPSPOT_URL = 'https://tensile-runway-92512.appspot.com/'
 
 
-def _oauth_data_changed():
-    with open(oauth_data_path(), 'w') as oa:
-        json.dump(oauth_data, oa, indent=4, sort_keys=True)
-
-
 def init(path: str) -> bool:
     global cache_path
     cache_path = path
 
-    try:
-        _get_data()
-        return True
-    except:
-        raise
+    _load_data()
+    return True
 
 
-def _get_data():
+def _load_data():
     global oauth_data
 
     curr_time = time.time()
@@ -59,22 +51,25 @@ def _get_data():
             raise Exception
 
     with open(oauth_data_path()) as oa:
-        oauth_data = json.load(oa)
-        if EXP_TIME_KEY not in oauth_data:
-            _treat_auth_token(oauth_data, curr_time)
-            _oauth_data_changed()
-        else:
-            _get_auth_token()
+        o = oa.read()
+    oauth_data = _validate(o)
+    if EXP_TIME_KEY not in oauth_data:
+        _treat_auth_token(oauth_data, curr_time)
+        _write_oauth_data()
+    else:
+        _get_auth_token(reload=False)
 
 
-def _get_auth_token() -> str:
+def _get_auth_token(reload=True) -> str:
     global oauth_data
     if time.time() > oauth_data[EXP_TIME_KEY]:
         logger.info('Token expired at %s.' % datetime.datetime.fromtimestamp(oauth_data[EXP_TIME_KEY]).isoformat(' '))
 
         # if multiple instances are running, check for updated file
-        with open(oauth_data_path()) as oa:
-            oauth_data = json.load(oa)
+        if reload:
+            with open(oauth_data_path()) as oa:
+                o = oa.read()
+            oauth_data = _validate(o)
 
         if time.time() > oauth_data[EXP_TIME_KEY]:
             _refresh_auth_token()
@@ -88,7 +83,7 @@ def get_auth_header() -> dict:
 
 
 def _treat_auth_token(token: str, curr_time: float):
-    """Adds expiration time to Amazon OAuth dict"""
+    """Adds expiration time to OAuth dict"""
     if not token:
         return
     try:
@@ -100,6 +95,7 @@ def _treat_auth_token(token: str, curr_time: float):
 
 
 def _refresh_auth_token():
+    """:raises RequestError"""
     global oauth_data
 
     logger.info('Refreshing authentication token.')
@@ -107,17 +103,41 @@ def _refresh_auth_token():
     ref = {REFR_TOKEN_KEY: oauth_data[REFR_TOKEN_KEY]}
     t = time.time()
 
+    from .common import RequestError
+
     try:
         response = requests.post(APPSPOT_URL, data=ref)
-    except:
-        logger.error('Error refreshing authentication token.')
-        raise
-    try:
-        r = response.json()
-    except ValueError as e:
-        logger.critical('Refresh error: Invalid JSON.')
-        raise e
+    except ConnectionError as e:
+        logger.critical('Error refreshing authentication token.')
+        raise RequestError(RequestError.CODE.CONN_EXCEPTION, e.__str__())
+
+    if response.status_code != requests.codes.ok:
+        raise RequestError(RequestError.CODE.REFRESH_FAILED,
+                           'Error refreshing authentication token: %s' % requests.text)
+
+    r = _validate(response.text)
 
     _treat_auth_token(r, t)
     oauth_data = r
-    _oauth_data_changed()
+    _write_oauth_data()
+
+
+def _validate(oauth: str):
+    """:throws: RequestError"""
+    from .common import RequestError
+    try:
+        o = json.loads(oauth)
+        o[ACC_TOKEN_KEY]
+        o[EXP_IN_KEY]
+        o[REFR_TOKEN_KEY]
+        return o
+    except (ValueError, KeyError) as e:
+        logger.critical('Invalid authentication token: Invalid JSON or missing key.')
+        raise RequestError(RequestError.CODE.REFRESH_FAILED, e.__str__())
+
+
+def _write_oauth_data():
+    """Called to dump (treated) OAuth dict to file as JSON."""
+
+    with open(oauth_data_path(), 'w') as oa:
+        json.dump(oauth_data, oa, indent=4, sort_keys=True)

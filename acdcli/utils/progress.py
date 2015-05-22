@@ -11,7 +11,7 @@ class FileProgress(object):
         self.status = None
 
     def update(self, chunk):
-        self.current += sys.getsizeof(chunk)
+        self.current += chunk.__sizeof__()
 
     def reset(self):
         self.current = 0

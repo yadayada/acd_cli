@@ -1,0 +1,5 @@
+{
+    "contentUrl": "https://content-na.drive.amazonaws.com/cdproxy/",
+    "exp_time": 5000000000,
+    "metadataUrl": "https://cdws.us-east-1.amazonaws.com/drive/v1/"
+}

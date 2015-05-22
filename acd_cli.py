@@ -43,10 +43,10 @@ logger = logging.getLogger(_app_name)
 try:
     import requests.utils
 
-    old_dau = requests.utils.default_user_agent
+    requests.utils.old_dau = requests.utils.default_user_agent
 
     def new_dau():
-        return _app_name + '/' + __version__ + ' ' + old_dau()
+        return _app_name + '/' + __version__ + ' ' + requests.utils.old_dau()
 
     requests.utils.default_user_agent = new_dau
 except:
@@ -156,12 +156,19 @@ RETRY_RETVALS = [UL_DL_FAILED]
 
 
 def retry_on(ret_vals: list):
+    """:param ret_vals: list of retry values on which execution should be repeated"""
     def wrap(f):
         def wrapped(*args, **kwargs):
-            ret_val = f(*args, **kwargs)
+            ret_val = 1
+            try:
+                ret_val = f(*args, **kwargs)
+            except Exception as e:
+                logger.error(e.__str__())
             h = kwargs.get('pg_handler')
-            if h:
-                h.status = ret_val
+            h.status = ret_val
+            retry = ret_val in ret_vals
+            if retry:
+                h.reset()
             return RetryRetVal(ret_val, ret_val in ret_vals)
         return wrapped
     return wrap
@@ -509,8 +516,9 @@ def overwrite_action(args: argparse.Namespace) -> int:
         logger.error('Invalid file.')
         return INVALID_ARG_RETVAL
 
+    prog = progress.FileProgress(os.path.getsize(args.file))
     ql = QueuedLoader(max_retries=args.max_retries)
-    job = partial(overwrite, args.node, args.file)
+    job = partial(overwrite, args.node, args.file, pg_handler=prog)
     ql.add_jobs([job])
 
     return ql.start()
@@ -744,6 +752,18 @@ def check_cache_age():
         logger.info('Last sync at %s.' % last_sync)
 
 
+# noinspection PyProtectedMember
+class Argument(object):
+    """Simple argparse argument container"""
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def attach(self, subparser:argparse._ActionsContainer):
+        subparser.add_argument(*self.args, **self.kwargs)
+
+
 def main():
     utf_flag = False
     enc = str.lower(sys.stdout.encoding)
@@ -753,6 +773,9 @@ def main():
         sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
         sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
         utf_flag = True
+
+    max_ret = Argument('--max-retries', '-r', action='store', type=int, default=0,
+                       help='set the maximum number of retries [default: 0]')
 
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
@@ -809,8 +832,7 @@ def main():
     re_dummy_sp = dummy_p.add_parser('', add_help=False)
     re_dummy_sp.add_argument('--max-connections', '-x', action='store', type=int, default=1,
                              help='set the maximum concurrent connections [default: 1]')
-    re_dummy_sp.add_argument('--max-retries', '-r', action='store', type=int, default=0,
-                             help='set the maximum number of retries [default: 0]')
+    max_ret.attach(re_dummy_sp)
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
                              help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
     re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
@@ -830,6 +852,7 @@ def main():
 
     overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'],
                                          help='overwrite file A [remote] with content of file B [local]')
+    max_ret.attach(overwrite_sp)
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)

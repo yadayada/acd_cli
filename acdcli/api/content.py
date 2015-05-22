@@ -116,15 +116,18 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
 
 # local name be valid (must be checked prior to call)
 def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
-    """kwargs: write_callback, resume: bool=True"""
+    """kwargs:
+    write_callbacks (list[function])
+    resume (bool=True): whether to resume if partial file exists
+    """
     dl_path = basename
     if dirname:
         dl_path = os.path.join(dirname, basename)
     part_path = dl_path + PARTIAL_SUFFIX
     offset = 0
 
-    if ('resume' not in kwargs or kwargs['resume']) \
-            and os.path.isfile(part_path):
+    resume = kwargs.get('resume', True)
+    if resume and os.path.isfile(part_path):
         with open(part_path, 'ab') as f:
             trunc_pos = os.path.getsize(part_path) - 1 - FS_RW_CHUNK_SZ
             f.truncate(trunc_pos if trunc_pos >= 0 else 0)
@@ -143,6 +146,7 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
 
     chunked_download(node_id, f, offset=offset, **kwargs)
 
+    f.close()
     if os.path.isfile(dl_path):
         logger.info('Deleting existing file "%s".' % dl_path)
         os.remove(dl_path)
@@ -152,9 +156,9 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
 @catch_conn_exception
 def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """Keyword args:
-    offset: byte offset
-    length: total length, equal to end - 1
-    write_callback
+    offset (int): byte offset -- start byte for ranged request
+    length (int): total length, equal to end - 1
+    write_callbacks (list[function])
     """
     ok_codes = [http.PARTIAL_CONTENT]
 

@@ -1,6 +1,7 @@
 import json
 import logging
 import http.client as http
+from collections import namedtuple
 
 from .common import *
 
@@ -31,10 +32,12 @@ def get_trashed_folders() -> list:
 def get_trashed_files() -> list:
     return get_node_list(filters='status:TRASH AND kind:FILE')
 
+ChangeSet = namedtuple('Changes', ['nodes', 'purged_nodes', 'checkpoint', 'reset'])
 
-def get_changes(checkpoint='', include_purged=False) -> (list, list, str, bool):
+
+def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
     """ https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
-    :returns (list, purged, str, bool) list of nodes, list of purged nodes, last checkpoint, reset flag
+    :returns ChangeSet: list of nodes, list of purged nodes, last checkpoint, reset flag
     """
 
     logger.info('Getting changes with checkpoint "%s".' % checkpoint)
@@ -68,7 +71,11 @@ def get_changes(checkpoint='', include_purged=False) -> (list, list, str, bool):
 
         pages += 1
 
-        o = json.loads(line.decode('utf-8'))
+        try:
+            o = json.loads(line.decode('utf-8'))
+        except ValueError:
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] Invalid JSON in change set.')
+
         try:
             if o['end']:
                 end = True
@@ -97,7 +104,7 @@ def get_changes(checkpoint='', include_purged=False) -> (list, list, str, bool):
     if not end:
         logger.warning('End of change request not reached.')
 
-    return nodes, purged_nodes, checkpoint, reset
+    return ChangeSet(nodes, purged_nodes, checkpoint, reset)
 
 
 def get_metadata(node_id: str) -> dict:

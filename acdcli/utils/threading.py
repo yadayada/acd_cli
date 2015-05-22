@@ -9,8 +9,11 @@ _logger = logging.getLogger(__name__)
 
 
 class QueuedLoader(object):
+    """Multi-threaded loader intended for file transfer jobs."""
+
     MAX_NUM_WORKERS = 8
     MAX_RETRIES = 4
+    REFRESH_PROGRESS_INT = 0.3
 
     def __init__(self, workers=1, print_progress=True, max_retries=0):
         self.workers = min(abs(workers), self.MAX_NUM_WORKERS)
@@ -26,7 +29,7 @@ class QueuedLoader(object):
     def _print_prog(self):
         while not self.halt:
             self.mp.print_progress()
-            time.sleep(0.3)
+            time.sleep(self.REFRESH_PROGRESS_INT)
         self.mp.end()
 
     def _worker_task(self, num: int):
@@ -37,7 +40,6 @@ class QueuedLoader(object):
                 rr = f()
                 if not rr.retry:
                     break
-                f.keywords.get('pg_handler').reset()
                 try_ += 1
 
             with self.stat_lock:
@@ -45,12 +47,16 @@ class QueuedLoader(object):
             self.q.task_done()
 
     def add_jobs(self, jobs: list):
+        """:param jobs: list of partials that return a RetryRetVal and have a pg_handler kwarg"""
         for job in jobs:
             h = job.keywords.get('pg_handler')
             self.mp.add(h)
             self.q.put(job)
 
     def start(self) -> int:
+        """Starts worker threads and, if applicable, progress printer thread.
+        :returns: accumulated return value"""
+
         _logger.info('%d jobs in queue.' % self.q.qsize())
 
         p = None

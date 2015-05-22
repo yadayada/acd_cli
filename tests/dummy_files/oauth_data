@@ -1,0 +1,7 @@
+{
+    "access_token": "Bar",
+    "exp_time": 5000000000,
+    "expires_in": 5000000000,
+    "refresh_token": "Foo",
+    "token_type": "bearer"
+}

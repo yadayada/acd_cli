@@ -30,7 +30,7 @@ Un/Installation
 After downloading, run the appropriate pip command for Python 3 in the project's root directory like so:
 ::
 
-    pip3 install .
+    pip3 install --upgrade .
 
 If you do not want to install, have a look at the necessary dependencies_.
 

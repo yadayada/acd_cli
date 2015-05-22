@@ -8,6 +8,7 @@ General
 * support of node labels
 * support for assets (?)
 * unify the find action
+* switch to multiprocessing
 
 File Transfer
 ~~~~~~~~~~~~~
@@ -23,7 +24,7 @@ User experience
 * proper tree formatter
 * output coloring
 * manual shell completion
-* nicer help formatting
+* even nicer help formatting
 
 Tests
 ~~~~~

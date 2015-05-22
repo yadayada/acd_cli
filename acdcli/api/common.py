@@ -79,14 +79,27 @@ def _load_endpoints() -> bool:
 def _get_endpoints() -> dict:
     global endpoint_data
     r = requests.get(AMZ_ENDPOINT_REQ_URL, headers=oauth.get_auth_header())
+    if r.status_code not in OK_CODES:
+        logger.critical('Error getting endpoint data. Response: %s' % r.text)
+        raise Exception
+
     try:
         e = r.json()
-        e[EXP_TIME_KEY] = time.time() + ENDPOINT_VAL_TIME
-        endpoint_data = e
-        _save_endpoint_data()
     except ValueError as e:
-        logger.critical('Invalid endpoint JSON.')
+        logger.critical('Invalid JSON: "%s"' % r.text)
         raise e
+
+    e[EXP_TIME_KEY] = time.time() + ENDPOINT_VAL_TIME
+    endpoint_data = e
+
+    try:
+        get_metadata_url()
+        get_content_url()
+    except KeyError as e:
+        logger.critical('Received invalid endpoint data.')
+        raise e
+
+    _save_endpoint_data()
 
     return e
 
@@ -101,6 +114,7 @@ class RequestError(Exception):
         CONN_EXCEPTION = 1000
         FAILED_SUBREQUEST = 1002
         INCOMPLETE_RESULT = 1003
+        REFRESH_FAILED = 1004
 
     def __init__(self, status_code: int, msg: str):
         self.status_code = status_code
@@ -114,7 +128,8 @@ class RequestError(Exception):
 
 
 def catch_conn_exception(func):
-    """Request connection exception decorator"""
+    """Request connection exception decorator
+    :raises RequestError"""
     def decorated(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -127,6 +142,7 @@ class BackOffRequest(object):
     """Wrapper for requests that implements timed back-off algorithm
     https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices
     Caution: this catches all connection errors and may stall for a long time.
+    It is necessary to init this module before use.
     """
 
     __session = None
@@ -175,7 +191,8 @@ class BackOffRequest(object):
             cls.__session = requests.session()
         cls._wait()
 
-        headers = oauth.get_auth_header()
+        with cls.__lock:
+            headers = oauth.get_auth_header()
         if 'headers' in kwargs:
             headers = dict(headers, **(kwargs['headers']))
             del kwargs['headers']

@@ -201,7 +201,7 @@ class Folder(Node):
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
-            return false
+            return False
         return (self.id == other.id
                 and self.name == other.name
                 and self.created == other.created
