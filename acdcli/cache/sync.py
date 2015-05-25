@@ -4,7 +4,6 @@ Syncs Amazon Node API objects with sqlite database
 
 import logging
 from sqlalchemy.exc import *
-from sqlalchemy.sql.expression import func
 from datetime import datetime, timedelta
 
 try:
@@ -24,14 +23,12 @@ logger = logging.getLogger(__name__)
 def remove_purged(purged: list):
     session = db.Session()
     for p_id in purged:
-        n = session.query(db.Node).filter_by(id=p_id).first()
-        if n:
-            session.delete(n)
+        session.query(db.Node).filter_by(id=p_id).delete()
     session.commit()
     logger.info('Purged %i nodes.' % len(purged))
 
 
-def insert_nodes(nodes: list):
+def insert_nodes(nodes: list, partial=True):
     """Inserts mixed list of files and folders into cache."""
     files = []
     folders = []
@@ -48,18 +45,13 @@ def insert_nodes(nodes: list):
     insert_folders(folders)
     insert_files(files)
 
+    insert_parentage(files + folders, partial)
 
 def insert_node(node: db.Node):
     """Inserts single file or folder into cache."""
     if not node:
         pass
-    kind = node['kind']
-    if kind == 'FILE':
-        insert_files([node])
-    elif kind == 'FOLDER':
-        insert_folders([node])
-    elif kind != 'ASSET':
-        logger.warning('Cannot insert unknown node type "%s".' % kind)
+    insert_nodes([node])
 
 
 def insert_folders(folders: list):
@@ -67,13 +59,7 @@ def insert_folders(folders: list):
     :param folders: list of raw dict-type folders
     """
 
-    ins = 0
-    dup = 0
-    upd = 0
-    dtd = 0
-
     session = db.Session()
-    parent_pairs = []
     for folder in folders:
         logger.debug(folder)
 
@@ -83,21 +69,8 @@ def insert_folders(folders: list):
                       iso_date.parse(folder['createdDate']),
                       iso_date.parse(folder['modifiedDate']),
                       folder['status'])
-        ef = session.query(db.Folder).filter_by(id=folder['id']).first()
         f.updated = datetime.utcnow()
-
-        if not ef:
-            session.add(f)
-            ins += 1
-        else:
-            if f == ef:
-                dup += 1
-            else:
-                upd += 1
-            # this should keep the children intact
-            session.merge(f)
-
-        parent_pairs.append((f.id, folder['parents']))
+        session.merge(f)
 
     try:
         session.commit()
@@ -105,83 +78,46 @@ def insert_folders(folders: list):
         logger.warning('Error inserting folders.')
         session.rollback()
 
-    if ins > 0:
-        logger.info(str(ins) + ' folder(s) inserted.')
-    if dup > 0:
-        logger.info(str(dup) + ' duplicate folders not inserted.')
-    if upd > 0:
-        logger.info(str(upd) + ' folder(s) updated.')
-    if dtd > 0:
-        logger.info(str(dtd) + ' folder(s) deleted.')
-
-    conn = db.engine.connect()
-    trans = conn.begin()
-    for f in folders:
-        conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
-    for rel in parent_pairs:
-        for p in rel[1]:
-            conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
-    trans.commit()
-
+    logger.info('Inserted/updated %d folders.' % len(folders))
 
 # file movement is detected by updated modifiedDate
 def insert_files(files: list):
-    ins = 0
-    dup = 0
-    upd = 0
-    dtd = 0
+    stmt1 = str(db.Node.__table__.insert())
+    stmt1 = stmt1.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
-    session = db.Session()
-    parent_pairs = []
-    for file in files:
-        props = {}
-        try:
-            props = file['contentProperties']
-        except KeyError:  # empty files
-            props['md5'] = 'd41d8cd98f00b204e9800998ecf8427e'
-            props['size'] = 0
+    stmt2 = str(db.File.__table__.insert())
+    stmt2 = stmt2.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
-        f = db.File(file['id'], file['name'],
-                    iso_date.parse(file['createdDate']),
-                    iso_date.parse(file['modifiedDate']),
-                    props['md5'], props['size'],
-                    file['status'])
-        ef = session.query(db.File).filter_by(id=file['id']).first()
-        f.updated = datetime.utcnow()
+    db.engine.execute(
+        stmt1,
+        [dict(id=f['id'], type='file', name=f.get('name'), description=f.get('description'),
+              created=iso_date.parse(f['createdDate']),
+              modified=iso_date.parse(f['modifiedDate']),
+              updated=datetime.utcnow(),
+              status=f['status']
+              ) for f in files
+         ]
+    )
+    db.engine.execute(
+        stmt2,
+        [dict(id=f['id'], md5=f.get('contentProperties', {}).get('md5', 'd41d8cd98f00b204e9800998ecf8427e'),
+              size=f.get('contentProperties', {}).get('size', 0)
+              ) for f in files
+         ]
+    )
 
-        if not ef:
-            session.add(f)
-            ins += 1
-        else:
-            if f == ef:
-                dup += 1
-            else:
-                upd += 1
-            session.delete(ef)
-            session.add(f)
+    logger.info('Inserted/updated %d files.' % len(files))
 
-        parent_pairs.append((f.id, file['parents']))
-
-    try:
-        session.commit()
-    except ValueError:
-        logger.error('Error inserting files.')
-        session.rollback()
-
-    if ins > 0:
-        logger.info(str(ins) + ' file(s) inserted.')
-    if upd > 0:
-        logger.info(str(upd) + ' file(s) updated.')
-    if dup > 0:
-        logger.info(str(dup) + ' duplicate file(s) not inserted.')
-    if dtd > 0:
-        logger.info(str(dtd) + ' file(s) deleted.')
-
+def insert_parentage(nodes: list, partial=True):
     conn = db.engine.connect()
     trans = conn.begin()
-    for f in files:
-        conn.execute('DELETE FROM parentage WHERE child=?', f['id'])
-    for rel in parent_pairs:
-        for p in rel[1]:
-            conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, rel[0])
+
+    if partial:
+        conn.execute('DELETE FROM parentage WHERE child IN (%s)' %
+                     ', '.join(['"' + n['id'] + '"' for n in nodes]))
+    for n in nodes:
+        for p in n['parents']:
+            conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, n['id'])
     trans.commit()
+
+    logger.info('Parented %d nodes.' % len(nodes))

@@ -15,7 +15,7 @@ from collections import namedtuple
 from pkgutil import walk_packages
 from pkg_resources import iter_entry_points
 
-from acdcli.api import *
+from acdcli.api import account, common, content, metadata, trash
 from acdcli.api.common import RequestError
 from acdcli.cache import *
 from acdcli.utils import hashing, progress
@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.2.1'
+__version__ = '0.2.2a1'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -109,10 +109,10 @@ class CacheConsts(object):
 
 
 def sync_node_list(full=False):
-    cp = db.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY)
+    cp = db.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
     try:
-        nodes, purged, ncp, full = metadata.get_changes(checkpoint=None if full else cp, include_purged=not full)
+        nodes, purged, ncp, full = metadata.get_changes(checkpoint=cp, include_purged=not not cp)
     except RequestError as e:
         logger.critical('Sync failed.')
         print(e)
@@ -125,7 +125,7 @@ def sync_node_list(full=False):
         sync.remove_purged(purged)
 
     if len(nodes) > 0:
-        sync.insert_nodes(nodes)
+        sync.insert_nodes(nodes, partial=not full)
     db.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: ncp, CacheConsts.LAST_SYNC_KEY: time.time()})
     return
 
@@ -143,8 +143,7 @@ def old_sync():
         print(e)
         return 1
 
-    sync.insert_folders(folders)
-    sync.insert_files(files)
+    sync.insert_nodes(files + folders, partial=False)
     db.KeyValueStorage['sync_date'] = time.time()
 
 #
@@ -413,26 +412,33 @@ def download_file(node_id: str, local_path: str, pg_handler: progress.FileProgre
         return compare_hashes(hasher.get_result(), md5, name)
 
 
-def compare(local, remote):
+def compare(local: str, remote_id):
     pass
 
 #
 # Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
 #
 
-online_actions = []
+nocache_actions = []
 offline_actions = []
+no_autores_trash_actions = []
 
 
-def online_action(func):
+def nocache_action(func):
     """Decorator for actions that do not need to read from cache or autoresolve."""
-    online_actions.append(func)
+    nocache_actions.append(func)
     return func
 
 
 def offline_action(func):
     """Decorator for actions that can be performed without API calls."""
     offline_actions.append(func)
+    return func
+
+
+def no_autores_trash_action(func):
+    """Decorator for actions that should not have trash paths auto-resolved."""
+    no_autores_trash_actions.append(func)
     return func
 
 
@@ -450,10 +456,16 @@ def old_sync_action(args: argparse.Namespace):
     return r
 
 
-@online_action
+@nocache_action
 @offline_action
 def clear_action(args: argparse.Namespace):
     db.remove_db_file(CACHE_PATH)
+
+
+@nocache_action
+@offline_action
+def print_version_action(args: argparse.Namespace):
+    print(' '.join([_app_name, __version__]))
 
 
 @offline_action
@@ -464,13 +476,13 @@ def tree_action(args: argparse.Namespace):
         print(node)
 
 
-@online_action
+@nocache_action
 def usage_action(args: argparse.Namespace):
     r = account.get_account_usage()
     print(r, end='')
 
 
-@online_action
+@nocache_action
 def quota_action(args: argparse.Namespace):
     r = account.get_quota()
     pprint(r)
@@ -492,6 +504,7 @@ def regex_helper(args: argparse.Namespace) -> list:
     return excl_re
 
 
+@no_autores_trash_action
 def upload_action(args: argparse.Namespace) -> int:
     excl_re = regex_helper(args)
 
@@ -554,7 +567,7 @@ def create_action(args: argparse.Namespace) -> int:
 
     try:
         r = content.create_folder(folder, p_id)
-        sync.insert_folders([r])
+        sync.insert_node(r)
     except RequestError as e:
         logger.debug(str(e.status_code) + e.msg)
         if e.status_code == 409:
@@ -564,6 +577,7 @@ def create_action(args: argparse.Namespace) -> int:
             return ERR_CR_FOLDER
 
 
+@no_autores_trash_action
 @offline_action
 def list_trash_action(args: argparse.Namespace):
     t_list = query.list_trash(args.recursive)
@@ -664,7 +678,6 @@ def remove_child_action(args: argparse.Namespace) -> int:
         return 1
 
 
-@online_action
 def metadata_action(args: argparse.Namespace) -> int:
     try:
         r = metadata.get_metadata(args.node)
@@ -673,6 +686,10 @@ def metadata_action(args: argparse.Namespace) -> int:
         print(e)
         return INVALID_ARG_RETVAL
 
+
+@offline_action
+def compare_action(args: argparse.Namespace):
+    pass
 
 #
 # helper methods
@@ -695,15 +712,17 @@ def migrate_cache_files():
                 logger.warning('Error moving cache file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
 
 
-def resolve_remote_path_args(args: argparse.Namespace, attrs: list, exclude_actions: list):
-    """Replaces certain attributes in Namespace by resolved node ID."""
+def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: bool=True):
+    """In-place replaces certain attributes in Namespace by resolved node ID.
+    :param attrs: list of attributes that may be given in absolute path form
+    :param excl_trash_actions: actions that
+    """
     for id_attr in attrs:
         if hasattr(args, id_attr):
             val = getattr(args, id_attr)
             if not val:
                 continue
             if '/' in val:
-                incl_trash = args.action not in exclude_actions
                 v = query.resolve_path(val, trash=incl_trash)
                 if not v:
                     logger.critical('Could not resolve path "%s".' % val)
@@ -793,6 +812,9 @@ def main():
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')
     subparsers.required = True
+
+    vers_sp = subparsers.add_parser('version', aliases=['v'], help='print version and exit\n')
+    vers_sp.set_defaults(func=print_version_action)
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
                                     help='[+] refresh node list cache; necessary for many actions')
@@ -943,7 +965,7 @@ def main():
         if not common.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
 
-    if args.func not in online_actions:
+    if args.func not in nocache_actions:
         if not db.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
         check_cache_age()
@@ -952,7 +974,8 @@ def main():
         common.BackOffRequest._wait = lambda: None
 
     autoresolve_attrs = ['child', 'parent', 'node']
-    resolve_remote_path_args(args, autoresolve_attrs, [upload_action, list_trash_action])
+    resolve_remote_path_args(args, autoresolve_attrs,
+                             incl_trash=args.action not in no_autores_trash_actions)
 
     # call appropriate sub-parser action
     if args.func:
