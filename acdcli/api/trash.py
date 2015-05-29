@@ -1,8 +1,8 @@
 from .common import *
 
 
-# retrieves top-level trash list
 def list_trash() -> list:
+    """retrieves top-level trash list"""
     return BackOffRequest.paginated_get(get_metadata_url() + 'trash')
 
 

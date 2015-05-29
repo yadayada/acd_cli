@@ -1,12 +1,16 @@
 import os
 import re
 from setuptools import setup, find_packages
+from distutils.version import StrictVersion
 
 
 def read(fname: str) -> str:
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
-version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', read('acd_cli.py'), re.MULTILINE).group(1)
+
+version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+                    read('acd_cli.py'), re.MULTILINE).group(1)
+StrictVersion(version)
 
 setup(
     name='acdcli',
@@ -26,12 +30,13 @@ setup(
                   # 'acd_cli.plugins': ['stream = plugins.stream',
                   # 'template = plugins.template']
                   },
-    install_requires=['appdirs', 'python_dateutil', 'requests>=2.1.0', 'requests_toolbelt', 'sqlalchemy'],
-    tests_require=['httpretty'],
+    install_requires=['appdirs', 'python_dateutil', 'requests>=2.1.0', 'requests_toolbelt',
+                      'sqlalchemy'],
+    tests_require=['httpretty', 'mock'],
     classifiers=[
         'Environment :: Console',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'
         'Programming Language :: Python :: 3',
-        'Development Status :: 3 - Alpha'
+        'Development Status :: 3 - Beta'
     ]
 )

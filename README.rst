@@ -2,7 +2,7 @@ acd\_cli
 ========
 
 **acd\_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3.
-It is currently in alpha stage.
+It is currently in beta stage.
 
 Features
 --------
@@ -24,8 +24,8 @@ File operations
 Quick start
 -----------
 
-Un/Installation
-~~~~~~~~~~~~~~~
+Installation
+~~~~~~~~~~~~
 
 After downloading, run the appropriate pip command for Python 3 in the project's root directory like so:
 ::
@@ -33,12 +33,6 @@ After downloading, run the appropriate pip command for Python 3 in the project's
     pip3 install --upgrade .
 
 If you do not want to install, have a look at the necessary dependencies_.
-
-Uninstalling can be done using the package name:
-::
-
-    pip3 uninstall acdcli
-
 
 First Run
 ~~~~~~~~~
@@ -48,16 +42,31 @@ A browser tab will open and you will be asked to log in or grant access for 'acd
 Signing in or clicking on 'Continue' will download a JSON file named ``oauth_data``,
 which must be placed in the cache directory displayed on screen (e.g. ``/home/<USER>/.cache/acd_cli``).
 
-You may view the source code of the Appspot app that is used to handle the server part of the OAuth procedure at https://tensile-runway-92512.appspot.com/src.
+You may view the source code of the Appspot app that is used to handle the server part
+of the OAuth procedure at https://tensile-runway-92512.appspot.com/src.
+
+Advanced Users
+++++++++++++++
+
+Alternatively, you may put your own security profile data in a file called ``client_data`` in the cache directory.
+It needs to be created prior to starting the program and adhere to the following form.::
+
+ {
+     "CLIENT_ID": "",
+     "CLIENT_SECRET": ""
+ }
+
+Your security profile must be able to redirect to ``http://localhost``.
+The procedure is similar to the above, the difference is that you will
+be asked to paste the redirect URL into your shell.
 
 Usage
 -----
 
-Most actions need the node cache to be initialized and up-to-date, so  please run a sync.
+Most actions need the node cache to be initialized and up-to-date, so please run a sync.
 A sync will fetch the changes since the last sync or the full node list if the cache is empty.
 
 The following actions are built in
-
 ::
 
         sync (s)            refresh node list cache; necessary for many actions
@@ -82,9 +91,6 @@ The following actions are built in
         rename (rn)         rename a node
 
         resolve (rs)        resolve a path to a node ID
-
-        add-child (ac)      add a node to a parent folder
-        remove-child (rc)   remove a node from a parent folder
 
         usage (u)           show drive usage data
         quota (q)           show drive quota [raw JSON]
@@ -125,33 +131,47 @@ If multiple errors occur, their values will be compounded by a binary OR operati
 Usage example
 -------------
 
-In this example, a two-level folder hierarchy is created in an empty cloud drive. Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
-
+In this example, a two-level folder hierarchy is created in an empty cloud drive.
+Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
 ::
 
     $ acd_cli sync
       Syncing...
       Done.
 
-    $ acd_cli tree
+    $ acd_cli ls /
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
 
-    $ acd_cli create /egg/
-    $ acd_cli create /egg/bacon/
+    $ acd_cli mkdir /egg/
+    $ acd_cli mkdir /egg/bacon/
 
     $ acd_cli upload -x 2 local/spam/ /egg/bacon/
       [################################]   100.0% of  100MiB  12/12  654.4KB/s
 
     $ acd_cli tree
-      [PHwiEv53QOKoGFGqYNl8pw] [A] /
-      [         ...          ] [A] /egg/
-      [         ...          ] [A] /egg/bacon/
-      [         ...          ] [A] /egg/bacon/spam/
-      [         ...          ] [A] /egg/bacon/spam/sausage
+      /
+          egg/
+              bacon/
+                  spam/
+                      sausage
+                      spam
       [...]
 
 
-The standard node listing format includes the node ID, the first letter of its status and its full_path. Possible statuses are "AVAILABLE" and "TRASH".
+The standard node listing format includes the node ID, the first letter of its status and its full path.
+Possible statuses are "AVAILABLE" and "TRASH".
+
+Uninstalling
+------------
+
+Please run ``acd_cli delete-everything`` first to delete your authentication and node data in the cache path.
+Then, use pip to uninstall::
+
+    pip3 uninstall acdcli
+
+Then, revoke the permission for ``acd_cli_oa`` to access your cloud drive in your Amazon profile,
+more precisely at https://www.amazon.com/ap/adam.
+
 
 Known Issues
 ------------
@@ -162,6 +182,7 @@ API Restrictions
 - uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
 - the maximum (upload) file size seems to be in the range of 40 and 100 GiB
 - storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
+- it is not possible to share or delete files
 
 Contribute
 ----------
@@ -184,12 +205,23 @@ Dependencies
 - requests-toolbelt (recommended)
 - sqlalchemy
 
-If you want to get these manually and are using a distribution based on Debian 'jessie',
-the necessary packages are
+Recommended packages are not strictly necessary; but they will be preferred to
+workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
+
+If you want to the dependencies using your distribution's packaging system and
+are using a distro based on Debian 'jessie', the necessary packages are
 ``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
 
 Recent Changes
 --------------
+
+0.2.2
+~~~~~
+
+* sync speed-up
+* node listing format changed
+* optional node listing coloring added (for Linux or via LS_COLORS)
+* re-added possibility for local OAuth
 
 0.2.1
 ~~~~~
@@ -203,24 +235,3 @@ Recent Changes
 * setuptools support
 * workaround for download of files larger than 10 GiB
 * automatic resuming of downloads
-
-0.1.3
-~~~~~
-* plugin mechanism added
-* OAuth now via Appspot; security profile no longer necessary
-* back-off algorithm for API requests implemented
-
-0.1.2
-~~~~~
-new:
- * overwriting of files
- * recursive upload/download
- * hashing of downloaded files
- * clear-cache action
-
-fixes:
- * remove-child accepted status code
- * fix for upload of files with Unicode characters
-
-other:
- * changed database schema

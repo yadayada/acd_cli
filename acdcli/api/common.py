@@ -105,8 +105,11 @@ def _get_endpoints() -> dict:
 
 
 def _save_endpoint_data():
-    with open(endpoint_data_path(), 'w') as ep:
-        json.dump(endpoint_data, ep, indent=4, sort_keys=True)
+    f = open(endpoint_data_path(), 'w')
+    json.dump(endpoint_data, f, indent=4, sort_keys=True)
+    f.flush()
+    os.fsync(f.fileno())
+    f.close()
 
 
 class RequestError(Exception):

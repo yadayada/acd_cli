@@ -13,54 +13,6 @@ class Bunch:
         return str(self.__dict__)
 
 
-class ListFormatter(object):
-    @staticmethod
-    def format(bunches: list) -> list:
-        """:param bunches Bunch list"""
-        return LongIDFormatter.format(bunches)
-
-
-class LongIDFormatter(ListFormatter):
-    @staticmethod
-    def format(bunches: list) -> list:
-        list_ = []
-        for bunch in bunches:
-            list_.append(bunch.node.long_id_str(bunch.path))
-        return list_
-
-
-class TreeFormatter(ListFormatter):
-    @staticmethod
-    def format(bunches: list) -> list:
-        list_ = []
-        prev = None
-        for bunch in bunches:
-            pref = ''
-            if bunch.depth > 0:
-                pref = ''
-            list_.append(' ' * 4 * bunch.depth + bunch.node.simple_name())
-            prev = bunch
-        return list_
-
-
-class IDFormatter(ListFormatter):
-    @staticmethod
-    def format(bunches: list):
-        list_ = []
-        for bunch in bunches:
-            list_.append(bunch.node.id)
-        return list_
-
-
-class PathFormatter(ListFormatter):
-    @staticmethod
-    def format(bunches: list):
-        list_ = []
-        for bunch in bunches:
-            list_.append(bunch.node.full_path())
-        return list_
-
-
 def get_node(node_id: str) -> db.Node:
     return db.Session.query(db.Node).filter_by(id=node_id).first()
 
@@ -76,98 +28,95 @@ def get_root_id() -> str:
         return root.id
 
 
-def tree(root_id: str=None, trash=False) -> list:
+def get_node_count() -> int:
+    return db.Session.query(db.Node).count()
+
+
+def tree(root_id: str=None, trash=False):
     if root_id is None:
-        return node_list(trash=trash)
+        return walk_nodes(trash=trash)
 
     folder = db.Session.query(db.Folder).filter_by(id=root_id).first()
     if not folder:
         logger.error('Not a folder or not found: "%s".' % root_id)
-        return []
+        return
 
-    return node_list(folder, True, True, trash)
+    return walk_nodes(folder, True, True, trash)
 
 
-def list_children(folder_id: str, recursive=False, trash=False) -> list:
-    """ Creates Bunch list of folder's children
+def list_children(folder_id: str, recursive=False, trash=False):
+    """ Creates Bunches of folder's children
     :param folder_id: valid folder's id
-    :return: list of node names, folders first
     """
     folder = db.Session.query(db.Folder).filter_by(id=folder_id).first()
     if not folder:
         logger.warning('Not a folder or not found: "%s".' % folder_id)
-        return []
+        return
 
-    return node_list(folder, False, recursive, trash)
+    return walk_nodes(folder, False, recursive, trash)
 
 
-def node_list(root: db.Folder=None, add_root=True, recursive=True, trash=False, path='', n_list=None, depth=0) -> list:
-    """ Generates Bunch list of (non-)trashed nodes
+# TODO: refashion this to return a tuple like os.walk
+def walk_nodes(root: db.Folder=None, add_root=True, recursive=True, trash=False, path='', depth=0):
+    """ Generates Bunches of (non-)trashed nodes
     :param root: start folder
-    :param add_root: whether to add the (uppermost) root node to the list and prepend its path to its children
+    :param add_root: whether to add the (uppermost) root node and prepend its path to its children
     :param recursive: whether to traverse hierarchy
     :param trash: whether to include trash
     :param path: the path on which this method incarnation was reached
-    :type path: str
+    :rtype: Iterable[Bunch]
     :return: list of Bunches including node and path attributes
     """
 
     if not root:
         root = get_root_node()
         if not root:
-            return []
-
-    if n_list is None:
-        n_list = []
+            return
 
     if add_root:
-        n_list.append(Bunch(node=root, path=path, depth=depth))
+        yield Bunch(node=root, path=path, depth=depth)
         path += root.simple_name()
 
-    children = sorted(root.children)
+    if not recursive:
+        children = sorted(root.children)
+    else:
+        children = sorted(root.children, key=lambda x: ('b' if x.is_folder() else 'a') + x.name)
 
     for child in children:
         if child.status == 'TRASH' and not trash:
             continue
         if isinstance(child, db.Folder) and recursive:
-            node_list(child, True, recursive, trash, path, n_list, depth + 1)
+            for node in walk_nodes(child, True, recursive, trash, path, depth + 1):
+                yield node
         else:
-            n_list.append(Bunch(node=child, path=path, depth=depth + 1))
-
-    return n_list
+            yield Bunch(node=child, path=path, depth=depth + 1)
 
 
-def list_trash(recursive=False) -> list:
+def list_trash(recursive=False):
     trash_nodes = db.Session().query(db.Node).filter(db.Node.status == 'TRASH').all()
     trash_nodes = sorted(trash_nodes)
 
-    nodes = []
     for node in trash_nodes:
-        nodes.append(Bunch(node=node, path=node.containing_folder()))
+        yield Bunch(node=node, path=node.containing_folder())
         if isinstance(node, db.Folder) and recursive:
-            nodes.extend(node_list(node, False, True, True, node.full_path()))
+            for child in walk_nodes(node, False, True, True, node.full_path()):
+                yield child
 
-    return nodes
 
-
-def find(name: str) -> list:
+def find(name: str):
     q = db.Session.query(db.Node).filter(db.Node.name.like('%' + name + '%'))
     q = sorted(q, key=lambda x: x.full_path())
 
-    nodes = []
     for node in q:
-        nodes.append(Bunch(node=node, path=node.containing_folder()))
-    return nodes
+        yield Bunch(node=node, path=node.containing_folder())
 
 
-def find_md5(md5: str) -> list:
+def find_md5(md5: str):
     q = db.Session.query(db.File).filter_by(md5=md5)
     q = sorted(q, key=lambda x: x.full_path())
 
-    nodes = []
     for node in q:
-        nodes.append(Bunch(node=node, path=node.containing_folder()))
-    return nodes
+        yield Bunch(node=node, path=node.containing_folder())
 
 
 def file_size_exists(size: int) -> bool:

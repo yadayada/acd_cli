@@ -6,7 +6,7 @@ import os
 import random
 import string
 
-from acdcli.api import account, common, content, metadata, trash
+from acdcli.api import account, common, content, metadata, trash, oauth
 from acdcli.api.common import RequestError
 from acdcli.utils import hashing
 
@@ -36,6 +36,7 @@ content._CONSECUTIVE_DL_LIMIT = content.CONSECUTIVE_DL_LIMIT
 
 import sys
 print(sys.argv)
+
 
 class APILiveTestCase(unittest.TestCase):
     def setUp(self):

@@ -59,6 +59,9 @@ def insert_folders(folders: list):
     :param folders: list of raw dict-type folders
     """
 
+    if not folders:
+        return
+
     session = db.Session()
     for folder in folders:
         logger.debug(folder)
@@ -80,8 +83,10 @@ def insert_folders(folders: list):
 
     logger.info('Inserted/updated %d folders.' % len(folders))
 
-# file movement is detected by updated modifiedDate
 def insert_files(files: list):
+    if not files:
+        return
+
     stmt1 = str(db.Node.__table__.insert())
     stmt1 = stmt1.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 

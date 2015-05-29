@@ -1,5 +1,6 @@
 """
-This is a template that you can use for adding custom plugins. May be subject to changes in the near future.
+This is a template that you can use for adding custom plugins.
+May be subject to changes in the near future.
 """
 
 from . import *
@@ -20,8 +21,8 @@ class TestPlugin(Plugin):
 
         log.append(str(cls) + ' attached.')
 
-    @staticmethod
-    def action(args: argparse.Namespace) -> int:
+    @classmethod
+    def action(cls, args: argparse.Namespace) -> int:
         """ This is where the magic happens. Return a zero for success, a non-zero int for failure. """
         if not args.silent:
             print('This plugin works.')

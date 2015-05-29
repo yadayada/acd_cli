@@ -9,7 +9,7 @@ class RegisterLeafClasses(type):
         cls.registry.add(cls)
         cls.registry -= set(bases) # Remove base classes
 
-    # Metamethods, called on class objects:
+    # metamethods, called on class objects:
     def __iter__(cls):
         return iter(cls.registry)
 
@@ -26,20 +26,20 @@ class Plugin(object, metaclass=RegisterLeafClasses):
 
     @classmethod
     def check_version(cls, version: str) -> bool:
-        from distutils.version import LooseVersion
+        from distutils.version import StrictVersion
         if cls.MIN_VERSION:
-            if LooseVersion(cls.MIN_VERSION) > LooseVersion(version):
+            if StrictVersion(cls.MIN_VERSION) > StrictVersion(version):
                 return False
         if cls.MAX_VERSION:
-            return LooseVersion(cls.MAX_VERSION) >= LooseVersion(version)
+            return StrictVersion(cls.MAX_VERSION) >= StrictVersion(version)
         return True
 
     @classmethod
     def __str__(cls):
         return cls.__name__
 
-    @staticmethod
-    def attach(subparsers: argparse.ArgumentParser, log: list, **kwargs):
+    @classmethod
+    def attach(cls, subparsers: argparse.ArgumentParser, log: list, **kwargs):
         pass
 
     @staticmethod

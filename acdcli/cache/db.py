@@ -98,7 +98,7 @@ class Node(Base):
     }
 
     def __lt__(self, other):
-        """ Compares this Node to another one on same path level. Sorts case-sensitive, Folder first. """
+        """Compares this node to another one on same path level. Sorts case-sensitive, Folder first. """
         if isinstance(self, Folder):
             if isinstance(other, File):
                 return True
@@ -119,14 +119,6 @@ class Node(Base):
     def id_str(self) -> str:
         """short id string containing id, stat, name"""
         return '[{}] [{}] {}'.format(self.id, self.status[0], self.simple_name())
-
-    def long_id_str(self, path: str=None) -> str:
-        """long id string containing id, stat, path + name"""
-        if path is None:
-            path = self.containing_folder()
-        return '[{}] [{}] {}{}'.format(self.id, self.status[0], path,
-                                       ('' if not self.name else self.name)
-                                       + ('/' if isinstance(self, Folder) else ''))
 
     def containing_folder(self) -> str:
         if len(self.parents) == 0:
@@ -262,6 +254,8 @@ def init(path=''):
             logger.critical('Error opening database.')
             return False
 
+    integrity_check()
+
     if uninitialized:
         r = engine.execute('PRAGMA user_version = %i;' % DB_SCHEMA_VER)
         r.close()
@@ -285,6 +279,20 @@ def init(path=''):
         _migrate(ver)
 
     return True
+
+
+def integrity_check():
+    r = engine.execute('PRAGMA integrity_check;')
+    if r.first()[0] != 'ok':
+        logger.warn('Sqlite database integrity check failed. '
+                    'You may need to clear the cache if you encounter any errors.')
+
+
+def dump_table_sql():
+    def dump(sql, *multiparams, **params):
+        print(sql.compile(dialect=engine.dialect))
+    engine = create_engine('sqlite://', strategy='mock', executor=dump)
+    Base.metadata.create_all(engine, checkfirst=False)
 
 
 def drop_all():

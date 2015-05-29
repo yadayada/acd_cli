@@ -1,1 +1,1 @@
-__all__ = ('db', 'query', 'sync')
+__all__ = ('db', 'format', 'query', 'sync')

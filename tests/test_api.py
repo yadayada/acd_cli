@@ -2,21 +2,22 @@
 
 import unittest
 import httpretty
+from mock import patch, mock_open, MagicMock, sentinel
 import logging
 import os
 import json
+import time
 
-from acdcli.api import common, account, metadata
+from acdcli.api import common, account, metadata, oauth
 
 logging.basicConfig(level=logging.INFO)
 common.BackOffRequest._wait = lambda: None
 path = os.path.join(os.path.dirname(__file__), 'dummy_files')
-common.init(path)
 
 
 class APITestCase(unittest.TestCase):
     def setUp(self):
-        pass
+        common.init(path)
 
     def testMetadataUrl(self):
         self.assertEqual(common.get_metadata_url(), 'https://cdws.us-east-1.amazonaws.com/drive/v1/')
@@ -80,3 +81,54 @@ class APITestCase(unittest.TestCase):
         httpretty.register_uri(httpretty.POST, common.get_metadata_url() + 'changes',
                                body='{"checkpoint": }')
         self.assertRaises(common.RequestError, metadata.get_changes)
+
+    #
+    # oauth
+    #
+
+    dummy_token = {'access_token': 'foo', 'expires_in': 3600, 'refresh_token': 'bar'}
+
+    def testOAuthActualHandler(self):
+        self.assertIsInstance(oauth.handler, oauth.AppspotOAuthHandler)
+
+    @httpretty.activate
+    def testOAuthAppSpotRefresh(self):
+        httpretty.register_uri(httpretty.POST, oauth.AppspotOAuthHandler.APPSPOT_URL,
+                               body=json.dumps(self.dummy_token))
+
+        exp_token = {'access_token': '', 'expires_in': 3600, 'exp_time': 0.0, 'refresh_token': ''}
+
+        mock_file = mock_open(read_data=json.dumps(exp_token))
+        os.path.isfile = MagicMock()
+        with patch('builtins.open', mock_file, create=True):
+            with patch('os.fsync', MagicMock):
+                h = oauth.AppspotOAuthHandler('')
+
+        mock_file.assert_any_call(oauth.OAuthHandler.OAUTH_DATA_FILE)
+        self.assertIn(oauth.OAuthHandler.KEYS.EXP_TIME, h.oauth_data)
+        self.assertGreater(h.oauth_data[oauth.OAuthHandler.KEYS.EXP_TIME], time.time())
+        mock_file().write.assert_any_call(str(h.oauth_data[oauth.AppspotOAuthHandler.KEYS.EXP_TIME]))
+
+    def testOAuthLocalRefresh(self):
+        # TODO: find out how to mock multiple files
+        pass
+
+    def testOAuthValidation(self):
+        s = json.dumps(self.dummy_token)
+        o = oauth.OAuthHandler.validate(s)
+        self.assertIsInstance(o, dict)
+
+    def testOAuthValidationMissingRefresh(self):
+        inv = json.dumps({'access_token': 'foo', 'expires_in': 3600})
+        with self.assertRaises(common.RequestError):
+            oauth.OAuthHandler.validate(inv)
+
+    def testOAuthValidationMissingAccess(self):
+        inv = json.dumps({'expires_in': 3600, 'refresh_token': 'bar'})
+        with self.assertRaises(common.RequestError):
+            oauth.OAuthHandler.validate(inv)
+
+    def testOAuthValidationMissingExpiration(self):
+        inv = json.dumps({'access_token': 'foo', 'refresh_token': 'bar'})
+        with self.assertRaises(common.RequestError):
+            oauth.OAuthHandler.validate(inv)

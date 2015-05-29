@@ -22,7 +22,6 @@ User experience
 
 * backup oauth file on refresh
 * proper tree formatter
-* output coloring
 * manual shell completion
 * even nicer help formatting
 

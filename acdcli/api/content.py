@@ -114,12 +114,15 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
     return r.json()
 
 
-# local name be valid (must be checked prior to call)
 def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
-    """kwargs:
+    """
+    :param dirname: a valid directory name
+    :param basename: a valid file name
+    kwargs:
     write_callbacks (list[function])
     resume (bool=True): whether to resume if partial file exists
     """
+
     dl_path = basename
     if dirname:
         dl_path = os.path.join(dirname, basename)
@@ -157,8 +160,8 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
 def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """Keyword args:
     offset (int): byte offset -- start byte for ranged request
-    length (int): total length, equal to end - 1
-    write_callbacks (list[function])
+    length (int): total length, equal to end + 1
+    write_callbacks: (list[function])
     """
     ok_codes = [http.PARTIAL_CONTENT]
 

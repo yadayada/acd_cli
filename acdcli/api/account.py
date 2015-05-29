@@ -13,7 +13,7 @@ class _Usage(object):
 
     @staticmethod
     def format_line(type_, count, size):
-        return '{0:10} {1:4}, {2:>6} {3:3}\n'.format(type_ + ':', count, *size)
+        return '{0:10} {1:7}, {2:>6} {3:3}\n'.format(type_ + ':', count, *size)
 
     def __str__(self):
         str_ = ''

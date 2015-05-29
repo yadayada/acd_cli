@@ -80,8 +80,7 @@ HASH_MISMATCH = 32
 ERR_CR_FOLDER = 64
 SIZE_MISMATCH = 128
 CACHE_ASYNC = 256
-
-SERVER_ERR = 512
+DUPLICATE = 512
 
 
 def signal_handler(signal_, frame):
@@ -91,6 +90,7 @@ def signal_handler(signal_, frame):
 
 
 signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGPIPE, signal_handler)
 
 
 def pprint(d: dict):
@@ -126,7 +126,8 @@ def sync_node_list(full=False):
 
     if len(nodes) > 0:
         sync.insert_nodes(nodes, partial=not full)
-    db.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: ncp, CacheConsts.LAST_SYNC_KEY: time.time()})
+    db.KeyValueStorage.update(
+        {CacheConsts.CHECKPOINT_KEY: ncp, CacheConsts.LAST_SYNC_KEY: time.time()})
     return
 
 
@@ -156,6 +157,7 @@ RETRY_RETVALS = [UL_DL_FAILED]
 
 def retry_on(ret_vals: list):
     """:param ret_vals: list of retry values on which execution should be repeated"""
+
     def wrap(f):
         def wrapped(*args, **kwargs):
             ret_val = 1
@@ -169,7 +171,9 @@ def retry_on(ret_vals: list):
             if retry:
                 h.reset()
             return RetryRetVal(ret_val, ret_val in ret_vals)
+
         return wrapped
+
     return wrap
 
 
@@ -228,7 +232,8 @@ def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, d
                 logger.error('Error creating remote folder "%s".' % short_nm)
             return ERR_CR_FOLDER
     elif curr_node.is_file():
-        logger.error('Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
+        logger.error(
+            'Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
         return ERR_CR_FOLDER
 
     try:
@@ -261,16 +266,17 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if not file_id:
         if dedup and query.file_size_exists(os.path.getsize(path)):
             nodes = query.find_md5(hashing.hash_file(path))
-            nodes = query.PathFormatter.format(nodes)
+            nodes = format.PathFormatter(nodes)
             if len(nodes) > 0:
                 # print('Skipping upload of duplicate file "%s".' % short_nm)
                 logger.info('Location of duplicates: %s' % nodes)
                 pg_handler.done()
-                return 0
+                return DUPLICATE
 
         try:
             hasher = hashing.IncrementalHasher()
-            r = content.upload_file(path, parent_id, read_callbacks=[hasher.update, pg_handler.update],
+            r = content.upload_file(path, parent_id,
+                                    read_callbacks=[hasher.update, pg_handler.update],
                                     deduplication=dedup)
             sync.insert_node(r)
             file_id = r['id']
@@ -283,7 +289,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                     logger.error('Uploading "%s" failed. Name collision with non-cached file. '
                                  'If you want to overwrite, please sync and try again.' % short_nm)
                 else:
-                    logger.error('Uploading "%s" failed. Name or hash collision with non-cached file.' % short_nm)
+                    logger.error(
+                        'Uploading "%s" failed. Name or hash collision with non-cached file.' % short_nm)
                     logger.info(e)
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
@@ -292,7 +299,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # TODO: wait; request parent folder's children
                 return UL_TIMEOUT
             else:
-                logger.error('Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
+                logger.error(
+                    'Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return UL_DL_FAILED
 
     # else: file exists
@@ -319,11 +327,13 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 
 @retry_on(RETRY_RETVALS)
-def overwrite(node_id, local_file, dedup=False, pg_handler: progress.FileProgress=None) -> RetryRetVal:
+def overwrite(node_id, local_file, dedup=False,
+              pg_handler: progress.FileProgress=None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
         r = content.overwrite_file(node_id, local_file,
-                                   read_callbacks=[hasher.update, pg_handler.update], deduplication=dedup)
+                                   read_callbacks=[hasher.update, pg_handler.update],
+                                   deduplication=dedup)
         sync.insert_node(r)
         node = query.get_node(r['id'])
         md5 = node.md5
@@ -394,7 +404,8 @@ def traverse_dl_folder(node_id: str, local_path: str, exclude: list, jobs: list)
 
 
 @retry_on(RETRY_RETVALS)
-def download_file(node_id: str, local_path: str, pg_handler: progress.FileProgress=None) -> RetryRetVal:
+def download_file(node_id: str, local_path: str,
+                  pg_handler: progress.FileProgress=None) -> RetryRetVal:
     node = query.get_node(node_id)
     name, md5, size = node.name, node.md5, node.size
     # db.Session.remove()  # otherwise, sqlalchemy will complain if thread crashes
@@ -442,8 +453,10 @@ def no_autores_trash_action(func):
     return func
 
 
+###
+
 def sync_action(args: argparse.Namespace):
-    print('Syncing... ')
+    print('Syncing...')
     r = sync_node_list(full=args.full)
     print('Done.')
     return r
@@ -454,6 +467,23 @@ def old_sync_action(args: argparse.Namespace):
     r = old_sync()
     print('Done.')
     return r
+
+
+@nocache_action
+@offline_action
+def delete_everything_action(args: argparse.Namespace):
+    from distutils.util import strtobool
+    from shutil import rmtree
+
+    a = input('Do you really want to delete %s? [y/n] ' % CACHE_PATH)
+    try:
+        if strtobool(a):
+            rmtree(CACHE_PATH)
+    except ValueError:
+        pass
+    except OSError as e:
+        print(e)
+        print('Deleting directory failed.')
 
 
 @nocache_action
@@ -471,7 +501,7 @@ def print_version_action(args: argparse.Namespace):
 @offline_action
 def tree_action(args: argparse.Namespace):
     tree = query.tree(args.node, args.include_trash)
-    tree = query.ListFormatter.format(tree)
+    tree = format.TreeFormatter(tree)
     for node in tree:
         print(node)
 
@@ -516,7 +546,8 @@ def upload_action(args: argparse.Namespace) -> int:
             ret_val |= INVALID_ARG_RETVAL
             continue
 
-        ret_val |= create_upload_jobs(path, args.parent, args.overwrite, args.force, args.deduplicate, excl_re, jobs)
+        ret_val |= create_upload_jobs(path, args.parent, args.overwrite, args.force,
+                                      args.deduplicate, excl_re, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
@@ -560,6 +591,8 @@ def create_action(args: argparse.Namespace) -> int:
         logger.error('Cannot create folder with empty name.')
         return INVALID_ARG_RETVAL
 
+    if parent[-1:] == [] or parent[-1] != '/':
+        parent = '/' + parent
     p_id = query.resolve_path(parent)
     if not p_id:
         logger.error('Invalid parent path "%s".' % parent)
@@ -581,8 +614,7 @@ def create_action(args: argparse.Namespace) -> int:
 @offline_action
 def list_trash_action(args: argparse.Namespace):
     t_list = query.list_trash(args.recursive)
-    t_list = query.ListFormatter.format(t_list)
-    for node in t_list:
+    for node in format.ListFormatter(t_list, recursive=args.recursive):
         print(node)
 
 
@@ -616,7 +648,7 @@ def resolve_action(args: argparse.Namespace) -> int:
 @offline_action
 def find_action(args: argparse.Namespace):
     r = query.find(args.name)
-    r = query.ListFormatter.format(r)
+    r = format.LongIDFormatter(r)
     for node in r:
         print(node)
     if not r:
@@ -624,22 +656,20 @@ def find_action(args: argparse.Namespace):
 
 
 @offline_action
-def find_md5_action(args: argparse.Namespace):
+def find_md5_action(args: argparse.Namespace) -> int:
+    if len(args.md5) != 32:
+        logger.critical('Invalid MD5 specified')
+        return 2
     nodes = query.find_md5(args.md5)
-    nodes = query.ListFormatter.format(nodes)
-    for node in nodes:
+    for node in format.LongIDFormatter(nodes):
         print(node)
 
 
 @offline_action
 def children_action(args: argparse.Namespace) -> int:
-    c_list = query.list_children(args.node, args.recursive, args.include_trash)
-    c_list = query.ListFormatter.format(c_list)
-    if c_list:
-        for entry in c_list:
-            print(entry)
-    else:
-        return 1
+    nodes = query.list_children(args.node, args.recursive, args.include_trash)
+    for entry in format.ListFormatter(nodes, recursive=args.recursive):
+        print(entry)
 
 
 def move_action(args: argparse.Namespace) -> int:
@@ -688,8 +718,15 @@ def metadata_action(args: argparse.Namespace) -> int:
 
 
 @offline_action
+@nocache_action
+def dump_sql_action(args: argparse.Namespace):
+    db.dump_table_sql()
+
+
+@offline_action
 def compare_action(args: argparse.Namespace):
     pass
+
 
 #
 # helper methods
@@ -709,13 +746,14 @@ def migrate_cache_files():
                     logger.info('Moving file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
                     os.rename(curr_path, new_path)
             except OSError:
-                logger.warning('Error moving cache file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
+                logger.warning(
+                    'Error moving cache file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
 
 
 def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: bool=True):
     """In-place replaces certain attributes in Namespace by resolved node ID.
     :param attrs: list of attributes that may be given in absolute path form
-    :param excl_trash_actions: actions that
+    :param incl_trash: whether to resolve trashed files
     """
     for id_attr in attrs:
         if hasattr(args, id_attr):
@@ -785,8 +823,10 @@ class Argument(object):
 
 def main():
     utf_flag = False
+    tty_flag = sys.stdout.isatty()
     enc = str.lower(sys.stdout.encoding)
-    if not enc or (sys.stdout.isatty() and enc != 'utf-8'):
+
+    if not enc or (tty_flag and enc != 'utf-8'):
         import io
 
         sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
@@ -808,6 +848,12 @@ def main():
                             help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info')
     opt_parser.add_argument('-d', '--debug', action='count',
                             help='prints info and debug to stderr; use "-dd" to also get sqlalchemy debug messages')
+    opt_parser.add_argument('-c', '--color', default=format.ColorMode['never'],
+                            choices=format.ColorMode.keys(),
+                            help='"never" [default] turns coloring off, '
+                                 '"always" turns coloring on '
+                                 'and "auto" colors listings when stdout is a tty '
+                                 '[uses the Linux-style LS_COLORS environment variable]')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')
@@ -824,7 +870,8 @@ def main():
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
     old_sync_sp.set_defaults(func=old_sync_action)
 
-    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'], help='clear node cache [offline operation]\n\n')
+    clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'],
+                                     help='clear node cache [offline operation]\n\n')
     clear_sp.set_defaults(func=clear_action)
 
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
@@ -855,9 +902,11 @@ def main():
     re_dummy_sp.add_argument('--max-connections', '-x', action='store', type=int, default=1,
                              help='set the maximum concurrent connections [default: 1]')
     max_ret.attach(re_dummy_sp)
-    re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe', default=[],
+    re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe',
+                             default=[],
                              help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
-    re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re', default=[],
+    re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re',
+                             default=[],
                              help='exclude files whose names match the given regular expression,'
                                   ' e.g. "^thumbs\.db$" [case insensitive]')
 
@@ -867,7 +916,8 @@ def main():
                            help='overwrite if local modification time is higher or local ctime is higher than remote '
                                 'modification time and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
-    upload_sp.add_argument('--deduplicate', '-d', action='store_true', help='exclude duplicate files from upload')
+    upload_sp.add_argument('--deduplicate', '-d', action='store_true',
+                           help='exclude duplicate files from upload')
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
@@ -885,8 +935,10 @@ def main():
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
 
-    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'], help='create folder using an absolute path\n\n')
-    cr_fo_sp.add_argument('new_folder', help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
+    cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'],
+                                     help='create folder using an absolute path\n\n')
+    cr_fo_sp.add_argument('new_folder',
+                          help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
 
     trash_sp = subparsers.add_parser('list-trash', aliases=['lt'],
@@ -912,18 +964,21 @@ def main():
     rename_sp.add_argument('name')
     rename_sp.set_defaults(func=rename_action)
 
-    res_sp = subparsers.add_parser('resolve', aliases=['rs'], help='resolve a path to a node ID\n\n')
+    res_sp = subparsers.add_parser('resolve', aliases=['rs'],
+                                   help='resolve a path to a node ID\n\n')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
 
     # maybe the child operations should not be exposed
     # they can be used for creating hardlinks
-    add_c_sp = subparsers.add_parser('add-child', aliases=['ac'], help='add a node to a parent folder')
+    add_c_sp = subparsers.add_parser('add-child', aliases=['ac'],
+                                     help='add a node to a parent folder')
     add_c_sp.add_argument('parent')
     add_c_sp.add_argument('child')
     add_c_sp.set_defaults(func=add_child_action)
 
-    rem_c_sp = subparsers.add_parser('remove-child', aliases=['rc'], help='remove a node from a parent folder\n\n')
+    rem_c_sp = subparsers.add_parser('remove-child', aliases=['rc'],
+                                     help='remove a node from a parent folder\n\n')
     rem_c_sp.add_argument('parent')
     rem_c_sp.add_argument('child')
     rem_c_sp.set_defaults(func=remove_child_action)
@@ -934,13 +989,21 @@ def main():
     quota_sp = subparsers.add_parser('quota', aliases=['q'], help='show drive quota [raw JSON]')
     quota_sp.set_defaults(func=quota_action)
 
-    meta_sp = subparsers.add_parser('metadata', aliases=['m'], help='print a node\'s metadata [raw JSON]')
+    meta_sp = subparsers.add_parser('metadata', aliases=['m'],
+                                    help='print a node\'s metadata [raw JSON]')
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
+
+    de_sp = subparsers.add_parser('delete-everything', add_help=False)
+    de_sp.set_defaults(func=delete_everything_action)
 
     # useful for interactive mode
     dn_sp = subparsers.add_parser('init', aliases=['i'], add_help=False)
     dn_sp.set_defaults(func=None)
+
+    # dump sql database creation sequence to stdout
+    dmp_sp = subparsers.add_parser('dumpsql', add_help=False)
+    dmp_sp.set_defaults(func=dump_sql_action)
 
     plugin_log = [str(plugins.Plugin)]
     for plugin in plugins.Plugin:
@@ -969,6 +1032,8 @@ def main():
         if not db.init(CACHE_PATH):
             sys.exit(INIT_FAILED_RETVAL)
         check_cache_age()
+
+    format.init(args.color)
 
     if args.no_wait:
         common.BackOffRequest._wait = lambda: None
