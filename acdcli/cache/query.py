@@ -124,6 +124,7 @@ def file_size_exists(size: int) -> bool:
     return db.Session.query(db.File).filter_by(size=size).count()
 
 
+# TODO: return node
 def resolve_path(path: str, root=None, trash=True) -> str:
     """Resolves absolute path to node id if fully unique"""
     if not path or (not root and '/' not in path):

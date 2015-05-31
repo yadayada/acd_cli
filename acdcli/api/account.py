@@ -64,3 +64,9 @@ def get_quota() -> dict:
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
     return r.json()
+
+
+def fs_sizes() -> tuple:
+    """returns total and free space"""
+    q = get_quota()
+    return q.get('quota', 0), q.get('available', 0)

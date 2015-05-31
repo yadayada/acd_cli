@@ -90,7 +90,8 @@ def signal_handler(signal_, frame):
 
 
 signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGPIPE, signal_handler)
+if hasattr(signal, 'SIGPIPE'):
+    signal.signal(signal.SIGPIPE, signal_handler)
 
 
 def pprint(d: dict):
@@ -591,7 +592,7 @@ def create_action(args: argparse.Namespace) -> int:
         logger.error('Cannot create folder with empty name.')
         return INVALID_ARG_RETVAL
 
-    if parent[-1:] == [] or parent[-1] != '/':
+    if parent[-1:] == '' or parent[0] != '/':
         parent = '/' + parent
     p_id = query.resolve_path(parent)
     if not p_id:
@@ -600,7 +601,6 @@ def create_action(args: argparse.Namespace) -> int:
 
     try:
         r = content.create_folder(folder, p_id)
-        sync.insert_node(r)
     except RequestError as e:
         logger.debug(str(e.status_code) + e.msg)
         if e.status_code == 409:
@@ -608,6 +608,8 @@ def create_action(args: argparse.Namespace) -> int:
         else:
             logger.error('Error creating folder "%s".' % folder)
             return ERR_CR_FOLDER
+    else:
+        sync.insert_node(r)
 
 
 @no_autores_trash_action
@@ -721,6 +723,11 @@ def metadata_action(args: argparse.Namespace) -> int:
 @nocache_action
 def dump_sql_action(args: argparse.Namespace):
     db.dump_table_sql()
+
+
+def mount_action(args: argparse.Namespace):
+    import acdcli.fuse
+    acdcli.fuse.mount(args.path)
 
 
 @offline_action
@@ -1004,6 +1011,10 @@ def main():
     # dump sql database creation sequence to stdout
     dmp_sp = subparsers.add_parser('dumpsql', add_help=False)
     dmp_sp.set_defaults(func=dump_sql_action)
+
+    fuse_sp = subparsers.add_parser('mount', add_help=False)
+    fuse_sp.add_argument('path')
+    fuse_sp.set_defaults(func=mount_action)
 
     plugin_log = [str(plugins.Plugin)]
     for plugin in plugins.Plugin:

@@ -14,7 +14,7 @@ except ImportError:
 
 from .common import *
 
-FS_RW_CHUNK_SZ = 1024 * 64
+FS_RW_CHUNK_SZ = 1024 * 128
 
 PARTIAL_SUFFIX = '.__incomplete'
 CHUNK_SIZE = 500 * 1024 ** 2  # basically arbitrary
@@ -70,6 +70,29 @@ def create_folder(name: str, parent=None) -> dict:
 def _get_mimetype(file_name: str) -> str:
     mt = mimetypes.guess_type(file_name)[0]
     return mt if mt else 'application/octet-stream'
+
+
+def create_file(file_name: str, parent: str=None) -> dict:
+    params = {'suppress': 'deduplication'}
+
+    basename = os.path.basename(file_name)
+    metadata = {'kind': 'FILE', 'name': basename}
+    if parent:
+        metadata['parents'] = [parent]
+    mime_type = _get_mimetype(basename)
+    f = io.BytesIO()
+
+    # basename is ignored
+    m = MultipartEncoder(fields=OrderedDict([('metadata', json.dumps(metadata)),
+                                             ('content', (quote_plus(basename), f, mime_type))]))
+
+    ok_codes = [http.CREATED]
+    r = BackOffRequest.post(get_content_url() + 'nodes', params=params, data=m,
+                            acc_codes=ok_codes, headers={'Content-Type': m.content_type})
+
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)
+    return r.json()
 
 
 def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
@@ -156,20 +179,42 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
     os.rename(part_path, dl_path)
 
 
+def download_chunk(node_id: str, buffer, offset: int, length: int, **kwargs):
+    """:param length: the length of the download chunk"""
+
+    ok_codes = [http.PARTIAL_CONTENT]
+    write_callbacks = kwargs.get('write_callbacks', [])
+    end = offset + length - 1
+    print('o %d l %d' % (offset, length))
+
+    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
+                           acc_codes=ok_codes, stream=True,
+                           headers={'Range': 'bytes=%d-%d' % (offset, end)})
+    if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
+        return
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)
+
+    for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
+        if chunk:
+            buffer.write(chunk)
+            buffer.flush()
+
+
 @catch_conn_exception
 def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """Keyword args:
     offset (int): byte offset -- start byte for ranged request
-    length (int): total length, equal to end + 1
+    length (int): total file length[!], equal to end + 1
     write_callbacks: (list[function])
     """
     ok_codes = [http.PARTIAL_CONTENT]
 
     write_callbacks = kwargs.get('write_callbacks', [])
 
+    chunk_start = kwargs.get('offset', 0)
     length = kwargs.get('length', 100 * 1024 ** 4)
 
-    chunk_start = kwargs.get('offset', 0)
     retries = 0
     while chunk_start < length:
         chunk_end = chunk_start + CHUNK_SIZE - 1
