@@ -1,4 +1,5 @@
 import logging
+import collections
 
 from .common import *
 
@@ -25,15 +26,21 @@ class _Usage(object):
                     continue
                 sum_count += self.dict_[key]['total']['count']
                 sum_bytes += self.dict_[key]['total']['bytes']
-            str_ = _Usage.format_line('Documents', self.dict_['doc']['total']['count'],
-                                     self.file_size_pair(self.dict_['doc']['total']['bytes'])) + \
-                   _Usage.format_line('Other', self.dict_['other']['total']['count'],
-                                     self.file_size_pair(self.dict_['other']['total']['bytes'])) + \
-                   _Usage.format_line('Photos', self.dict_['photo']['total']['count'],
-                                     self.file_size_pair(self.dict_['photo']['total']['bytes'])) + \
-                   _Usage.format_line('Videos', self.dict_['video']['total']['count'],
-                                     self.file_size_pair(self.dict_['video']['total']['bytes'])) + \
-                   _Usage.format_line('Total', sum_count, self.file_size_pair(sum_bytes))
+            types = collections.OrderedDict([('Documents' , 'doc'),
+                                 ('Other'     , 'other'),
+                                 ('Photos'    , 'photo'),
+                                 ('Videos'    , 'video')]);
+            total_count = 0
+            total_bytes = 0
+            for desc in types:
+                t = types[desc]
+                type_usage = self.dict_[t]['total']
+                type_count = type_usage['count']
+                type_bytes = type_usage['bytes']
+                total_count += type_count
+                total_bytes += type_bytes
+                str_ += _Usage.format_line(desc, type_count, _Usage.file_size_pair(type_bytes))
+            str_ += _Usage.format_line('Total', total_count, _Usage.file_size_pair(total_bytes))
         except KeyError:
             logger.warning('Invalid usage JSON string.')
         return str_
