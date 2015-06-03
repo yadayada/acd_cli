@@ -313,7 +313,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     logger.info('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
     if not overwr and not force:
-        logging.info('Skipping upload of existing file "%s".' % short_nm)
+        logger.info('Skipping upload of existing file "%s".' % short_nm)
         pg_handler.done()
         return 0
 
@@ -322,7 +322,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             or force:
         return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret_val
     elif not force:
-        logging.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
+        logger.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()
         return 0
 

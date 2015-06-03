@@ -26,10 +26,10 @@ class _Usage(object):
                     continue
                 sum_count += self.dict_[key]['total']['count']
                 sum_bytes += self.dict_[key]['total']['bytes']
-            types = collections.OrderedDict([('Documents' , 'doc'),
-                                 ('Other'     , 'other'),
-                                 ('Photos'    , 'photo'),
-                                 ('Videos'    , 'video')]);
+            types = collections.OrderedDict([('Documents', 'doc'),
+                                             ('Other', 'other'),
+                                             ('Photos', 'photo'),
+                                             ('Videos', 'video')])
             total_count = 0
             total_bytes = 0
             for desc in types:

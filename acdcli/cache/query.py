@@ -1,4 +1,5 @@
 import logging
+from sqlalchemy import func
 
 from . import db
 
@@ -31,6 +32,17 @@ def get_root_id() -> str:
 def get_node_count() -> int:
     return db.Session.query(db.Node).count()
 
+
+def get_file_count() -> int:
+    return db.Session.query(db.File).count()
+
+
+def calculate_usage() -> int:
+    return db.Session.query(func.sum(db.File.size)).scalar()
+
+
+def file_size(id: str) -> int:
+    return db.Session.query(db.File).filter_by(id=id).first().size
 
 def tree(root_id: str=None, trash=False):
     if root_id is None:
@@ -161,5 +173,7 @@ def resolve_path(path: str, root=None, trash=True) -> str:
             ids.append(res)
     if len(ids) == 1:
         return ids[0]
+    elif len(ids) == 0:
+        logger.debug('Could not resolve path "%s"' % path)
     else:
         logger.info('Could not resolve non fully unique (i.e. trash) path "%s"' % path)

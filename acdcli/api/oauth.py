@@ -24,6 +24,18 @@ def get_auth_header() -> dict:
     return {'Authorization': handler.get_auth_token()}
 
 
+TOKEN_INFO_URL = 'https://api.amazon.com/auth/o2/tokeninfo'
+
+def get_access_token_info() -> dict:
+    """json keywords
+    int exp: expiration time in sec
+    str aud: client id
+    user_id, app_id, iat (exp time)
+    """
+    r = requests.get(TOKEN_INFO_URL, params = {'access_token': handler.oauth_data['access_token']})
+    return r.json()
+
+
 def _create_handler(path: str):
     try:
         return LocalOAuthHandler(path)
