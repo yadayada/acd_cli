@@ -49,7 +49,9 @@ Advanced Users
 ++++++++++++++
 
 Alternatively, you may put your own security profile data in a file called ``client_data`` in the cache directory.
-It needs to be created prior to starting the program and adhere to the following form.::
+It needs to be created prior to starting the program and adhere to the following form.
+
+.. code :: json
 
  {
      "CLIENT_ID": "",
@@ -192,6 +194,12 @@ You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options he
 
 If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that.
 There is also a `TODO <TODO.rst>`_ list.
+
+You might also want to consider making a donation to further the development of acd\_cli.
+
+.. image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
+   :alt: Donate via PayPal
+   :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
 
 
 .. _dependencies:
