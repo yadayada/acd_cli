@@ -5,6 +5,8 @@ from collections import deque
 
 
 class FileProgress(object):
+    __slots__ = ('current', 'status', 'total')
+
     def __init__(self, total_sz: int, current: int=0):
         self.total = total_sz
         self.current = current

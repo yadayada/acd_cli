@@ -124,7 +124,6 @@ def update_metadata(node_id: str, properties: dict) -> dict:
     return r.json()
 
 
-# necessary?
 def get_root_id() -> dict:
     params = {'filters': 'isRoot:true'}
     r = BackOffRequest.get(get_metadata_url() + 'nodes', params=params)
@@ -138,7 +137,6 @@ def get_root_id() -> dict:
         return data['data'][0]['id']
 
 
-# unused
 def list_children(node_id: str) -> list:
     l = BackOffRequest.paginated_get(get_metadata_url() + 'nodes/' + node_id + '/children')
     return l
@@ -173,20 +171,38 @@ def rename_node(node_id: str, new_name: str) -> dict:
     return update_metadata(node_id, properties)
 
 
-# sets node with 'PENDING' status to 'AVAILABLE'
 def set_available(node_id: str) -> dict:
+    """Sets node status from 'PENDING' to 'AVAILABLE'."""
     properties = {'status': 'AVAILABLE'}
     return update_metadata(node_id, properties)
 
 
-def list_properties(node_id: str, owner_id) -> dict:
-    r = BackOffRequest.get(get_metadata_url() + '/nodes/' + node_id + '/properties/' + owner_id)
+def list_properties(node_id: str, owner_id: str) -> dict:
+    """This will always return an empty dict if the accessor is not the owner.
+    :param owner_id: owner ID (return status 404 if empty)
+    """
+    r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id + '/properties/' + owner_id)
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
     return r.json()['data']
 
 
-def add_property(node_id: str, owner_id, key, value) -> dict:
-    """Maximum number of keys per owner is 10, max. value length is 500"""
+def add_property(node_id: str, owner_id: str, key: str, value: str) -> dict:
+    """Adds or overwrites property. Maximum number of keys per owner is 10.
+    :param value: string of length <= 500
+    """
     ok_codes = [http.CREATED]
-    r = BackOffRequest.put(get_metadata_url() + '/nodes/' + node_id + '/properties/' + owner_id + '/' + key,
+    r = BackOffRequest.put(get_metadata_url() + 'nodes/' + node_id
+                           + '/properties/' + owner_id + '/' + key,
                            data=json.dumps({'value': value}), acc_codes=ok_codes)
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)
     return r.json()
+
+
+def delete_property(node_id: str, owner_id: str, key: str):
+    ok_codes = [http.NO_CONTENT]
+    r = BackOffRequest.delete(get_metadata_url() + 'nodes/' + node_id
+                              + '/properties/' + owner_id + '/' + key, acc_codes=ok_codes)
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)

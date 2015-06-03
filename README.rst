@@ -126,6 +126,7 @@ hash mismatch               32
 error creating folder       64
 file size mismatch         128
 cache outdated             256
+duplicate                  512
 =====================    =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.

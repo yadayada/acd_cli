@@ -37,6 +37,10 @@ setup(
         'Environment :: Console',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'
         'Programming Language :: Python :: 3',
-        'Development Status :: 3 - Beta'
+        'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3 :: Only',
+        'Development Status :: 3 - Beta',
+        'Topic :: System :: Archiving :: Backup',
+        'Topic :: System :: Filesystems'
     ]
 )
