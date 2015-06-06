@@ -219,6 +219,11 @@ class Folder(Node):
                 return child
         return
 
+    def available_children(self):
+        for c in self.children:
+            if c.is_available():
+                yield c
+
 
 """End of 'schema'"""
 

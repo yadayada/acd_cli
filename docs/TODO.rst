@@ -10,18 +10,25 @@ General
 * unify the find action
 * switch to multiprocessing
 
+FUSE
+~~~~
+
+* file write (upload)
+* prefetch one chunk (?)
+* invalidate chunks of StreamedResponseCache
+* multi-threading
+
 File Transfer
 ~~~~~~~~~~~~~
 
 * autosplit large files (determine maximum size first)
-* node directory walker (similar to os.walk) ?
 * more sophisticated progress handler that supports offsets, ETA
+* copy local mtime on upload
 
 User experience
 ~~~~~~~~~~~~~~~
 
 * backup oauth file on refresh
-* proper tree formatter
 * manual shell completion
 * even nicer help formatting
 

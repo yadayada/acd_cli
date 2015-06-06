@@ -3,6 +3,7 @@
 import unittest
 import logging
 import os
+import io
 import random
 import string
 
@@ -24,17 +25,25 @@ def gen_rand_sz():
     return random.randint(1, 32 * 1024)
 
 
-def gen_rand_file(size=gen_rand_sz()):
+def gen_rand_file(size=gen_rand_sz()) -> tuple:
     fn = gen_rand_nm()
     with open(fn, 'wb') as f:
         f.write(os.urandom(size))
     return fn, size
 
 
+def gen_rand_bytes(size=gen_rand_sz()) -> io.BytesIO:
+    b = io.BytesIO()
+    b.write(os.urandom(size))
+    b.seek(0)
+    return b
+
+
 content._CHUNK_SIZE = content.CHUNK_SIZE
 content._CONSECUTIVE_DL_LIMIT = content.CONSECUTIVE_DL_LIMIT
 
 import sys
+
 print(sys.argv)
 
 
@@ -112,12 +121,28 @@ class APILiveTestCase(unittest.TestCase):
         self.assertEqual(n['contentProperties']['md5'], md5)
         os.remove(fn)
         self.assertFalse(os.path.exists(fn))
-        with open(fn, 'wb') as f:
-            content.chunked_download(n['id'], f, length=sz)
+        f = io.BytesIO()
+        content.chunked_download(n['id'], f, length=sz)
         trash.move_to_trash(n['id'])
-        dl_md5 = hashing.hash_file(fn)
-        self.assertEqual(sz, os.path.getsize(fn))
+        dl_md5 = hashing.hash_bytes(f)
+        self.assertEqual(sz, f.tell())
         self.assertEqual(md5, dl_md5)
+
+    def test_incomplete_download(self):
+        ch_sz = gen_rand_sz()
+        content.CHUNK_SIZE = ch_sz
+        fn, sz = gen_rand_file(size=5 * ch_sz)
+        md5 = hashing.hash_file(fn)
+        n = content.upload_file(fn)
+        self.assertEqual(n['contentProperties']['md5'], md5)
+        os.remove(fn)
+        self.assertFalse(os.path.exists(fn))
+        with self.assertRaises(RequestError) as cm:
+            content.download_file(n['id'], fn, length=sz + 1)
+
+        #os.remove(fn + content.PARTIAL_SUFFIX)
+        self.assertEqual(cm.exception.status_code, RequestError.CODE.INCOMPLETE_RESULT)
+        content.download_file(n['id'], fn, length=sz)
         os.remove(fn)
 
     def test_download_resume(self):

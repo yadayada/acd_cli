@@ -1,8 +1,12 @@
+.. image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
+   :alt: Donate via PayPal
+   :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
+
 acd\_cli
 ========
 
-**acd\_cli** aims to provide a command line interface to Amazon Cloud Drive written in Python 3.
-It is currently in beta stage.
+**acd\_cli** provides a command line interface to Amazon Cloud Drive and allows mounting your
+cloud drive using FUSE for *read* access. It is currently in beta stage.
 
 Features
 --------
@@ -27,7 +31,14 @@ Quick start
 Installation
 ~~~~~~~~~~~~
 
-After downloading, run the appropriate pip command for Python 3 in the project's root directory like so:
+The easiest way is to directly install from github. Please check which pip command is
+appropriate for Python 3 packages in your environment. I will be using 'pip3' in the examples.
+::
+
+   pip3 install --upgrade git+https://github.com/yadayada/acd_cli.git
+
+
+To install from a downloaded or cloned directory, run pip in the project's root directory like so:
 ::
 
     pip3 install --upgrade .
@@ -97,6 +108,8 @@ The following actions are built in
         usage (u)           show drive usage data
         quota (q)           show drive quota [raw JSON]
         metadata (m)        print a node's metadata [raw JSON]
+        
+        mount               mount the cloud drive at a local directory
 
 Please run ``acd_cli --help`` to get a current list of the available actions.
 You may also get a list of further arguments and their order of an action by calling ``acd_cli [action] --help``.
@@ -112,6 +125,9 @@ This can be done by using the verbose argument and appending ``2> >(tee acd.log 
 Files can be excluded via optional parameter by file ending, e.g. ``-xe bak``,
 or regular expression on the whole file name, e.g. ``-xr "^thumbs\.db$"``.
 Both exclusion methods are case insensitive.
+
+Exit status
+~~~~~~~~~~~
 
 When the script is done running, its exit status can be checked for flags. If no error occurs,
 the exit status will be 0. Possible flag values are:
@@ -130,6 +146,36 @@ duplicate                  512
 =====================    =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
+
+Mounting
+~~~~~~~~
+
+First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``. 
+To unmount later, run ``fusermount -u path/to/mountpoint``.
+
+=====================  ===========
+Feature                 Working
+=====================  ===========
+Basic operations
+----------------------------------
+List directory           ✅
+Reade                    ✅
+Write                    ❌
+Rename                   ✅
+Move                     ✅
+Trashing                 ✅ [#]_
+OS-level trashing        partially [#]_
+View trash               ❌
+Misc
+----------------------------------
+Automatic sync           ❌
+Hard links               partially [#]_
+Symbolic links           ❌
+=====================  ===========
+
+.. [#] equivalent to a filesystem level permanent delete
+.. [#] restoration info cannot be written, manual restoring should work
+.. [#] manually created hard links will be listed
 
 Usage example
 -------------
@@ -194,19 +240,17 @@ Feel free to use the bug tracker to add issues.
 You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options helpful.
 
 If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that.
-There is also a `TODO <TODO.rst>`_ list.
+There is also a `TODO <docs/TODO.rst>`_ list.
 
 You might also want to consider making a donation to further the development of acd\_cli.
-
-.. image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
-   :alt: Donate via PayPal
-   :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
-
 
 .. _dependencies:
 
 Dependencies
 ------------
+
+Python packages
+~~~~~~~~~~~~~~~
 
 - appdirs
 - dateutils (recommended)
@@ -221,8 +265,19 @@ If you want to the dependencies using your distribution's packaging system and
 are using a distro based on Debian 'jessie', the necessary packages are
 ``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
 
+FUSE
+~~~~
+
+For the mounting feature, fuse >= 2.6 is needed according to pyfuse. On a 
+Debian-based distribution, the according package should simply be named 'fuse'.
+
 Recent Changes
 --------------
+
+0.3.0
+~~~~~
+
+* FUSE read support added
 
 0.2.2
 ~~~~~

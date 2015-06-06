@@ -1,3 +1,5 @@
+"""File and folder creation, file transfer operations."""
+
 import http.client as http
 import os
 import json
@@ -31,6 +33,7 @@ def tee_open(path: str, **kwargs):
 
 class TeeBufferedReader(object):
     """Creates proxy buffered reader object that allows callbacks on read operations."""
+
     def __init__(self, file: io.BufferedReader, callbacks: list=None):
         self._file = file
         self._callbacks = callbacks
@@ -51,7 +54,6 @@ class TeeBufferedReader(object):
 
 
 def create_folder(name: str, parent=None) -> dict:
-    # params = {'localId' : ''}
     body = {'kind': 'FOLDER', 'name': name}
     if parent:
         body['parents'] = [parent]
@@ -96,7 +98,9 @@ def create_file(file_name: str, parent: str=None) -> dict:
 
 
 def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
-    params = {} if deduplication else {'suppress': 'deduplication'}
+    params = {'suppress': 'deduplication'}
+    if deduplication and os.path.getsize(file_name) > 0:
+        params = {'suppress': 'deduplication'}
 
     basename = os.path.basename(file_name)
     metadata = {'kind': 'FILE', 'name': basename}
@@ -110,8 +114,8 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
                                              ('content', (quote_plus(basename), f, mime_type))]))
 
     ok_codes = [http.CREATED]
-    r = BackOffRequest.post(get_content_url() + 'nodes', params=params, data=m,
-                            acc_codes=ok_codes, stream=True, headers={'Content-Type': m.content_type})
+    r = BackOffRequest.post(get_content_url() + 'nodes', params=params, data=m, acc_codes=ok_codes,
+                            stream=True, headers={'Content-Type': m.content_type})
 
     if r.status_code not in ok_codes:
         raise RequestError(r.status_code, r.text)
@@ -128,7 +132,8 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
     # basename is ignored
     m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})
 
-    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params, data=m,
+    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params,
+                           data=m,
                            stream=True, headers={'Content-Type': m.content_type})
 
     if r.status_code not in OK_CODES:
@@ -138,11 +143,14 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
 
 
 def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
-    """
-    :param dirname: a valid directory name
+    """ Deals with download preparation, download with :func:`chunked_download` and finish.
+    Calls callbacks while fast forwarding through incomplete file (if existent).
+    Will not check for existing file prior to download and overwrite existing file on finish.
+    :param dirname: a valid local directory name, or CWD if None
     :param basename: a valid file name
     kwargs:
-    write_callbacks (list[function])
+    length: the total length of the file
+    write_callbacks (list[function]): passed on to :func:`chunked_download`
     resume (bool=True): whether to resume if partial file exists
     """
 
@@ -152,6 +160,7 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
     part_path = dl_path + PARTIAL_SUFFIX
     offset = 0
 
+    length = kwargs.get('length', 0)
     resume = kwargs.get('resume', True)
     if resume and os.path.isfile(part_path):
         with open(part_path, 'ab') as f:
@@ -171,34 +180,45 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
     offset = f.tell()
 
     chunked_download(node_id, f, offset=offset, **kwargs)
-
+    pos = f.tell()
     f.close()
+    if length > 0:
+        if pos < length:
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] ')
+
     if os.path.isfile(dl_path):
         logger.info('Deleting existing file "%s".' % dl_path)
         os.remove(dl_path)
     os.rename(part_path, dl_path)
 
 
-def download_chunk(node_id: str, buffer, offset: int, length: int, **kwargs):
-    """:param length: the length of the download chunk"""
-
+def response_chunk(node_id: str, offset: int, length: int, **kwargs):
     ok_codes = [http.PARTIAL_CONTENT]
-    write_callbacks = kwargs.get('write_callbacks', [])
     end = offset + length - 1
-    print('o %d l %d' % (offset, length))
+    logger.debug('o %d l %d' % (offset, length))
 
     r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
                            acc_codes=ok_codes, stream=True,
-                           headers={'Range': 'bytes=%d-%d' % (offset, end)})
+                           headers={'Range': 'bytes=%d-%d' % (offset, end)}, **kwargs)
     if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
         return
     if r.status_code not in ok_codes:
         raise RequestError(r.status_code, r.text)
 
+    return r
+
+
+def download_chunk(node_id: str, offset: int, length: int, **kwargs):
+    """:param length: the length of the download chunk"""
+    r = response_chunk(node_id, offset, length, **kwargs)
+    if not r:
+        return
+
+    buffer = bytearray()
     for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
         if chunk:
-            buffer.write(chunk)
-            buffer.flush()
+            buffer.extend(chunk)
+    return buffer
 
 
 @catch_conn_exception
@@ -206,7 +226,7 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """Keyword args:
     offset (int): byte offset -- start byte for ranged request
     length (int): total file length[!], equal to end + 1
-    write_callbacks: (list[function])
+    write_callbacks (list[function])
     """
     ok_codes = [http.PARTIAL_CONTENT]
 

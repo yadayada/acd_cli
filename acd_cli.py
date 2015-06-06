@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.2.2a1'
+__version__ = '0.3.0a0'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -165,7 +165,8 @@ def retry_on(ret_vals: list):
             try:
                 ret_val = f(*args, **kwargs)
             except Exception as e:
-                logger.error(e.__str__())
+                import traceback
+                logger.error(traceback.format_exc())
             h = kwargs.get('pg_handler')
             h.status = ret_val
             retry = ret_val in ret_vals
@@ -727,7 +728,7 @@ def dump_sql_action(args: argparse.Namespace):
 
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
-    acdcli.fuse.mount(args.path)
+    acdcli.fuse.mount(args.path, ro=args.ro, foreground=args.foreground)
 
 
 @offline_action
@@ -997,7 +998,7 @@ def main():
     quota_sp.set_defaults(func=quota_action)
 
     meta_sp = subparsers.add_parser('metadata', aliases=['m'],
-                                    help='print a node\'s metadata [raw JSON]')
+                                    help='print a node\'s metadata [raw JSON]\n\n')
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
@@ -1012,7 +1013,9 @@ def main():
     dmp_sp = subparsers.add_parser('dumpsql', add_help=False)
     dmp_sp.set_defaults(func=dump_sql_action)
 
-    fuse_sp = subparsers.add_parser('mount', add_help=False)
+    fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
+    fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
+    fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 
