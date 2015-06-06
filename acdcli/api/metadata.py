@@ -143,6 +143,7 @@ def list_children(node_id: str) -> list:
 
 
 def add_child(parent_id: str, child_id: str) -> dict:
+    """:returns updated child node dict"""
     r = BackOffRequest.put(get_metadata_url() + 'nodes/' + parent_id + '/children/' + child_id)
     if r.status_code not in OK_CODES:
         logger.error('Adding child failed.')
@@ -151,6 +152,7 @@ def add_child(parent_id: str, child_id: str) -> dict:
 
 
 def remove_child(parent_id: str, child_id: str) -> dict:
+    """:returns updated child node dict"""
     r = BackOffRequest.delete(get_metadata_url() + 'nodes/' + parent_id + "/children/" + child_id)
     # contrary to response code stated in API doc (202 ACCEPTED)
     if r.status_code not in OK_CODES:
@@ -159,11 +161,9 @@ def remove_child(parent_id: str, child_id: str) -> dict:
     return r.json()
 
 
-# preferable to adding child to new parent and removing child from old parent
-# undocumented API feature
-def move_node(child_id: str, new_parent_id: str) -> dict:
-    properties = {'parents': [new_parent_id]}
-    return update_metadata(child_id, properties)
+def move_node_from(child_id: str, old_parent_id, new_parent_id: str) -> dict:
+    r = add_child(new_parent_id, child_id)
+    return remove_child(old_parent_id, child_id)
 
 
 def rename_node(node_id: str, new_name: str) -> dict:

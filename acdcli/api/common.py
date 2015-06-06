@@ -21,7 +21,6 @@ except ImportError:
 
 from . import oauth
 
-
 __all__ = ('RequestError', 'BackOffRequest',
            'OK_CODES', 'init', 'catch_conn_exception', 'get_metadata_url', 'get_content_url')
 
@@ -134,11 +133,13 @@ class RequestError(Exception):
 def catch_conn_exception(func):
     """Request connection exception decorator
     :raises RequestError"""
+
     def decorated(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except (ConnectionError, ReadTimeoutError) as e:
             raise RequestError(RequestError.CODE.CONN_EXCEPTION, e.__str__())
+
     return decorated
 
 
@@ -211,8 +212,14 @@ class BackOffRequest(object):
 
         cls.__thr_local.last_req_url = url
 
+        if 'timeout' in kwargs:
+            timeout = kwargs['timeout']
+            del kwargs['timeout']
+        else:
+            timeout = REQUESTS_TIMEOUT
+
         try:
-            r = cls.__session.request(type_, url, headers=headers, timeout=REQUESTS_TIMEOUT, **kwargs)
+            r = cls.__session.request(type_, url, headers=headers, timeout=timeout, **kwargs)
         except:
             cls._failed()
             raise
@@ -257,7 +264,8 @@ class BackOffRequest(object):
                 params['startToken'] = ret['nextToken']
             else:
                 if ret['count'] != len(node_list):
-                    logger.warning('Expected {} items, received {}.'.format(ret['count'], len(node_list)))
+                    logger.warning(
+                        'Expected {} items, received {}.'.format(ret['count'], len(node_list)))
                 break
 
         return node_list

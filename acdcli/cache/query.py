@@ -136,24 +136,28 @@ def file_size_exists(size: int) -> bool:
     return db.Session.query(db.File).filter_by(size=size).count()
 
 
-# TODO: return node
-def resolve_path(path: str, root=None, trash=True) -> str:
-    """Resolves absolute path to node id if fully unique"""
+def resolve_path(path: str, trash=True) -> tuple:
+    node, _ = resolve(path, None, trash)
+    return node.id if node else None
+
+
+def resolve(path: str, root=None, trash=True) -> tuple:
+    """Resolves absolute path to (node, parent) tuple if fully unique"""
     if not path or (not root and '/' not in path):
-        return
+        return None, None
 
     segments = path.split('/')
     if segments[0] == '' and not root:
         root = get_root_node()
         # empty cache
         if not root:
-            return
+            return None, None
 
     if not root:
-        return
+        return None, None
 
     if len(segments) == 1 or segments[1] == '':
-        return root.id
+        return root, None
 
     segments = segments[1:]
 
@@ -161,19 +165,21 @@ def resolve_path(path: str, root=None, trash=True) -> str:
     for child in root.children:
         if child.name == segments[0]:
             if child.status != 'TRASH':
-                return resolve_path('/'.join(segments), child)
+                return resolve('/'.join(segments), child)
             children.append(child)
 
     if not trash:
-        return
+        return None, None
     ids = []
     for trash_child in children:
-        res = resolve_path('/'.join(segments), trash_child)
+        res, _ = resolve('/'.join(segments), trash_child)
         if res:
             ids.append(res)
     if len(ids) == 1:
-        return ids[0]
+        return ids[0], root
     elif len(ids) == 0:
         logger.debug('Could not resolve path "%s"' % path)
     else:
         logger.info('Could not resolve non fully unique (i.e. trash) path "%s"' % path)
+
+    return None, None

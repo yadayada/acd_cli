@@ -23,7 +23,7 @@ class MultipartEncoder(object):
 
     """
 
-    The ``MultipartEncoder`` oject is a generic interface to the engine that
+    The ``MultipartEncoder`` object is a generic interface to the engine that
     will create a ``multipart/form-data`` body for you.
 
     The basic usage is:
