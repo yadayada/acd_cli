@@ -1,6 +1,4 @@
-.. image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
-   :alt: Donate via PayPal
-   :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
+|Donate| |Gitter|
 
 acd\_cli
 ========
@@ -301,6 +299,10 @@ Recent Changes
 * automatic resuming of downloads
 
 
-.. image:: https://badges.gitter.im/Join%20Chat.svg
+.. |Donate| image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
+   :alt: Donate via PayPal
+   :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
+
+.. |Gitter| image:: https://badges.gitter.im/Join%20Chat.svg
    :alt: Join the chat at https://gitter.im/cloud-drive/acd_cli
    :target: https://gitter.im/cloud-drive/acd_cli?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
