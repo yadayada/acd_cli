@@ -22,6 +22,7 @@ setup(
     author_email='acd_cli@mail.com',
     keywords='amazon cloud drive clouddrive',
     url='https://github.com/yadayada/acd_cli',
+    download_url='https://github.com/yadayada/acd_cli/tarball/'+version,
     zip_safe=False,
     packages=find_packages(exclude=['tests']),
     test_suite='tests.get_suite',
@@ -35,11 +36,13 @@ setup(
     tests_require=['httpretty', 'mock'],
     classifiers=[
         'Environment :: Console',
-        'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)'
+        'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3 :: Only',
-        'Development Status :: 3 - Beta',
+        'Development Status :: 4 - Beta',
         'Topic :: System :: Archiving :: Backup',
         'Topic :: System :: Filesystems'
     ]
