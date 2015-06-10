@@ -1,4 +1,6 @@
-|Donate| |Gitter|
+|Donate| |Gitter|  
+|PyPiVersion| |PyVersion| |PyPiDownloadsMonth|  
+|Status| |License| 
 
 acd\_cli
 ========
@@ -29,8 +31,14 @@ Quick start
 Installation
 ~~~~~~~~~~~~
 
-The easiest way is to directly install from github. Please check which pip command is
+The easiest way is to directly install from pypi. Please check which pip command is
 appropriate for Python 3 packages in your environment. I will be using 'pip3' in the examples.
+::
+
+   pip3 install --upgrade acdcli
+
+
+The most up-to-date way is to directly install from github.
 ::
 
    pip3 install --upgrade git+https://github.com/yadayada/acd_cli.git
@@ -299,10 +307,30 @@ Recent Changes
 * automatic resuming of downloads
 
 
-.. |Donate| image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
+.. |Donate| image:: https://img.shields.io/badge/paypal-donate-blue.svg
    :alt: Donate via PayPal
    :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
 
-.. |Gitter| image:: https://badges.gitter.im/Join%20Chat.svg
+.. |Gitter| image:: https://img.shields.io/badge/GITTER-join%20chat-brightgreen.svg
    :alt: Join the chat at https://gitter.im/cloud-drive/acd_cli
    :target: https://gitter.im/cloud-drive/acd_cli?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
+
+.. |PyPiVersion| image:: https://img.shields.io/pypi/v/acdcli.svg
+   :alt: PyPi version
+   :target: https://pypi.python.org/pypi/acdcli
+
+.. |PyVersion| image:: https://img.shields.io/pypi/pyversions/acdcli.svg
+   :alt: Python version
+   :target: https://pypi.python.org/pypi/acdcli
+
+.. |Status| image:: https://img.shields.io/pypi/status/acdcli.svg
+   :alt: Status
+   :target: https://pypi.python.org/pypi/acdcli
+
+.. |License| image:: https://img.shields.io/pypi/l/acdcli.svg
+   :alt: License
+   :target: https://pypi.python.org/pypi/acdcli
+
+.. |PyPiDownloadsMonth| image:: https://img.shields.io/pypi/dm/acdcli.svg
+   :alt: Downloads
+   :target: https://pypi.python.org/pypi/acdcli
