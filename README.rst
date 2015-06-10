@@ -299,3 +299,8 @@ Recent Changes
 * setuptools support
 * workaround for download of files larger than 10 GiB
 * automatic resuming of downloads
+
+
+.. image:: https://badges.gitter.im/Join%20Chat.svg
+   :alt: Join the chat at https://gitter.im/cloud-drive/acd_cli
+   :target: https://gitter.im/cloud-drive/acd_cli?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
