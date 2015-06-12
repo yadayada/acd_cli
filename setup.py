@@ -5,7 +5,7 @@ from distutils.version import StrictVersion
 
 
 def read(fname: str) -> str:
-    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+    return open(os.path.join(os.path.dirname(__file__), fname), encoding='utf-8').read()
 
 
 version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
@@ -16,7 +16,7 @@ setup(
     name='acdcli',
     version=version,
     description='a command line interface for Amazon Cloud Drive',
-    long_description=read('README.rst'),
+    long_description=read('README.rst').replace('✅', '✓'),
     license='GPLv2+',
     author='yadayada',
     author_email='acd_cli@mail.com',

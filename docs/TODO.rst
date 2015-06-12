@@ -9,6 +9,7 @@ General
 * support for assets (?)
 * unify the find action
 * switch to multiprocessing
+* metalink support (?)
 
 FUSE
 ~~~~

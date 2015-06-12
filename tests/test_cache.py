@@ -76,7 +76,6 @@ class CacheTestCase(unittest.TestCase):
 
     def testListChildren(self):
         folders, files = gen_bunch_of_nodes(25)
-        root_id = folders[0]['id']
         sync.insert_nodes(files + folders)
         children = query.list_children(folders[0]['id'], recursive=True, trash=True)
         self.assertEqual(sum(1 for _ in children), len(files + folders) - 1)

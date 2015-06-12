@@ -165,7 +165,7 @@ Feature                 Working
 Basic operations
 ----------------------------------
 List directory           ✅
-Reade                    ✅
+Read                     ✅
 Write                    ❌
 Rename                   ✅
 Move                     ✅

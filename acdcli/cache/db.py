@@ -235,12 +235,16 @@ def init(path=''):
     # doesn't seem to work on Windows
     from ctypes import util, CDLL
 
-    lib = util.find_library('sqlite3')
-    if lib:
-        dll = CDLL(lib)
-        if dll and not dll.sqlite3_threadsafe():
-            # http://www.sqlite.org/c3ref/threadsafe.html
-            logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
+    try:
+        lib = util.find_library('sqlite3')
+    except OSError:
+        logger.info('Skipping sqlite thread-safety test.')
+    else:
+        if lib:
+            dll = CDLL(lib)
+            if dll and not dll.sqlite3_threadsafe():
+                # http://www.sqlite.org/c3ref/threadsafe.html
+                logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
 
     global Session
     global engine
