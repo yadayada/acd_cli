@@ -44,6 +44,7 @@ def calculate_usage() -> int:
 def file_size(id: str) -> int:
     return db.Session.query(db.File).filter_by(id=id).first().size
 
+
 def tree(root_id: str=None, trash=False):
     if root_id is None:
         return walk_nodes(trash=trash)
@@ -161,11 +162,16 @@ def resolve(path: str, root=None, trash=True) -> tuple:
 
     segments = segments[1:]
 
+    # TODO
+    if root.is_file() or (not root.is_available() and not trash):
+        return None, None
+
     children = []  # possibly non-unique trash children
     for child in root.children:
         if child.name == segments[0]:
-            if child.status != 'TRASH':
-                return resolve('/'.join(segments), child)
+            if child.is_available():
+                n, p = resolve('/'.join(segments), child, trash)
+                return n, (p if p else root)
             children.append(child)
 
     if not trash:

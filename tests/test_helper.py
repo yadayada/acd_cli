@@ -32,6 +32,7 @@ def gen_folder(folders: list=None):
         'version': random.randint(1, 20)
     }
     if not folders:
+        folder['name'] = None
         folder['isRoot'] = True
     elif len(folders) == 1:
         folder['parents'] = [folders[0]['id']]

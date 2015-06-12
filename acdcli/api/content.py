@@ -200,8 +200,8 @@ def response_chunk(node_id: str, offset: int, length: int, **kwargs):
     r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
                            acc_codes=ok_codes, stream=True,
                            headers={'Range': 'bytes=%d-%d' % (offset, end)}, **kwargs)
-    if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
-        return
+    # if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
+    #     return
     if r.status_code not in ok_codes:
         raise RequestError(r.status_code, r.text)
 

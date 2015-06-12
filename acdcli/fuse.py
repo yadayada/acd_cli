@@ -6,7 +6,7 @@ import errno
 import logging
 from time import time
 from datetime import datetime, timedelta
-from collections import deque
+from collections import deque, defaultdict
 
 from acdcli.bundled.fuse import FUSE, FuseOSError, Operations
 from acdcli.cache import query, sync
@@ -21,21 +21,16 @@ CHUNK_SZ = content.CHUNK_SIZE
 
 class StreamedResponseCache(object):
     """Stream response cache intended for consecutive access."""
-    chunks = deque(maxlen=500)
 
     class StreamChunk(object):
-        __slots__ = ('id', 'offset', 'r', 'end')
+        __slots__ = ('offset', 'r', 'end')
 
         def __init__(self, id, offset, length, **kwargs):
-            self.id = id
             self.offset = offset
             self.r = content.response_chunk(id, offset, length, **kwargs)
             self.end = offset + int(self.r.headers['content-length']) - 1
 
-        def has_byte_range(self, id, offset, length):
-            if self.id != id:
-                return False
-
+        def has_byte_range(self, offset, length):
             logger.debug('s: %d-%d; r: %d-%d'
                          % (self.offset, self.end, offset, offset + length - 1))
             if offset == self.offset and offset + length - 1 <= self.end:
@@ -47,24 +42,48 @@ class StreamedResponseCache(object):
             logger.debug(len(b))
             return b
 
-    @classmethod
-    def get(cls, id, offset, length):
-        for c in cls.chunks:
-            if c.has_byte_range(id, offset, length):
+        def close(self):
+            self.r.close()
+
+    class File(object):
+        __slots__ = ('chunks', 'access')
+
+        def __init__(self):
+            self.chunks = deque(maxlen=15)
+            self.access = time()
+
+        def get(self, id, offset, length, total):
+            self.access = time()
+
+            for c in self.chunks:
+                if c.has_byte_range(offset, length):
+                    try:
+                        bytes_ = c.get(length)
+                    except:
+                        self.chunks.remove(c)
+                    else:
+                        return bytes_
+            try:
+                chunk = StreamedResponseCache. \
+                    StreamChunk(id, offset, CHUNK_SZ, timeout=5)
+            except RequestError as e:
+                raise FuseOSError(errno.ECOMM)
+            else:
+                self.chunks.append(chunk)
+                return chunk.get(length)
+
+        def clear(self):
+            for chunk in self.chunks():
                 try:
-                    bytes_ = c.get(length)
-                except RequestError as e:
-                    cls.chunks.remove(c)
-                    raise FuseOSError(errno.ECONNRESET)
-                return bytes_
+                    chunk.close()
+                except:
+                    pass
 
-        try:
-            chunk = cls.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
-        except RequestError as e:
-            raise FuseOSError(errno.ECOMM)
+    files = defaultdict(File)
 
-        cls.chunks.append(chunk)
-        return chunk.get(length)
+    @classmethod
+    def get(cls, id, offset, length, total):
+        return cls.files[id].get(id, offset, length, total)
 
     @classmethod
     def invalidate(cls):
@@ -89,7 +108,7 @@ class ACDFuse(Operations):
     def getattr(self, path, fh=None):
         logger.debug('getattr %s' % path)
 
-        id = query.resolve_path(path, trash=True)
+        id = query.resolve_path(path, trash=False)
         node = query.get_node(id)
         if not node:
             raise FuseOSError(errno.ENOENT)
@@ -99,17 +118,22 @@ class ACDFuse(Operations):
                      st_ctime=(node.created - datetime(1970, 1, 1)) / timedelta(seconds=1))
 
         if node.is_folder():
-            return dict(st_mode=stat.S_IFDIR | 0o0777, **times)
+            nlinks = 1 + len(node.parents)
+            for c in node.children:
+                if c.is_folder() and c.is_available():
+                    nlinks += 1
+            return dict(st_mode=stat.S_IFDIR | 0o0777, st_nlink=nlinks, **times)
         if node.is_file():
-            return dict(st_mode=stat.S_IFREG | 0o0666, st_size=node.size, **times)
+            return dict(st_mode=stat.S_IFREG | 0o0666,
+                        st_nlink=len(node.parents), st_size=node.size, **times)
 
     def read(self, path, length, offset, fh):
         logger.debug("read %s, ln: %d of: %d fh %d" % (os.path.basename(path), length, offset, fh))
-        id = query.resolve_path(path, trash=False)
-        if query.file_size(id) == 0:
+        node, _ = query.resolve(path, trash=False)
+        if node.size == 0:
             return b''
 
-        return StreamedResponseCache.get(id, offset, length)
+        return StreamedResponseCache.get(node.id, offset, length, node.size)
 
     def statfs(self, path):
         bs = 512 * 1024
@@ -146,7 +170,8 @@ class ACDFuse(Operations):
     def _trash(path):
         logger.debug('trash %s' % path)
         node, parent = query.resolve(path)
-        if not node or not parent:
+
+        if not node:  # or not parent:
             raise FuseOSError(errno.ENOENT)
 
         logger.debug('%s %s' % (node, parent))

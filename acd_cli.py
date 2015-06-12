@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a0'
+__version__ = '0.3.0a1'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -258,7 +258,14 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 pg_handler: progress.FileProgress=None) -> RetryRetVal:
     short_nm = os.path.basename(path)
 
-    logger.info('Uploading %s' % path)
+    if dedup and query.file_size_exists(os.path.getsize(path)):
+        nodes = query.find_md5(hashing.hash_file(path))
+        nodes = [n for n in format.PathFormatter(nodes)]
+        if len(nodes) > 0:
+            # print('Skipping upload of duplicate file "%s".' % short_nm)
+            logger.info('Location of duplicates: %s' % nodes)
+            pg_handler.done()
+            return DUPLICATE
 
     cached_file = query.get_node(parent_id).get_child(short_nm)
     file_id = None
@@ -266,25 +273,12 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         file_id = cached_file.id
 
     if not file_id:
-        if dedup and query.file_size_exists(os.path.getsize(path)):
-            nodes = query.find_md5(hashing.hash_file(path))
-            nodes = format.PathFormatter(nodes)
-            if len(nodes) > 0:
-                # print('Skipping upload of duplicate file "%s".' % short_nm)
-                logger.info('Location of duplicates: %s' % nodes)
-                pg_handler.done()
-                return DUPLICATE
-
+        logger.info('Uploading %s' % path)
+        hasher = hashing.IncrementalHasher()
         try:
-            hasher = hashing.IncrementalHasher()
             r = content.upload_file(path, parent_id,
                                     read_callbacks=[hasher.update, pg_handler.update],
                                     deduplication=dedup)
-            sync.insert_node(r)
-            file_id = r['id']
-            md5 = query.get_node(file_id).md5
-            return compare_hashes(hasher.get_result(), md5, short_nm)
-
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 if not dedup:
@@ -304,6 +298,11 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 logger.error(
                     'Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
                 return UL_DL_FAILED
+        else:
+            sync.insert_node(r)
+            file_id = r['id']
+            md5 = query.get_node(file_id).md5
+            return compare_hashes(hasher.get_result(), md5, short_nm)
 
     # else: file exists
     rmod = (cached_file.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
@@ -538,6 +537,10 @@ def regex_helper(args: argparse.Namespace) -> list:
 
 @no_autores_trash_action
 def upload_action(args: argparse.Namespace) -> int:
+    if not query.get_node(args.parent):
+        logger.critical('Invalid upload folder.')
+        return INVALID_ARG_RETVAL
+
     excl_re = regex_helper(args)
 
     jobs = []
@@ -805,6 +808,25 @@ def set_log_level(args: argparse.Namespace):
             logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
 
 
+def set_encoding(force_utf: bool=False):
+    """Sets the default encoding to UTF-8 if none is set.
+    :param force_utf: force UTF-8 output
+    """
+    enc = str.lower(sys.stdout.encoding)
+    utf_flag = False
+
+    if not enc or force_utf:
+        import io
+
+        sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
+        utf_flag = True
+
+        logger.info('Stdout/stderr encoding changed to UTF-8.')
+
+    return utf_flag
+
+
 def check_cache_age():
     last_sync = db.KeyValueStorage.get(CacheConsts.LAST_SYNC_KEY)
     if not last_sync:
@@ -830,17 +852,6 @@ class Argument(object):
 
 
 def main():
-    utf_flag = False
-    tty_flag = sys.stdout.isatty()
-    enc = str.lower(sys.stdout.encoding)
-
-    if not enc or (tty_flag and enc != 'utf-8'):
-        import io
-
-        sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
-        sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
-        utf_flag = True
-
     max_ret = Argument('--max-retries', '-r', action='store', type=int, default=0,
                        help='set the maximum number of retries [default: 0]')
 
@@ -862,6 +873,8 @@ def main():
                                  '"always" turns coloring on '
                                  'and "auto" colors listings when stdout is a tty '
                                  '[uses the Linux-style LS_COLORS environment variable]')
+    opt_parser.add_argument('-u', '--utf', action='store_true',
+                            help='force utf output')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
 
     subparsers = opt_parser.add_subparsers(title='action', dest='action')
@@ -1033,8 +1046,8 @@ def main():
     set_log_level(args)
     for msg in plugin_log:
         logger.info(msg)
-    if utf_flag:
-        logger.info('Stdout/stderr encoding changed to UTF-8.')
+
+    set_encoding(force_utf=args.utf)
 
     migrate_cache_files()
 

@@ -1,4 +1,4 @@
-.. image:: https://raw.githubusercontent.com/yadayada/acd_cli/master/docs/img/donate.png
+.. image:: https://img.shields.io/badge/donate-paypal-blue.svg
    :alt: Donate via PayPal
    :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
 
@@ -159,7 +159,7 @@ Feature                 Working
 Basic operations
 ----------------------------------
 List directory           ✅
-Reade                    ✅
+Read                     ✅
 Write                    ❌
 Rename                   ✅
 Move                     ✅
