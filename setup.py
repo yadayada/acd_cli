@@ -22,7 +22,7 @@ setup(
     author_email='acd_cli@mail.com',
     keywords='amazon cloud drive clouddrive',
     url='https://github.com/yadayada/acd_cli',
-    download_url='https://github.com/yadayada/acd_cli/tarball/'+version,
+    download_url='https://github.com/yadayada/acd_cli/tarball/' + version,
     zip_safe=False,
     packages=find_packages(exclude=['tests']),
     test_suite='tests.get_suite',
