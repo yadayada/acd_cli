@@ -224,9 +224,18 @@ more precisely at https://www.amazon.com/ap/adam.
 Known Issues
 ------------
 
+It is currently not possible to upload files using Python 3.2.3.
+
+If you encounter Unicode problems, check that your locale is set correctly or use the ``--utf``
+argument to force the script to use UTF-8 output encoding.
+Windows users may try to execute the provided `reg file <assets/win_codepage.reg>`_
+(tested with Windows 8.1) to set the command line interface encoding to cp65001.
+
+
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
+- at the time being, it is not advisable to upload files larger than 9GiB
 - uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
 - the maximum (upload) file size seems to be in the range of 40 and 100 GiB
 - storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)

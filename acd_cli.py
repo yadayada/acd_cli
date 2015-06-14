@@ -502,6 +502,10 @@ def print_version_action(args: argparse.Namespace):
 @offline_action
 def tree_action(args: argparse.Namespace):
     tree = query.tree(args.node, args.include_trash)
+    if tree is None:
+        logger.critical('Invalid folder.')
+        return INVALID_ARG_RETVAL
+
     tree = format.TreeFormatter(tree)
     for node in tree:
         print(node)
@@ -665,7 +669,7 @@ def find_action(args: argparse.Namespace):
 def find_md5_action(args: argparse.Namespace) -> int:
     if len(args.md5) != 32:
         logger.critical('Invalid MD5 specified')
-        return 2
+        return INVALID_ARG_RETVAL
     nodes = query.find_md5(args.md5)
     for node in format.LongIDFormatter(nodes):
         print(node)
