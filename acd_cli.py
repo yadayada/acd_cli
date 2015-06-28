@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a1'
+__version__ = '0.3.0a2'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -310,7 +310,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
 
-    logger.info('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
+    logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
     if not overwr and not force:
         logger.info('Skipping upload of existing file "%s".' % short_nm)
@@ -735,7 +735,8 @@ def dump_sql_action(args: argparse.Namespace):
 
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
-    acdcli.fuse.mount(args.path, ro=args.ro, foreground=args.foreground)
+    acdcli.fuse.mount(args.path, ro=args.ro, foreground=args.foreground,
+                      allow_root=args.allow_root, allow_other=args.allow_other)
 
 
 @offline_action
@@ -1033,6 +1034,10 @@ def main():
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
+    fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
+                         help='allow access to root user')
+    fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
+                         help='allow access to other users')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 

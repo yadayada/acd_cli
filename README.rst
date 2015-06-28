@@ -14,7 +14,7 @@ Features
 - simultaneous uploads/downloads, retry on error
 - basic plugin support
 
-File operations
+File Operations
 ~~~~~~~~~~~~~~~
 
 - tree or flat listing of files and folders
@@ -23,7 +23,7 @@ File operations
 - trashing/restoring
 - moving/renaming nodes
 
-Quick start
+Quick Start
 -----------
 
 Installation
@@ -107,7 +107,7 @@ The following actions are built in
         usage (u)           show drive usage data
         quota (q)           show drive quota [raw JSON]
         metadata (m)        print a node's metadata [raw JSON]
-        
+
         mount               mount the cloud drive at a local directory
 
 Please run ``acd_cli --help`` to get a current list of the available actions.
@@ -125,7 +125,7 @@ Files can be excluded via optional parameter by file ending, e.g. ``-xe bak``,
 or regular expression on the whole file name, e.g. ``-xr "^thumbs\.db$"``.
 Both exclusion methods are case insensitive.
 
-Exit status
+Exit Status
 ~~~~~~~~~~~
 
 When the script is done running, its exit status can be checked for flags. If no error occurs,
@@ -149,7 +149,7 @@ If multiple errors occur, their values will be compounded by a binary OR operati
 Mounting
 ~~~~~~~~
 
-First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``. 
+First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``.
 To unmount later, run ``fusermount -u path/to/mountpoint``.
 
 =====================  ===========
@@ -176,7 +176,7 @@ Symbolic links           ❌
 .. [#] restoration info cannot be written, manual restoring should work
 .. [#] manually created hard links will be listed
 
-Usage example
+Usage Example
 -------------
 
 In this example, a two-level folder hierarchy is created in an empty cloud drive.
@@ -224,7 +224,7 @@ more precisely at https://www.amazon.com/ap/adam.
 Known Issues
 ------------
 
-It is currently not possible to upload files using Python 3.2.3.
+It is not possible to upload files using Python 3.2.3, 3.3.0 and 3.3.1.
 
 If you encounter Unicode problems, check that your locale is set correctly or use the ``--utf``
 argument to force the script to use UTF-8 output encoding.
@@ -257,7 +257,7 @@ You might also want to consider making a donation to further the development of 
 Dependencies
 ------------
 
-Python packages
+Python Packages
 ~~~~~~~~~~~~~~~
 
 - appdirs
@@ -276,7 +276,7 @@ are using a distro based on Debian 'jessie', the necessary packages are
 FUSE
 ~~~~
 
-For the mounting feature, fuse >= 2.6 is needed according to pyfuse. On a 
+For the mounting feature, fuse >= 2.6 is needed according to pyfuse. On a
 Debian-based distribution, the according package should simply be named 'fuse'.
 
 Recent Changes
