@@ -100,7 +100,7 @@ def create_file(file_name: str, parent: str=None) -> dict:
 def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
     params = {'suppress': 'deduplication'}
     if deduplication and os.path.getsize(file_name) > 0:
-        params = {'suppress': 'deduplication'}
+        params = {}
 
     basename = os.path.basename(file_name)
     metadata = {'kind': 'FILE', 'name': basename}
