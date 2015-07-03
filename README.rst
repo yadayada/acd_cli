@@ -176,6 +176,18 @@ Symbolic links           ❌
 .. [#] restoration info cannot be written, manual restoring should work
 .. [#] manually created hard links will be listed
 
+HTTPS Proxy
+~~~~~~~~~~~
+
+Python requests supports HTTPS proxying as defined by the environment variable ``HTTPS_PROXY``.
+By defining this, any subsequent ``acd_cli`` Amazon API calls will be proxied via the environment variable value.
+::
+
+    $ export HTTPS_PROXY="http://user:pass@1.2.3.4:8080/
+    $ acd_cli sync
+      Syncing...
+      Done.
+
 Usage Example
 -------------
 
