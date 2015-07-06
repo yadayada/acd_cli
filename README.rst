@@ -183,7 +183,7 @@ Python requests supports HTTPS proxying as defined by the environment variable `
 By defining this, any subsequent ``acd_cli`` Amazon API calls will be proxied via the environment variable value.
 ::
 
-    $ export HTTPS_PROXY="http://user:pass@1.2.3.4:8080/
+    $ export HTTPS_PROXY="https://user:pass@1.2.3.4:8080/"
     $ acd_cli sync
       Syncing...
       Done.
