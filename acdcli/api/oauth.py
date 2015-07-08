@@ -203,7 +203,7 @@ class LocalOAuthHandler(OAuthHandler):
 
         self.OAUTH_ST1 = lambda: {'client_id': self.client_id(),
                                   'response_type': 'code',
-                                  'scope': 'clouddrive:read clouddrive:write',
+                                  'scope': 'clouddrive:read_all clouddrive:write',
                                   'redirect_uri': self.REDIRECT_URI}
 
         self.OAUTH_ST2 = lambda: {'grant_type': 'authorization_code',
