@@ -255,13 +255,7 @@ API Restrictions
 Contribute
 ----------
 
-Feel free to use the bug tracker to add issues.
-You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options helpful.
-
-If you want to contribute code, have a look at `Github's general guide <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_ how to do that.
-There is also a `TODO <docs/TODO.rst>`_ list.
-
-You might also want to consider making a donation to further the development of acd\_cli.
+Have a look at the `contributing guidelines <CONTRIBUTING.rst>`_.
 
 .. _dependencies:
 
