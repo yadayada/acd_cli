@@ -1,4 +1,4 @@
-|Donate| |Gitter| |PyVersion| |Status| |License| |PyPiVersion| |PyPiDownloadsMonth|
+|Donate| |Gitter| |PyVersion| |Status| |License| |Build| |PyPiVersion| |PyPiDownloadsMonth|
 
 acd\_cli
 ========
@@ -319,8 +319,8 @@ Recent Changes
    :target: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V4V4HVSAH4VW8
 
 .. |Gitter| image:: https://img.shields.io/badge/GITTER-join%20chat-brightgreen.svg
-   :alt: Join the chat at https://gitter.im/cloud-drive/acd_cli
-   :target: https://gitter.im/cloud-drive/acd_cli?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
+   :alt: Join the Gitter chat
+   :target: https://gitter.im/cloud-drive/acd_cli
 
 .. |PyPiVersion| image:: https://img.shields.io/pypi/v/acdcli.svg
    :alt: PyPi
@@ -338,3 +338,7 @@ Recent Changes
 .. |PyPiDownloadsMonth| image:: https://img.shields.io/pypi/dm/acdcli.svg
    :alt:
    :target: https://pypi.python.org/pypi/acdcli
+
+.. |Build| image:: https://img.shields.io/travis/yadayada/acd_cli.svg
+   :alt:
+   :target: https://travis-ci.org/yadayada/acd_cli
