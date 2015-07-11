@@ -81,6 +81,7 @@ ERR_CR_FOLDER = 64
 SIZE_MISMATCH = 128
 CACHE_ASYNC = 256
 DUPLICATE = 512
+DIR_CYCLE = 1024
 
 
 def signal_handler(signal_, frame):
@@ -148,6 +149,7 @@ def old_sync():
     sync.insert_nodes(files + folders, partial=False)
     db.KeyValueStorage['sync_date'] = time.time()
 
+
 #
 # File transfer
 #
@@ -188,14 +190,23 @@ def compare_hashes(hash1: str, hash2: str, file_name: str):
     return 0
 
 
-def create_upload_jobs(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
-                       exclude: list, jobs: list) -> int:
+def create_upload_jobs(dirs: list, path: str, parent_id: str,
+                       overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
+    """ Creates upload job if passed path is a file, delegates directory traversal otherwise.
+    Detects folder cycles.
+    :param dirs: List of directories' inodes traversed so far"""
+
     if not os.access(path, os.R_OK):
         logger.error('Path "%s" is not accessible.' % path)
         return INVALID_ARG_RETVAL
 
     if os.path.isdir(path):
-        return traverse_ul_dir(path, parent_id, overwr, force, dedup, exclude, jobs)
+        ino = os.stat(path).st_ino
+        if ino in dirs:
+            logger.warning('Directory cycle detected in "%s".' % path)
+            return DIR_CYCLE
+        dirs.append(ino)
+        return traverse_ul_dir(dirs, path, parent_id, overwr, force, dedup, exclude, jobs)
     elif os.path.isfile(path):
         short_nm = os.path.basename(path)
         for reg in exclude:
@@ -209,8 +220,8 @@ def create_upload_jobs(path: str, parent_id: str, overwr: bool, force: bool, ded
         return 0
 
 
-def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
-                    exclude: list, jobs: list) -> int:
+def traverse_ul_dir(dirs: list, directory: str, parent_id: str,
+                    overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
     """Duplicates local directory structure."""
 
     if parent_id is None:
@@ -231,11 +242,11 @@ def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, d
             if e.status_code == 409:
                 logger.error('Folder "%s" already exists. Please sync.' % short_nm)
             else:
-                logger.error('Error creating remote folder "%s".' % short_nm)
+                logger.error('Error creating remote folder "%s": %s.' % (short_nm, e))
             return ERR_CR_FOLDER
     elif curr_node.is_file():
-        logger.error(
-            'Cannot create remote folder "%s", because a file of the same name already exists.' % short_nm)
+        logger.error('Cannot create remote folder "%s", '
+                     'because a file of the same name already exists.' % short_nm)
         return ERR_CR_FOLDER
 
     try:
@@ -248,7 +259,8 @@ def traverse_ul_dir(directory: str, parent_id: str, overwr: bool, force: bool, d
     ret_val = 0
     for entry in entries:
         full_path = os.path.join(real_path, entry)
-        ret_val |= create_upload_jobs(full_path, curr_node.id, overwr, force, dedup, exclude, jobs)
+        ret_val |= create_upload_jobs(dirs, full_path, curr_node.id,
+                                      overwr, force, dedup, exclude, jobs)
 
     return ret_val
 
@@ -267,7 +279,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             pg_handler.done()
             return DUPLICATE
 
-    cached_file = query.get_node(parent_id).get_child(short_nm)
+    cached_file = query.node_with_parent(short_nm, parent_id)
     file_id = None
     if cached_file:
         file_id = cached_file.id
@@ -305,17 +317,17 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             return compare_hashes(hasher.get_result(), md5, short_nm)
 
     # else: file exists
+    if not overwr and not force:
+        logger.info('Skipping upload of existing file "%s".' % short_nm)
+        pg_handler.done()
+        return 0
+
     rmod = (cached_file.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
     rmod = datetime.utcfromtimestamp(rmod)
     lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
 
     logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
-
-    if not overwr and not force:
-        logger.info('Skipping upload of existing file "%s".' % short_nm)
-        pg_handler.done()
-        return 0
 
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and cached_file.size != os.path.getsize(path)) \
@@ -426,6 +438,7 @@ def download_file(node_id: str, local_path: str,
 
 def compare(local: str, remote_id):
     pass
+
 
 #
 # Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
@@ -555,7 +568,7 @@ def upload_action(args: argparse.Namespace) -> int:
             ret_val |= INVALID_ARG_RETVAL
             continue
 
-        ret_val |= create_upload_jobs(path, args.parent, args.overwrite, args.force,
+        ret_val |= create_upload_jobs([], path, args.parent, args.overwrite, args.force,
                                       args.deduplicate, excl_re, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
@@ -852,7 +865,7 @@ class Argument(object):
         self.args = args
         self.kwargs = kwargs
 
-    def attach(self, subparser:argparse._ActionsContainer):
+    def attach(self, subparser: argparse._ActionsContainer):
         subparser.add_argument(*self.args, **self.kwargs)
 
 

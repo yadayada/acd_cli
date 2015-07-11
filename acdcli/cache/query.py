@@ -18,6 +18,13 @@ def get_node(node_id: str) -> db.Node:
     return db.Session.query(db.Node).filter_by(id=node_id).first()
 
 
+def node_with_parent(name: str, parent_id: str):
+    for r in db.Session.query(db.Node).filter_by(name=name):
+        for p in r.parents:
+            if p.id == parent_id:
+                return r
+
+
 # may be broken
 def get_root_node() -> db.Folder:
     return db.Session.query(db.Folder).filter_by(name=None).first()
