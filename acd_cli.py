@@ -359,10 +359,13 @@ def overwrite(node_id, local_file, dedup=False,
         return UL_DL_FAILED
 
 
-def upload_stream(stream, file_name, parent_id, dedup=False):
+@retry_on([])
+def upload_stream(stream, file_name, parent_id, dedup=False,
+                  pg_handler:progress.FileProgress=None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
-        r = content.upload_stream(stream, file_name, parent_id, read_callbacks=[hasher.update],
+        r = content.upload_stream(stream, file_name, parent_id,
+                                  read_callbacks=[hasher.update, pg_handler.update],
                                   deduplication=dedup)
         sync.insert_node(r)
         node = query.get_node(r['id'])
@@ -598,7 +601,13 @@ def upload_stream_action(args: argparse.Namespace) -> int:
         logger.critical('Invalid upload folder')
         return INVALID_ARG_RETVAL
 
-    return upload_stream(sys.stdin, args.name, args.parent, args.deduplicate)
+    prog = progress.FileProgress(0)
+    ql = QueuedLoader(max_retries=0)
+    job = partial(upload_stream,
+                  sys.stdin, args.name, args.parent, args.deduplicate, pg_handler=prog)
+    ql.add_jobs([job])
+
+    return ql.start()
 
 
 def overwrite_action(args: argparse.Namespace) -> int:
@@ -957,7 +966,7 @@ def main():
     list_c_sp.set_defaults(func=children_action)
 
     find_sp = subparsers.add_parser('find', aliases=['f'], help=
-                                    'find nodes by name [offline operation] [case insensitive]')
+    'find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
 
@@ -993,7 +1002,7 @@ def main():
     upload_sp.set_defaults(func=upload_action)
 
     overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'], help=
-                                         'overwrite file A [remote] with content of file B [local]')
+    'overwrite file A [remote] with content of file B [local]')
     max_ret.attach(overwrite_sp)
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')

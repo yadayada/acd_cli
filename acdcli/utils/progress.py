@@ -51,6 +51,8 @@ class MultiProgress(object):
             if p.total <= p.current:
                 complete += 1
 
+        if current > total:
+            total = current
         self._print(total, current, len(self._progresses), complete)
 
     def _print(self, total_sz: int, current_sz: int, total_items: int, done: int):
