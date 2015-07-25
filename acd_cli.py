@@ -299,7 +299,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                                  'If you want to overwrite, please sync and try again.' % short_nm)
                 else:
                     logger.error(
-                        'Uploading "%s" failed. Name or hash collision with non-cached file.' % short_nm)
+                        'Uploading "%s" failed. '
+                        'Name or hash collision with non-cached file.' % short_nm)
                     logger.info(e)
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
@@ -355,6 +356,22 @@ def overwrite(node_id, local_file, dedup=False,
         return compare_hashes(md5, hasher.get_result(), local_file)
     except RequestError as e:
         logger.error('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
+        return UL_DL_FAILED
+
+
+@retry_on([])
+def upload_stream(stream, file_name, parent_id, dedup=False,
+                  pg_handler:progress.FileProgress=None) -> RetryRetVal:
+    hasher = hashing.IncrementalHasher()
+    try:
+        r = content.upload_stream(stream, file_name, parent_id,
+                                  read_callbacks=[hasher.update, pg_handler.update],
+                                  deduplication=dedup)
+        sync.insert_node(r)
+        node = query.get_node(r['id'])
+        return compare_hashes(node.md5, hasher.get_result(), 'stream')
+    except RequestError as e:
+        logger.error('Error uploading stream. Code: %s, msg: %s' % (e.status_code, e.msg))
         return UL_DL_FAILED
 
 
@@ -576,6 +593,21 @@ def upload_action(args: argparse.Namespace) -> int:
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
+
+
+@no_autores_trash_action
+def upload_stream_action(args: argparse.Namespace) -> int:
+    if not query.get_node(args.parent):
+        logger.critical('Invalid upload folder')
+        return INVALID_ARG_RETVAL
+
+    prog = progress.FileProgress(0)
+    ql = QueuedLoader(max_retries=0)
+    job = partial(upload_stream,
+                  sys.stdin, args.name, args.parent, args.deduplicate, pg_handler=prog)
+    ql.add_jobs([job])
+
+    return ql.start()
 
 
 def overwrite_action(args: argparse.Namespace) -> int:
@@ -933,8 +965,8 @@ def main():
     list_c_sp.add_argument('node')
     list_c_sp.set_defaults(func=children_action)
 
-    find_sp = subparsers.add_parser('find', aliases=['f'],
-                                    help='find nodes by name [offline operation] [case insensitive]')
+    find_sp = subparsers.add_parser('find', aliases=['f'], help=
+    'find nodes by name [offline operation] [case insensitive]')
     find_sp.add_argument('name')
     find_sp.set_defaults(func=find_action)
 
@@ -949,8 +981,8 @@ def main():
                              help='set the maximum concurrent connections [default: 1]')
     max_ret.attach(re_dummy_sp)
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe',
-                             default=[],
-                             help='exclude files whose endings match the given string, e.g. "bak" [case insensitive]')
+                             default=[], help='exclude files whose endings match the given string,'
+                                              ' e.g. "bak" [case insensitive]')
     re_dummy_sp.add_argument('--exclude-regex', '-xr', action='append', dest='exclude_re',
                              default=[],
                              help='exclude files whose names match the given regular expression,'
@@ -959,8 +991,9 @@ def main():
     upload_sp = subparsers.add_parser('upload', aliases=['ul'], parents=[re_dummy_sp],
                                       help='[+] file and directory upload to a remote destination')
     upload_sp.add_argument('--overwrite', '-o', action='store_true',
-                           help='overwrite if local modification time is higher or local ctime is higher than remote '
-                                'modification time and local/remote file sizes do not match.')
+                           help='overwrite if local modification time is higher '
+                                'or local ctime is higher than remote modification time '
+                                'and local/remote file sizes do not match.')
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
     upload_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='exclude duplicate files from upload')
@@ -968,23 +1001,32 @@ def main():
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
 
-    overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'],
-                                         help='overwrite file A [remote] with content of file B [local]')
+    overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'], help=
+    'overwrite file A [remote] with content of file B [local]')
     max_ret.attach(overwrite_sp)
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)
 
+    stream_sp = subparsers.add_parser('stream', aliases=['st'],
+                                      help='[+] upload the standard input stream to a file')
+    stream_sp.add_argument('--deduplicate', '-d', action='store_true',
+                           help='prevent duplicates from getting stored after upload')
+    stream_sp.add_argument('name', help='the remote file name')
+    stream_sp.add_argument('parent', help='remote parent folder')
+    stream_sp.set_defaults(func=upload_stream_action)
+
     download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
-                                        help='download a remote folder or file; will skip existing local files\n\n')
+                                        help='download a remote folder or file; '
+                                             'will skip existing local files\n\n')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
 
     cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'],
                                      help='create folder using an absolute path\n\n')
-    cr_fo_sp.add_argument('new_folder',
-                          help='an absolute folder path, e.g. "/my/dir/"; trailing slash is optional')
+    cr_fo_sp.add_argument('new_folder', help='an absolute folder path, '
+                                             'e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
 
     trash_sp = subparsers.add_parser('list-trash', aliases=['lt'],

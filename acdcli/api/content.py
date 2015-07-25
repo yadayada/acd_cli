@@ -26,11 +26,6 @@ CONSECUTIVE_DL_LIMIT = CHUNK_SIZE
 logger = logging.getLogger(__name__)
 
 
-def tee_open(path: str, **kwargs):
-    f = open(path, 'rb')
-    return TeeBufferedReader(f, **kwargs)
-
-
 class TeeBufferedReader(object):
     """Creates proxy buffered reader object that allows callbacks on read operations."""
 
@@ -53,6 +48,11 @@ class TeeBufferedReader(object):
         return chunk
 
 
+def tee_open(path: str, **kwargs) -> TeeBufferedReader:
+    f = open(path, 'rb')
+    return TeeBufferedReader(f, **kwargs)
+
+
 def create_folder(name: str, parent=None) -> dict:
     body = {'kind': 'FOLDER', 'name': name}
     if parent:
@@ -69,7 +69,7 @@ def create_folder(name: str, parent=None) -> dict:
     return r.json()
 
 
-def _get_mimetype(file_name: str) -> str:
+def _get_mimetype(file_name: str='') -> str:
     mt = mimetypes.guess_type(file_name)[0]
     return mt if mt else 'application/octet-stream'
 
@@ -122,6 +122,47 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
     return r.json()
 
 
+def gen_mp_stream(file_name: str, stream, boundary: str, read_callbacks=None):
+    yield str.encode('--%s\r\nContent-Disposition: form-data; '
+                     'name="metadata"\r\n\r\n' % boundary)
+    yield str.encode('{"kind": "FILE", "name": "%s"}\r\n' % file_name)
+    yield str.encode('--%s\r\n' % boundary)
+    yield b'Content-Disposition: form-data; name="content"; filename="foo"\r\n'
+    yield b'Content-Type: application/octet-stream\r\n\r\n'
+    while True:
+        f = stream.buffer.read(FS_RW_CHUNK_SZ)
+        if f:
+            for cb in read_callbacks:
+                cb(f)
+            yield f
+        else:
+            break
+    yield str.encode('\r\n--%s--\r\n' % boundary)
+    yield str.encode('multipart/form-data; boundary=%s' % boundary)
+
+
+def upload_stream(stream, file_name: str, parent: str=None,
+                  read_callbacks=None, deduplication=False) -> dict:
+    params = {} if deduplication else {'suppress': 'deduplication'}
+
+    metadata = {'kind': 'FILE', 'name': file_name}
+    if parent:
+        metadata['parents'] = [parent]
+
+    import uuid
+    boundary = uuid.uuid4().hex
+
+    ok_codes = [http.CREATED]
+    r = BackOffRequest.post(get_content_url() + 'nodes', params=params,
+                            data=gen_mp_stream(file_name, stream, boundary, read_callbacks),
+                            acc_codes=ok_codes, stream=True,
+                            headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})
+
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)
+    return r.json()
+
+
 def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplication=False) -> dict:
     params = {} if deduplication else {'suppress': 'deduplication'}
 
@@ -133,8 +174,7 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
     m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})
 
     r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params,
-                           data=m,
-                           stream=True, headers={'Content-Type': m.content_type})
+                           data=m, stream=True, headers={'Content-Type': m.content_type})
 
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
