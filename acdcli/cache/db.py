@@ -98,12 +98,17 @@ class Node(Base):
     }
 
     def __lt__(self, other):
-        """Compares this node to another one on same path level. Sorts case-sensitive, Folder first. """
+        """Compares this node to another one on same path level.
+        Sorts case-sensitive, Folder first. """
         if isinstance(self, Folder):
             if isinstance(other, File):
                 return True
             return self.name < other.name
         if isinstance(other, Folder):
+            return False
+        if self.name is None:
+            return True
+        if other.name is None:
             return False
         return self.name < other.name
 
@@ -145,7 +150,8 @@ class File(Node):
         'polymorphic_identity': 'file'
     }
 
-    def __init__(self, id: str, name: str, created: datetime, modified: datetime, md5: str, size: int, status: Enum):
+    def __init__(self, id: str, name: str, created: datetime, modified: datetime,
+                 md5: str, size: int, status: Enum):
         self.id = id
         self.name = name
         self.created = created.replace(tzinfo=None)
@@ -176,7 +182,9 @@ class File(Node):
     def full_path(self) -> str:
         """absolute path of file (first containing folder chain)"""
         if len(self.parents) == 0:
-            return self.name
+            if self.name:
+                return self.name
+            return ''
         return self.parents[0].full_path() + self.name
 
 
@@ -256,7 +264,8 @@ def init(path='', check=IntegrityCheckType['full']):
             dll = CDLL(lib)
             if dll and not dll.sqlite3_threadsafe():
                 # http://www.sqlite.org/c3ref/threadsafe.html
-                logger.warning('Your sqlite3 version was compiled without mutexes. It is not thread-safe.')
+                logger.warning('Your sqlite3 version was compiled without mutexes. '
+                               'It is not thread-safe.')
 
     global Session
     global engine
