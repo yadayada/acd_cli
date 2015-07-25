@@ -122,10 +122,10 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
     return r.json()
 
 
-def gen_mp_stream(file_name: str, stream, boundary: str, read_callbacks=None):
+def gen_mp_stream(metadata, stream, boundary: str, read_callbacks=None):
     yield str.encode('--%s\r\nContent-Disposition: form-data; '
                      'name="metadata"\r\n\r\n' % boundary)
-    yield str.encode('{"kind": "FILE", "name": "%s"}\r\n' % file_name)
+    yield str.encode('%s\r\n' % json.dumps(metadata))
     yield str.encode('--%s\r\n' % boundary)
     yield b'Content-Disposition: form-data; name="content"; filename="foo"\r\n'
     yield b'Content-Type: application/octet-stream\r\n\r\n'
@@ -154,7 +154,7 @@ def upload_stream(stream, file_name: str, parent: str=None,
 
     ok_codes = [http.CREATED]
     r = BackOffRequest.post(get_content_url() + 'nodes', params=params,
-                            data=gen_mp_stream(file_name, stream, boundary, read_callbacks),
+                            data=gen_mp_stream(metadata, stream, boundary, read_callbacks),
                             acc_codes=ok_codes, stream=True,
                             headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})
 
