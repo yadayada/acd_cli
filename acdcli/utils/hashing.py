@@ -17,6 +17,7 @@ class IncrementalHasher(object):
     def get_result(self) -> str:
         return self.hasher.hexdigest()
 
+
 def hash_bytes(bytes_) -> str:
     hasher = hashlib.md5()
     bytes_.seek(0)

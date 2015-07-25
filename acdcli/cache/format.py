@@ -1,6 +1,5 @@
 """Formatters for query bundle iterables"""
 
-
 import os
 import sys
 
@@ -65,7 +64,7 @@ class LSFormatter(ListFormatter):
         is_first = True
         for bunch in bunches:
             node = bunch.node
-            children = 0 if not node.is_folder() else len(node.children)
+            children = 0 if not node.is_folder() else node.children.count()
             if bunch.path is None:
                 bunch.path = node.containing_folder()
             if recursive and node.is_folder() and not is_first and children > 0:
@@ -93,6 +92,7 @@ class LongIDFormatter(ListFormatter):
                 color_path(node.simple_name())
             )
 
+
 class TreeFormatter(ListFormatter):
     @staticmethod
     def __new__(cls, bunches):
@@ -103,7 +103,6 @@ class TreeFormatter(ListFormatter):
                 pre = ' ' * 4 * bunch.depth
             yield pre + color_path(bunch.node.simple_name())
             prev = bunch
-
 
 
 class IDFormatter(ListFormatter):

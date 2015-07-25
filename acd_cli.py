@@ -43,12 +43,13 @@ logger = logging.getLogger(_app_name)
 try:
     import requests.utils
 
-    requests.utils.old_dau = requests.utils.default_user_agent
+    if 'old_dau' not in dir(requests.utils):
+        requests.utils.old_dau = requests.utils.default_user_agent
 
-    def new_dau():
-        return _app_name + '/' + __version__ + ' ' + requests.utils.old_dau()
+        def new_dau():
+            return _app_name + '/' + __version__ + ' ' + requests.utils.old_dau()
 
-    requests.utils.default_user_agent = new_dau
+        requests.utils.default_user_agent = new_dau
 except:
     pass
 
@@ -81,7 +82,7 @@ ERR_CR_FOLDER = 64
 SIZE_MISMATCH = 128
 CACHE_ASYNC = 256
 DUPLICATE = 512
-DIR_CYCLE = 1024
+DUPLICATE_DIR = 1024
 
 
 def signal_handler(signal_, frame):
@@ -193,7 +194,7 @@ def compare_hashes(hash1: str, hash2: str, file_name: str):
 def create_upload_jobs(dirs: list, path: str, parent_id: str,
                        overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
     """ Creates upload job if passed path is a file, delegates directory traversal otherwise.
-    Detects folder cycles.
+    Detects soft links that link to an already queued directory.
     :param dirs: List of directories' inodes traversed so far"""
 
     if not os.access(path, os.R_OK):
@@ -203,8 +204,8 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str,
     if os.path.isdir(path):
         ino = os.stat(path).st_ino
         if ino in dirs:
-            logger.warning('Directory cycle detected in "%s".' % path)
-            return DIR_CYCLE
+            logger.warning('Duplicate directory detected: "%s".' % path)
+            return DUPLICATE_DIR
         dirs.append(ino)
         return traverse_ul_dir(dirs, path, parent_id, overwr, force, dedup, exclude, jobs)
     elif os.path.isfile(path):
@@ -876,21 +877,27 @@ def main():
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
-               '  * Remote locations may be specified as path in most cases, e.g. "/folder/file", or via ID \n'
+               '  * Remote locations may be specified as path in most cases, '
+               'e.g. "/folder/file", or via ID \n'
                '  * If you need to enter a node ID that contains a leading dash (minus) sign, '
                'precede it by two dashes and a space, e.g. \'-- -xfH...\'\n'
                '  * actions marked with [+] have optional arguments'
                '')
     opt_parser.add_argument('-v', '--verbose', action='count',
-                            help='prints some info messages to stderr; use "-vv" to also get sqlalchemy info')
+                            help='prints some info messages to stderr; '
+                                 'use "-vv" to also get sqlalchemy info')
     opt_parser.add_argument('-d', '--debug', action='count',
-                            help='prints info and debug to stderr; use "-dd" to also get sqlalchemy debug messages')
+                            help='prints info and debug to stderr; '
+                                 'use "-dd" to also get sqlalchemy debug messages')
     opt_parser.add_argument('-c', '--color', default=format.ColorMode['never'],
                             choices=format.ColorMode.keys(),
                             help='"never" [default] turns coloring off, '
                                  '"always" turns coloring on '
                                  'and "auto" colors listings when stdout is a tty '
                                  '[uses the Linux-style LS_COLORS environment variable]')
+    opt_parser.add_argument('-i', '--check', default=db.IntegrityCheckType['full'],
+                            choices=db.IntegrityCheckType.keys(),
+                            help='')
     opt_parser.add_argument('-u', '--utf', action='store_true',
                             help='force utf output')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
@@ -1078,7 +1085,7 @@ def main():
             sys.exit(INIT_FAILED_RETVAL)
 
     if args.func not in nocache_actions:
-        if not db.init(CACHE_PATH):
+        if not db.init(CACHE_PATH, args.check):
             sys.exit(INIT_FAILED_RETVAL)
         check_cache_age()
 

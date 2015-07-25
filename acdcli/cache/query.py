@@ -145,6 +145,7 @@ def file_size_exists(size: int) -> bool:
 
 
 def resolve_path(path: str, trash=True) -> tuple:
+    """Resolves absolute path to node ID"""
     node, _ = resolve(path, None, trash)
     return node.id if node else None
 

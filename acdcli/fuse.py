@@ -31,6 +31,7 @@ class StreamedResponseCache(object):
             self.end = offset + int(self.r.headers['content-length']) - 1
 
         def has_byte_range(self, offset, length):
+            """chunk begins at offset and has at least length bytes remaining"""
             logger.debug('s: %d-%d; r: %d-%d'
                          % (self.offset, self.end, offset, offset + length - 1))
             if offset == self.offset and offset + length - 1 <= self.end:
@@ -38,8 +39,11 @@ class StreamedResponseCache(object):
 
         def get(self, length):
             b = next(self.r.iter_content(length))
+            logger.debug('streamed %ib' % len(b))
             self.offset += len(b)
-            logger.debug(len(b))
+
+            if len(b) < length and self.offset <= self.end:
+                raise Exception
             return b
 
         def close(self):
@@ -55,7 +59,9 @@ class StreamedResponseCache(object):
         def get(self, id, offset, length, total):
             self.access = time()
 
-            for c in self.chunks:
+            i = self.chunks.__len__() - 1
+            while i >= 0:
+                c = self.chunks[i]
                 if c.has_byte_range(offset, length):
                     try:
                         bytes_ = c.get(length)
@@ -63,9 +69,10 @@ class StreamedResponseCache(object):
                         self.chunks.remove(c)
                     else:
                         return bytes_
+                i -= 1
+
             try:
-                chunk = StreamedResponseCache. \
-                    StreamChunk(id, offset, CHUNK_SZ, timeout=5)
+                chunk = StreamedResponseCache.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
             except RequestError as e:
                 raise FuseOSError(errno.ECOMM)
             else:
