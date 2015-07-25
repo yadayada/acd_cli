@@ -195,7 +195,7 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
 def response_chunk(node_id: str, offset: int, length: int, **kwargs):
     ok_codes = [http.PARTIAL_CONTENT]
     end = offset + length - 1
-    logger.debug('o %d l %d' % (offset, length))
+    logger.debug('chunk o %d l %d' % (offset, length))
 
     r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
                            acc_codes=ok_codes, stream=True,

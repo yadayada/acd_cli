@@ -74,7 +74,7 @@ def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
         try:
             o = json.loads(line.decode('utf-8'))
         except ValueError:
-            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] Invalid JSON in change set.')
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] Invalid JSON in change set, page %i.' % pages)
 
         try:
             if o['end']:

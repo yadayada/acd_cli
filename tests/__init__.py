@@ -4,6 +4,7 @@ from .test_api import APITestCase
 from .test_cache import CacheTestCase
 from .test_helper import HelperTestCase
 
+
 def get_suite():
     all_tests = TestSuite()
 
