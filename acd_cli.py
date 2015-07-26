@@ -462,6 +462,8 @@ def compare(local: str, remote_id):
 # Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
 #
 
+# decorators
+
 nocache_actions = []
 offline_actions = []
 no_autores_trash_actions = []
@@ -485,7 +487,7 @@ def no_autores_trash_action(func):
     return func
 
 
-###
+# actual actions
 
 def sync_action(args: argparse.Namespace):
     print('Syncing...')
@@ -687,7 +689,7 @@ def restore_action(args: argparse.Namespace) -> int:
     try:
         r = trash.restore(args.node)
     except RequestError as e:
-        logger.error('Error restoring "%s"' % args.node, e)
+        logger.error('Error restoring "%s": %s' % (args.node, e))
         return 1
     sync.insert_node(r)
 

@@ -8,7 +8,7 @@ from time import time
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
 
-from acdcli.bundled.fuse import FUSE, FuseOSError, Operations
+from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.cache import query, sync
 from acdcli.api import account, content, metadata, trash
 from acdcli.api.common import RequestError
@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 FUSE_BS = 128 * 1024
 CHUNK_SZ = content.CHUNK_SIZE
+
+
+class FuseOSError(FuseError):
+    def __init__(self, err_no):
+        logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
+        super().__init__(err_no)
 
 
 class StreamedResponseCache(object):
@@ -43,6 +49,7 @@ class StreamedResponseCache(object):
             self.offset += len(b)
 
             if len(b) < length and self.offset <= self.end:
+                logger.warning('Chunk ended unexpectedly.')
                 raise Exception
             return b
 
@@ -74,6 +81,7 @@ class StreamedResponseCache(object):
             try:
                 chunk = StreamedResponseCache.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
             except RequestError as e:
+                logger.error('Creating chunk failed. Code: %i, msg: %s' % (e.status_code, e.msg))
                 raise FuseOSError(errno.ECOMM)
             else:
                 self.chunks.append(chunk)

@@ -91,6 +91,7 @@ The following actions are built in
 
         upload (ul)         file and directory upload to a remote destination
         overwrite (ov)      overwrite file A [remote] with content of file B [local]
+        stream (st)         upload the standard input stream to a file
         download (dl)       download a remote folder or file; will skip existing local files
 
         create (c, mkdir)   create folder using an absolute path
@@ -110,10 +111,10 @@ The following actions are built in
 
         mount               mount the cloud drive at a local directory
 
-Please run ``acd_cli --help`` to get a current list of the available actions.
-You may also get a list of further arguments and their order of an action by calling ``acd_cli [action] --help``.
+Please run ``acd_cli --help`` to get a current list of the available actions. A list of further
+arguments of an action and their order can be printed by calling ``acd_cli [action] --help``.
 
-You may provide most node arguments as a 22 character ID or a UNIX-style path.
+Most node arguments may be specified as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
 The number of concurrent transfers can be specified using the argument ``-x [no]``.

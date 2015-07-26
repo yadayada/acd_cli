@@ -122,7 +122,8 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
     return r.json()
 
 
-def gen_mp_stream(metadata, stream, boundary: str, read_callbacks=None):
+def multipart_stream(metadata, stream, boundary: str, read_callbacks=None):
+    """Generator for chunked multipart/form-data file upload from stream input."""
     yield str.encode('--%s\r\nContent-Disposition: form-data; '
                      'name="metadata"\r\n\r\n' % boundary)
     yield str.encode('%s\r\n' % json.dumps(metadata))
@@ -154,7 +155,7 @@ def upload_stream(stream, file_name: str, parent: str=None,
 
     ok_codes = [http.CREATED]
     r = BackOffRequest.post(get_content_url() + 'nodes', params=params,
-                            data=gen_mp_stream(metadata, stream, boundary, read_callbacks),
+                            data=multipart_stream(metadata, stream, boundary, read_callbacks),
                             acc_codes=ok_codes, stream=True,
                             headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})
 
