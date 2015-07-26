@@ -26,13 +26,14 @@ def get_auth_header() -> dict:
 
 TOKEN_INFO_URL = 'https://api.amazon.com/auth/o2/tokeninfo'
 
+
 def get_access_token_info() -> dict:
     """json keywords
     int exp: expiration time in sec
     str aud: client id
     user_id, app_id, iat (exp time)
     """
-    r = requests.get(TOKEN_INFO_URL, params = {'access_token': handler.oauth_data['access_token']})
+    r = requests.get(TOKEN_INFO_URL, params={'access_token': handler.oauth_data['access_token']})
     return r.json()
 
 
@@ -133,6 +134,7 @@ class OAuthHandler(object):
         """Check for OAuth file existence and one-time initialize if necessary. Throws on error."""
         raise NotImplementedError
 
+
 class AppspotOAuthHandler(OAuthHandler):
     APPSPOT_URL = 'https://tensile-runway-92512.appspot.com/'
 
@@ -148,7 +150,8 @@ class AppspotOAuthHandler(OAuthHandler):
             webbrowser.open_new_tab(AppspotOAuthHandler.APPSPOT_URL)
             input('A browser tab will have/be opened at %s.\nPlease accept the request '
                   % AppspotOAuthHandler.APPSPOT_URL +
-                  'and save the plaintext response data into a file called "%s"' % self.OAUTH_DATA_FILE +
+                  'and save the plaintext response data into a file called "%s"'
+                  % self.OAUTH_DATA_FILE +
                   ' in the directory "%s".\nThen, press a key to continue.\n' % self.path)
 
             if not os.path.isfile(self.oauth_data_path):
@@ -243,7 +246,8 @@ class LocalOAuthHandler(OAuthHandler):
             webbrowser.open_new_tab(r.url)
             print('A window will have opened at %s' % self.AMAZON_OA_LOGIN_URL)
 
-            ret_url = input("Please log in or accept and enter the url you have been redirected to: ")
+            ret_url = input('Please log in or accept '
+                            'and enter the URL you have been redirected to: ')
             ret_q = parse_qs(urlparse(ret_url).query)
 
             st2 = self.OAUTH_ST2()
@@ -254,6 +258,7 @@ class LocalOAuthHandler(OAuthHandler):
             self.write_oauth_data()
 
     def refresh_auth_token(self):
+        """:raises RequestError"""
         logger.info('Refreshing authentication token.')
 
         ref = self.OAUTH_REF()
