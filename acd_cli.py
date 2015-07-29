@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a2'
+__version__ = '0.3.0a3'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
