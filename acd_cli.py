@@ -788,6 +788,13 @@ def mount_action(args: argparse.Namespace):
 
 
 @offline_action
+@nocache_action
+def unmount_action(args: argparse.Namespace):
+    import acdcli.fuse
+    return acdcli.fuse.unmount(args.path, args.lazy)
+
+
+@offline_action
 def compare_action(args: argparse.Namespace):
     pass
 
@@ -1104,6 +1111,11 @@ def main():
                          help='allow access to other users')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
+
+    umount_sp = subparsers.add_parser('umount', help='[+] unmount cloud drive(s)')
+    umount_sp.add_argument('--lazy', '-l', '-z', action='store_true')
+    umount_sp.add_argument('path', nargs='?', default=None, help='local path to unmount [optional]')
+    umount_sp.set_defaults(func=unmount_action)
 
     plugin_log = [str(plugins.Plugin)]
     for plugin in plugins.Plugin:

@@ -322,13 +322,53 @@ class ACDFuse(Operations):
 def mount(path: str, **kwargs):
     if not query.get_root_node():
         logger.critical('Root node not found. Aborting.')
-        return
+        return 1
     if not os.path.isdir(path):
         logger.critical('Mount directory does not exist.')
-        return
+        return 1
 
     FUSE(ACDFuse(), path, entry_timeout=60, auto_cache=True,
          nothreads=True,  # threading will break the caching
          uid=os.getuid(), gid=os.getgid(),
+         subtype=ACDFuse.__name__,
          **kwargs
          )
+
+
+def unmount(path=None, lazy=False):
+    """Unmounts a specific mountpoint if path given or all of the user's ACDFuse mounts."""
+    import re
+    import subprocess
+    from itertools import chain
+
+    options = ['-u']
+    if lazy:
+        options.append('-z')
+
+    fuse_st = ACDFuse.__name__
+
+    if path:
+        paths = [path]
+    else:
+        paths = []
+        try:
+            mounts = subprocess.check_output(['mount', '-l', '-t', 'fuse.' + fuse_st])
+            mounts = mounts.decode('UTF-8').splitlines()
+        except:
+            logger.critical('Getting mountpoints failed.')
+            return 1
+
+        for mount in mounts:
+            if 'user_id=%i' % os.getuid() in mount:
+                paths.append(re.search(fuse_st + ' on (.*) type fuse.', mount).group(1))
+
+    ret = 0
+    for path in paths:
+        command = list(chain.from_iterable([['fusermount'], options, [path]]))
+        try:
+            subprocess.check_call(command)
+        except subprocess.CalledProcessError:
+            # logger.error('Unmounting %s failed.' % path)
+            ret |= 1
+
+    return ret
