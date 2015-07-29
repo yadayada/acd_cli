@@ -110,6 +110,7 @@ The following actions are built in
         metadata (m)        print a node's metadata [raw JSON]
 
         mount               mount the cloud drive at a local directory
+        umount              unmount cloud drive(s)
 
 Please run ``acd_cli --help`` to get a current list of the available actions. A list of further
 arguments of an action and their order can be printed by calling ``acd_cli [action] --help``.
@@ -135,6 +136,7 @@ the exit status will be 0. Possible flag values are:
 =====================    =======
         flag              value
 =====================    =======
+general error                1
 argument error               2
 failed file transfer         8
 upload timeout              16
@@ -152,7 +154,7 @@ Mounting
 ~~~~~~~~
 
 First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``.
-To unmount later, run ``fusermount -u path/to/mountpoint``.
+To unmount later, run ``acd_cli umount``.
 
 =====================  ===========
 Feature                 Working
