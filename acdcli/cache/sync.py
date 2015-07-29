@@ -47,6 +47,7 @@ def insert_nodes(nodes: list, partial=True):
 
     insert_parentage(files + folders, partial)
 
+
 def insert_node(node: db.Node):
     """Inserts single file or folder into cache."""
     if not node:
@@ -83,6 +84,7 @@ def insert_folders(folders: list):
 
     logger.info('Inserted/updated %d folders.' % len(folders))
 
+
 def insert_files(files: list):
     if not files:
         return
@@ -93,7 +95,10 @@ def insert_files(files: list):
     stmt2 = str(db.File.__table__.insert())
     stmt2 = stmt2.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
-    db.engine.execute(
+    conn = db.engine.connect()
+    trans = conn.begin()
+
+    conn.execute(
         stmt1,
         [dict(id=f['id'], type='file', name=f.get('name'), description=f.get('description'),
               created=iso_date.parse(f['createdDate']),
@@ -103,7 +108,7 @@ def insert_files(files: list):
               ) for f in files
          ]
     )
-    db.engine.execute(
+    conn.execute(
         stmt2,
         [dict(id=f['id'], md5=f.get('contentProperties', {}).get('md5', 'd41d8cd98f00b204e9800998ecf8427e'),
               size=f.get('contentProperties', {}).get('size', 0)
@@ -111,7 +116,10 @@ def insert_files(files: list):
          ]
     )
 
-    logger.info('Inserted/updated %d files.' % len(files))
+    trans.commit()
+
+    logger.info('Inserted/updated %d file(s).' % len(files))
+
 
 def insert_parentage(nodes: list, partial=True):
     conn = db.engine.connect()
