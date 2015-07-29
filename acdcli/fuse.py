@@ -88,11 +88,12 @@ class StreamedResponseCache(object):
                 return chunk.get(length)
 
         def clear(self):
-            for chunk in self.chunks():
+            for chunk in self.chunks:
                 try:
                     chunk.close()
                 except:
                     pass
+            self.chunks.clear()
 
     files = defaultdict(File)
 
@@ -103,6 +104,10 @@ class StreamedResponseCache(object):
     @classmethod
     def invalidate(cls):
         pass
+
+    @classmethod
+    def release(cls, id):
+        cls.files[id].clear()
 
 
 class ACDFuse(Operations):
@@ -308,6 +313,9 @@ class ACDFuse(Operations):
 
     def release(self, path, fh):
         logger.debug('release %s, %d' % (path, fh))
+
+        node, _ = query.resolve(path, trash=False)
+        StreamedResponseCache.release(node.id)
 
     def utimens(self, path, times=None):
         logger.debug('utimens %s' % path)
