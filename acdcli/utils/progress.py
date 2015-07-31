@@ -66,18 +66,19 @@ class MultiProgress(object):
         self._last_speeds.append(speed)
 
         avg_speed = float(sum(self._last_speeds)) / len(self._last_speeds)
-        eta = float(total_sz - current_sz) / (avg_speed) if avg_speed else 0
+        eta = float(total_sz - current_sz) / avg_speed if avg_speed else 0
 
         self._last_inv, self._last_prog = t, current_sz
 
-        percentage = round(rate * 100, ndigits=2)
-        completed = "#" * int(percentage / 5)
-        spaces = " " * (20 - len(completed))
+        percentage = round(rate * 100, ndigits=2) if rate <= 1 else 100
+        completed = "#" * int(percentage / 4)
+        spaces = " " * (25 - len(completed))
         item_width = floor(log10(total_items))
-        sys.stdout.write('[%s%s] %s%% of %s  %s/%d %s  %s\r'
+        sys.stdout.write('[%s%s] %s%% of %s  %s/%d %s  %s\x1b[K\r'
                          % (completed, spaces, ('%3.1f' % percentage).rjust(5),
-                            (file_size_str(total_sz)).rjust(6), str(done).rjust(item_width + 1), total_items,
-                            (speed_str(avg_speed)).rjust(10), time_str(eta).rjust(10)))
+                            (file_size_str(total_sz)).rjust(7),
+                            str(done).rjust(item_width + 1), total_items,
+                            (speed_str(avg_speed)).rjust(10), time_str(eta).rjust(7)))
         sys.stdout.flush()
 
 
@@ -96,25 +97,25 @@ def file_size_str(num: int, suffix='B') -> str:
         num /= 1024.0
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
+
 def time_str(num: float) -> str:
-    if num < 0.0:
-        return '0 s'
-    if num < 60.0:
-        seconds = int(round(num, ndigits=0))
-        return str(seconds) + ' s'
-    elif num < 3600.0:
-        seconds = int(round(num%60.0, ndigits=0))
-        minutes = int(round((num-seconds) / 60.0, ndigits=0))
-        return str(minutes+1) + ' m'
-    elif num < 86400.0:
-        minutes = int(round(num%3600.0 / 60.0, ndigits=0))
-        hours = int(round(((num-minutes) / 3600.0), ndigits=0))
-        return str(hours) + ' h ' + (str(minutes+1) + ' m').rjust(4)
-    elif num < 31536000.0:
-        hours = int(round(num%86400.0 / 3600.0, ndigits=0))
-        days = int(round(((num-hours) / 86400.0), ndigits=0))
-        return str(days) + ' d ' + (str(hours+1) + ' h').rjust(4)	
+    if num <= 0:
+        return '0s'
+    if num < 60:
+        return '%02ds' % num
+    elif num < 3600:
+        seconds = num % 60 // 1
+        minutes = (num - seconds) // 60
+        return '%02d:%02dm' % (minutes, seconds)
+    elif num <= 86400:
+        minutes = num % 3600 // 60
+        hours = (num - minutes) // 3600
+        return '%02d:%02dh' % (hours, minutes)
+    elif num <= 31536000:
+        hours = num % 86400 // 3600
+        days = (num - hours) // 86400
+        if days >= 100:
+            return '%id' % days
+        return '%id %02dh' % (days, hours)
     else:
-        days = int(round(num%31536000.0 / 86400.0, ndigits=0))
-        years = int(round(((num-days) / 31536000.0), ndigits=0))
-        return (str(years) + ' y').rjust(4)
+        return '>1 year'

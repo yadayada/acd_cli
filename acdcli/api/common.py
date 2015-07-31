@@ -185,7 +185,7 @@ class BackOffRequest(object):
             duration = cls.__next_req - time.time()
         if duration > 5:
             logger.warning('Waiting %fs because of error(s).' % duration)
-        logger.debug('Retry %i, waiting %f secs' % (cls.__retries, duration))
+        logger.debug('Retry %i, waiting %fs' % (cls.__retries, duration))
         if duration > 0:
             sleep(duration)
 
