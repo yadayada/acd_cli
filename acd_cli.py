@@ -734,8 +734,7 @@ def find_regex_action(args: argparse.Namespace) -> int:
     r = format.LongIDFormatter(r)
     for node in r:
         print(node)
-    if not r:
-        return INVALID_ARG_RETVAL
+    return 0
 
 
 @offline_action
@@ -1000,7 +999,8 @@ def main():
     find_hash_sp.set_defaults(func=find_md5_action)
 
     find_regex_sp = subparsers.add_parser('find-regex', aliases=['fr'],
-                                          help='find files by regular expression [offline operation] [case insensitive]\n\n')
+                                          help='find nodes by regular expression '
+                                               '[offline operation] [case insensitive]\n\n')
     find_regex_sp.add_argument('regex')
     find_regex_sp.set_defaults(func=find_regex_action)
 
