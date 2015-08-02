@@ -724,6 +724,20 @@ def find_md5_action(args: argparse.Namespace) -> int:
 
 
 @offline_action
+def find_regex_action(args: argparse.Namespace) -> int:
+    try:
+        re.compile(args.regex)
+    except re.error as e:
+        logger.critical('Invalid regular expression specified')
+        return INVALID_ARG_RETVAL
+    r = query.find_regex(args.regex)
+    r = format.LongIDFormatter(r)
+    for node in r:
+        print(node)
+    return 0
+
+
+@offline_action
 def children_action(args: argparse.Namespace) -> int:
     nodes = query.list_children(args.node, args.recursive, args.include_trash)
     for entry in format.ListFormatter(nodes, recursive=args.recursive):
@@ -980,9 +994,15 @@ def main():
     find_sp.set_defaults(func=find_action)
 
     find_hash_sp = subparsers.add_parser('find-md5', aliases=['fh'],
-                                         help='find files by MD5 hash [offline operation]\n\n')
+                                         help='find files by MD5 hash [offline operation]')
     find_hash_sp.add_argument('md5')
     find_hash_sp.set_defaults(func=find_md5_action)
+
+    find_regex_sp = subparsers.add_parser('find-regex', aliases=['fr'],
+                                          help='find nodes by regular expression '
+                                               '[offline operation] [case insensitive]\n\n')
+    find_regex_sp.add_argument('regex')
+    find_regex_sp.set_defaults(func=find_regex_action)
 
     dummy_p = argparse.ArgumentParser().add_subparsers()
     re_dummy_sp = dummy_p.add_parser('', add_help=False)

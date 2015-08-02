@@ -139,6 +139,14 @@ def find_md5(md5: str):
         yield Bunch(node=node, path=node.containing_folder())
 
 
+def find_regex(regex: str):
+    q = db.Session.query(db.Node).filter(db.Node.name.op('REGEXP')(regex))
+    q = sorted(q, key=lambda x: x.full_path())
+
+    for node in q:
+        yield Bunch(node=node, path=node.containing_folder())
+
+
 def file_size_exists(size: int) -> bool:
     """Returns whether cache contains one or more file(s) of given size."""
     return db.Session.query(db.File).filter_by(size=size).count()
