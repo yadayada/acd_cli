@@ -1,9 +1,11 @@
 import os
 import logging
+import re
 from sqlalchemy import *
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session, relationship, backref
 from sqlalchemy.exc import DatabaseError
+from sqlalchemy.event import listens_for
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -291,6 +293,15 @@ def init(path='', check=IntegrityCheckType['full']):
         r.close()
 
     logger.info('Cache %sconsidered uninitialized.' % ('' if uninitialized else 'not '))
+
+    def _regex_match(pattern: str, name: str):
+        if name is None:
+            return False
+        return re.match(pattern, name, re.I) is not None
+
+    @listens_for(engine, 'begin')
+    def _on_engine_begin(link):
+        link.connection.create_function('REGEXP', 2, _regex_match)
 
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
