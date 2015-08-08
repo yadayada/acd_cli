@@ -273,4 +273,4 @@ class BackOffRequest(object):
 
 
 def is_valid_id(id: str) -> bool:
-    return bool(id) and len(id) == 22 and re.match('^[a-zA-Z0-9-]*$', id)
+    return bool(id) and len(id) == 22 and re.match('^[a-zA-Z0-9_-]*$', id)

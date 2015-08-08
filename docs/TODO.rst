@@ -35,7 +35,7 @@ Tests
 ~~~~~
 
 * cache methods
-* functional tests
+* more functional tests
 * fuse module
 
 Documentation

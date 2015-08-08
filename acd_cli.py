@@ -524,7 +524,8 @@ def delete_everything_action(args: argparse.Namespace):
 @nocache_action
 @offline_action
 def clear_action(args: argparse.Namespace):
-    db.remove_db_file(CACHE_PATH)
+    if not db.remove_db_file(CACHE_PATH):
+        return ERROR_RETVAL
 
 
 @nocache_action
@@ -1183,8 +1184,9 @@ def main():
     if args.func not in nocache_actions:
         if not db.init(CACHE_PATH, args.check):
             sys.exit(INIT_FAILED_RETVAL)
-        if not check_cache():
-            sys.exit(INIT_FAILED_RETVAL)
+        if args.func and args.func != sync_action:
+            if not check_cache():
+                sys.exit(INIT_FAILED_RETVAL)
 
     format.init(args.color)
 

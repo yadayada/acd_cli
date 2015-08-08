@@ -351,6 +351,8 @@ def remove_db_file(path: str):
         os.remove(db_path)
     except OSError:
         logger.critical('Error removing database file "%s".' % db_path)
+        return False
+    return True
 
 
 def _migrate(schema: int):
