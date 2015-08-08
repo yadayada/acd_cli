@@ -14,21 +14,20 @@ General
 FUSE
 ~~~~
 
-* file write (upload)
+* file write (upload) (#77)
 * invalidate chunks of StreamedResponseCache
 * multi-threading
 
 File Transfer
 ~~~~~~~~~~~~~
 
-* autosplit large files (determine maximum size first)
+* autosplit large files (#32)
 * more sophisticated progress handler that supports offsets
-* copy local mtime on upload
+* copy local mtime on upload (#58)
 
 User experience
 ~~~~~~~~~~~~~~~
 
-* backup oauth file on refresh
 * shell completion for remote directories
 * even nicer help formatting
 
@@ -42,5 +41,6 @@ Tests
 Documentation
 ~~~~~~~~~~~~~
 
-* write some
-* packaging plugins (sample setup.py)
+* add a main sphinx page
+* write how-to on packaging plugins (sample setup.py)
+* write a chapter on packaging

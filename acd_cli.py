@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a3'
+__version__ = '0.3.0a4'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -70,6 +70,7 @@ if not os.path.isdir(CACHE_PATH):
 
 # return values
 
+ERROR_RETVAL = 1
 INVALID_ARG_RETVAL = 2  # doubles as flag
 INIT_FAILED_RETVAL = 3
 KEYB_INTERR_RETVAL = 4
@@ -119,7 +120,7 @@ def sync_node_list(full=False):
     except RequestError as e:
         logger.critical('Sync failed.')
         print(e)
-        return 1
+        return ERROR_RETVAL
 
     if full:
         db.drop_all()
@@ -145,7 +146,7 @@ def old_sync():
     except RequestError as e:
         logger.critical('Sync failed.')
         print(e)
-        return 1
+        return ERROR_RETVAL
 
     sync.insert_nodes(files + folders, partial=False)
     db.KeyValueStorage['sync_date'] = time.time()
@@ -193,7 +194,7 @@ def compare_hashes(hash1: str, hash2: str, file_name: str):
 
 def create_upload_jobs(dirs: list, path: str, parent_id: str,
                        overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
-    """ Creates upload job if passed path is a file, delegates directory traversal otherwise.
+    """Creates upload job if passed path is a file, delegates directory traversal otherwise.
     Detects soft links that link to an already queued directory.
     :param dirs: List of directories' inodes traversed so far"""
 
@@ -361,7 +362,7 @@ def overwrite(node_id, local_file, dedup=False,
 
 @retry_on([])
 def upload_stream(stream, file_name, parent_id, dedup=False,
-                  pg_handler:progress.FileProgress=None) -> RetryRetVal:
+                  pg_handler: progress.FileProgress=None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
         r = content.upload_stream(stream, file_name, parent_id,
@@ -638,6 +639,19 @@ def download_action(args: argparse.Namespace) -> int:
     return ret_val | ql.start()
 
 
+def cat_action(args: argparse.Namespace) -> int:
+    if not query.get_node(args.node):
+        return INVALID_ARG_RETVAL
+
+    try:
+        content.chunked_download(args.node, sys.stdout.buffer)
+    except RequestError as e:
+        logger.error('Downloading failed. Code: %s, msg: %s' % (e.status_code, e.msg))
+        return UL_DL_FAILED
+
+    return 0
+
+
 def create_action(args: argparse.Namespace) -> int:
     parent, folder = os.path.split(args.new_folder)
     # no trailing slash
@@ -682,7 +696,7 @@ def trash_action(args: argparse.Namespace) -> int:
         sync.insert_node(r)
     except RequestError as e:
         print(e)
-        return 1
+        return ERROR_RETVAL
 
 
 def restore_action(args: argparse.Namespace) -> int:
@@ -690,7 +704,7 @@ def restore_action(args: argparse.Namespace) -> int:
         r = trash.restore(args.node)
     except RequestError as e:
         logger.error('Error restoring "%s": %s' % (args.node, e))
-        return 1
+        return ERROR_RETVAL
     sync.insert_node(r)
 
 
@@ -745,12 +759,19 @@ def children_action(args: argparse.Namespace) -> int:
 
 
 def move_action(args: argparse.Namespace) -> int:
+    node = query.get_node(args.child)
+    if not node:
+        return INVALID_ARG_RETVAL
+    if len(node.parents) > 1:
+        logger.error('Cannot move node with multiple parents.')
+        return ERROR_RETVAL
+
     try:
-        r = metadata.move_node(args.child, args.parent)
+        r = metadata.move_node(args.child, node.parents[0].id, args.parent)
         sync.insert_node(r)
     except RequestError as e:
         print(e)
-        return 1
+        return ERROR_RETVAL
 
 
 def rename_action(args: argparse.Namespace) -> int:
@@ -759,7 +780,7 @@ def rename_action(args: argparse.Namespace) -> int:
         sync.insert_node(r)
     except RequestError as e:
         print(e)
-        return 1
+        return ERROR_RETVAL
 
 
 def add_child_action(args: argparse.Namespace) -> int:
@@ -768,7 +789,7 @@ def add_child_action(args: argparse.Namespace) -> int:
         sync.insert_node(r)
     except RequestError as e:
         print(e)
-        return 1
+        return ERROR_RETVAL
 
 
 def remove_child_action(args: argparse.Namespace) -> int:
@@ -777,7 +798,7 @@ def remove_child_action(args: argparse.Namespace) -> int:
         sync.insert_node(r)
     except RequestError as e:
         print(e)
-        return 1
+        return ERROR_RETVAL
 
 
 def metadata_action(args: argparse.Namespace) -> int:
@@ -818,23 +839,6 @@ def compare_action(args: argparse.Namespace):
 #
 
 
-# added for version 0.1.3 on 15-05-04
-def migrate_cache_files():
-    files = ['oauth_data', 'endpoint_data', 'nodes.db']
-    old_dir = os.path.dirname(os.path.realpath(__file__))
-    for file in files:
-        curr_path = os.path.join(old_dir, file)
-        if os.path.isfile(curr_path) and os.path.isfile(curr_path):
-            new_path = os.path.join(CACHE_PATH, file)
-            try:
-                if not os.path.exists(new_path):
-                    logger.info('Moving file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
-                    os.rename(curr_path, new_path)
-            except OSError:
-                logger.warning(
-                    'Error moving cache file "%s" from "%s" to "%s".' % (file, old_dir, CACHE_PATH))
-
-
 def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: bool=True):
     """In-place replaces certain attributes in Namespace by resolved node ID.
     :param attrs: list of attributes that may be given in absolute path form
@@ -852,13 +856,14 @@ def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: 
                     sys.exit(INVALID_ARG_RETVAL)
                 logger.info('Resolved "%s" to "%s"' % (val, v))
                 setattr(args, id_attr, v)
-            elif len(val) != 22:
+                setattr(args, id_attr + '_path', val)
+            elif not common.is_valid_id(val):
                 logger.critical('Invalid ID format: "%s".' % val)
                 sys.exit(INVALID_ARG_RETVAL)
 
 
 def set_log_level(args: argparse.Namespace):
-    format_ = '%(asctime)s.%(msecs).03d [%(levelname)s] [%(name)s] - %(message)s'
+    format_ = '%(asctime)s.%(msecs).03d [%(levelname)s] [%(name)s] - %(message)s\x1b[K'
     time_fmt = '%y-%m-%d %H:%M:%S'
 
     if not args.verbose and not args.debug:
@@ -901,16 +906,28 @@ def set_encoding(force_utf: bool=False):
     return utf_flag
 
 
-def check_cache_age():
+def check_cache():
+    """Checks for existence of root node and cache age."""
+
+    if not query.get_root_node():
+        logger.critical('Root node not found. Please sync.')
+        return False
+
     last_sync = db.KeyValueStorage.get(CacheConsts.LAST_SYNC_KEY)
     if not last_sync:
-        return
+        return True
     last_sync = datetime.utcfromtimestamp(float(last_sync))
     age = (datetime.utcnow() - last_sync) / timedelta(days=1)
     if age > CacheConsts.MAX_AGE:
         logger.warning('Cache data may be outdated. Please sync.')
     else:
         logger.info('Last sync at %s.' % last_sync)
+    return True
+
+
+def check_py_version():
+    if sys.version_info[:3] in [(3, 2, 3), (3, 3, 0), (3, 3, 1)]:
+        logger.warning('Your Python version is known to cause issues. Uploading might not work.')
 
 
 # noinspection PyProtectedMember
@@ -1047,10 +1064,14 @@ def main():
 
     download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
                                         help='download a remote folder or file; '
-                                             'will skip existing local files\n\n')
+                                             'will skip existing local files')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
     download_sp.set_defaults(func=download_action)
+
+    cat_sp = subparsers.add_parser('cat', help='output a file to the standard output stream\n\n')
+    cat_sp.add_argument('node')
+    cat_sp.set_defaults(func=cat_action)
 
     cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'],
                                      help='create folder using an absolute path\n\n')
@@ -1082,7 +1103,7 @@ def main():
     rename_sp.set_defaults(func=rename_action)
 
     res_sp = subparsers.add_parser('resolve', aliases=['rs'],
-                                   help='resolve a path to a node ID\n\n')
+                                   help='resolve a path to a node ID [offline operation]\n\n')
     res_sp.add_argument('path')
     res_sp.set_defaults(func=resolve_action)
 
@@ -1153,8 +1174,7 @@ def main():
         logger.info(msg)
 
     set_encoding(force_utf=args.utf)
-
-    migrate_cache_files()
+    check_py_version()
 
     if args.func not in offline_actions:
         if not common.init(CACHE_PATH):
@@ -1163,7 +1183,8 @@ def main():
     if args.func not in nocache_actions:
         if not db.init(CACHE_PATH, args.check):
             sys.exit(INIT_FAILED_RETVAL)
-        check_cache_age()
+        if not check_cache():
+            sys.exit(INIT_FAILED_RETVAL)
 
     format.init(args.color)
 

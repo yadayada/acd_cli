@@ -25,9 +25,10 @@ def node_with_parent(name: str, parent_id: str):
                 return r
 
 
-# may be broken
 def get_root_node() -> db.Folder:
-    return db.Session.query(db.Folder).filter_by(name=None).first()
+    for f in db.Session.query(db.Folder).filter_by(name=None):
+        if len(f.parents) == 0:
+            return f
 
 
 def get_root_id() -> str:

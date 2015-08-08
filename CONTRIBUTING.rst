@@ -32,6 +32,9 @@ asked in the `chat <https://gitter.im/cloud-drive/acd_cli>`_.
 Code
 ----
 
+There are no real programming guidelines as of yet. Please use type hints like specified in PEP 0484
+where appropriate and limit line length to 100 characters.
+
 It is a generally a good idea to announce that you are working on an issue by explicitly stating
 this on the issue tracker.
 
@@ -40,7 +43,7 @@ Please squash your commits before making a pull request.
 Have a look at `Github's general guide how to contribute
 <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_.
 
-There is also a `TODO <docs/TODO.rst>`_ list of open tasks.
+There is also a `TODO <docs/TODO.rst>`_ list of some of the open tasks.
 
 Donations
 ---------

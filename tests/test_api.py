@@ -25,6 +25,27 @@ class APITestCase(unittest.TestCase):
     def testContentUrl(self):
         self.assertEqual(common.get_content_url(), 'https://content-na.drive.amazonaws.com/cdproxy/')
 
+    def testValidID0(self):
+        self.assertTrue(common.is_valid_id('abcdefghijklmnopqrstuv'))
+
+    def testValidID1(self):
+        self.assertTrue(common.is_valid_id('0123456789012345678901'))
+
+    def testValidID2(self):
+        self.assertTrue(common.is_valid_id('a0b1c2d3e4f5g6h7i8j9k0'))
+
+    def testValidID2(self):
+        self.assertTrue(common.is_valid_id('a0b1c2d3e4f--6h7i8j9k0'))
+
+    def testInvalidID0(self):
+        self.assertFalse(common.is_valid_id(''))
+
+    def testInvalidID1(self):
+        self.assertFalse(common.is_valid_id('äbcdéfghíjklmnöpqrstüv'))
+
+    def testInvalidID2(self):
+        self.assertFalse(common.is_valid_id('abcdefghijklmnopqrstu'))
+
     #
     # account
     #

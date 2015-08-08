@@ -74,7 +74,8 @@ def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
         try:
             o = json.loads(line.decode('utf-8'))
         except ValueError:
-            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] Invalid JSON in change set, page %i.' % pages)
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
+                               '[acd_cli] Invalid JSON in change set, page %i.' % pages)
 
         try:
             if o['end']:
@@ -89,7 +90,8 @@ def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
 
         # could this actually happen?
         if o['statusCode'] not in OK_CODES:
-            raise RequestError(RequestError.CODE.FAILED_SUBREQUEST, '[acd_cli] Partial failure in change request.')
+            raise RequestError(RequestError.CODE.FAILED_SUBREQUEST,
+                               '[acd_cli] Partial failure in change request.')
 
         for node in o['nodes']:
             if node['status'] == 'PURGED':
@@ -100,7 +102,8 @@ def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
 
     r.close()
 
-    logger.info('%i pages, %i nodes, %i purged nodes in changes.' % (pages, len(nodes), len(purged_nodes)))
+    logger.info('%i pages, %i nodes, %i purged nodes in changes.'
+                % (pages, len(nodes), len(purged_nodes)))
     if not end:
         logger.warning('End of change request not reached.')
 
@@ -161,9 +164,13 @@ def remove_child(parent_id: str, child_id: str) -> dict:
     return r.json()
 
 
-def move_node_from(child_id: str, old_parent_id, new_parent_id: str) -> dict:
-    r = add_child(new_parent_id, child_id)
-    return remove_child(old_parent_id, child_id)
+def move_node(child_id: str, old_parent_id: str, new_parent_id: str) -> dict:
+    data = {'fromParent': old_parent_id, 'childId': child_id}
+    r = BackOffRequest.post(get_metadata_url() + 'nodes/' + new_parent_id + '/children',
+                            data=json.dumps(data))
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
+    return r.json()
 
 
 def rename_node(node_id: str, new_name: str) -> dict:

@@ -233,35 +233,6 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
     os.rename(part_path, dl_path)
 
 
-def response_chunk(node_id: str, offset: int, length: int, **kwargs):
-    ok_codes = [http.PARTIAL_CONTENT]
-    end = offset + length - 1
-    logger.debug('chunk o %d l %d' % (offset, length))
-
-    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
-                           acc_codes=ok_codes, stream=True,
-                           headers={'Range': 'bytes=%d-%d' % (offset, end)}, **kwargs)
-    # if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
-    #     return
-    if r.status_code not in ok_codes:
-        raise RequestError(r.status_code, r.text)
-
-    return r
-
-
-def download_chunk(node_id: str, offset: int, length: int, **kwargs):
-    """:param length: the length of the download chunk"""
-    r = response_chunk(node_id, offset, length, **kwargs)
-    if not r:
-        return
-
-    buffer = bytearray()
-    for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
-        if chunk:
-            buffer.extend(chunk)
-    return buffer
-
-
 @catch_conn_exception
 def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
     """Keyword args:
@@ -314,3 +285,32 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
         r.close()
 
     return
+
+
+def response_chunk(node_id: str, offset: int, length: int, **kwargs):
+    ok_codes = [http.PARTIAL_CONTENT]
+    end = offset + length - 1
+    logger.debug('chunk o %d l %d' % (offset, length))
+
+    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
+                           acc_codes=ok_codes, stream=True,
+                           headers={'Range': 'bytes=%d-%d' % (offset, end)}, **kwargs)
+    # if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
+    #     return
+    if r.status_code not in ok_codes:
+        raise RequestError(r.status_code, r.text)
+
+    return r
+
+
+def download_chunk(node_id: str, offset: int, length: int, **kwargs):
+    """:param length: the length of the download chunk"""
+    r = response_chunk(node_id, offset, length, **kwargs)
+    if not r:
+        return
+
+    buffer = bytearray()
+    for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
+        if chunk:
+            buffer.extend(chunk)
+    return buffer

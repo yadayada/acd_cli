@@ -9,7 +9,7 @@ cloud drive using FUSE for *read* access. It is currently in beta stage.
 Features
 --------
 
-- local node caching
+- local node metadata caching
 - addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
 - simultaneous uploads/downloads, retry on error
 - basic plugin support
@@ -19,6 +19,7 @@ File Operations
 
 - tree or flat listing of files and folders
 - upload/download of single files and directories
+- stream upload/download
 - folder creation
 - trashing/restoring
 - moving/renaming nodes
@@ -86,13 +87,16 @@ The following actions are built in
 
         tree (t)            print directory tree [offline operation]
         children (ls)       list a folder's children [offline operation]
-        find (f)            find nodes by name [offline operation]
+
+        find (f)            find nodes by name [offline operation] [case insensitive]
         find-md5 (fm)       find files by MD5 hash [offline operation]
+        find-regex (fr)     find nodes by regular expression [offline operation] [case insensitive]
 
         upload (ul)         file and directory upload to a remote destination
         overwrite (ov)      overwrite file A [remote] with content of file B [local]
         stream (st)         upload the standard input stream to a file
         download (dl)       download a remote folder or file; will skip existing local files
+        cat                 output a file to the standard output stream
 
         create (c, mkdir)   create folder using an absolute path
 
@@ -103,7 +107,7 @@ The following actions are built in
         move (mv)           move node A into folder B
         rename (rn)         rename a node
 
-        resolve (rs)        resolve a path to a node ID
+        resolve (rs)        resolve a path to a node ID [offline operation]
 
         usage (u)           show drive usage data
         quota (q)           show drive quota [raw JSON]
@@ -250,9 +254,8 @@ Windows users may try to execute the provided `reg file <assets/win_codepage.reg
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
-- at the time being, it is not advisable to upload files larger than 9GiB
+- the current upload file size limit is 50GiB
 - uploads of large files >10 GiB may be successful, yet a timeout error is displayed (please check manually)
-- the maximum (upload) file size seems to be in the range of 40 and 100 GiB
 - storage of node names is case-preserving, but not case-sensitive (this concerns Linux users mainly)
 - it is not possible to share or delete files
 
@@ -269,11 +272,11 @@ Dependencies
 Python Packages
 ~~~~~~~~~~~~~~~
 
-- appdirs
-- dateutils (recommended)
-- requests >= 2.1.0
-- requests-toolbelt (recommended)
-- sqlalchemy
+- `appdirs <https://github.com/ActiveState/appdirs>`_
+- `dateutils <https://github.com/paxan/python-dateutil>`_ (recommended)
+- `requests <https://github.com/kennethreitz/requests>`_ >= 2.1.0
+- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_ (recommended)
+- `sqlalchemy <https://bitbucket.org/zzzeek/sqlalchemy/>`_
 
 Recommended packages are not strictly necessary; but they will be preferred to
 workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
@@ -285,8 +288,9 @@ are using a distro based on Debian 'jessie', the necessary packages are
 FUSE
 ~~~~
 
-For the mounting feature, fuse >= 2.6 is needed according to pyfuse. On a
-Debian-based distribution, the according package should simply be named 'fuse'.
+For the mounting feature, fuse >= 2.6 is needed according to
+`pyfuse <https://github.com/terencehonles/fusepy>`_.
+On a Debian-based distribution, the according package should simply be named 'fuse'.
 
 Recent Changes
 --------------

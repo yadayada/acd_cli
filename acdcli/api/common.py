@@ -7,6 +7,7 @@ from time import sleep
 import logging
 import requests
 from threading import Lock, local
+import re
 
 from requests.exceptions import ConnectionError
 
@@ -269,3 +270,7 @@ class BackOffRequest(object):
                 break
 
         return node_list
+
+
+def is_valid_id(id: str) -> bool:
+    return bool(id) and len(id) == 22 and re.match('^[a-zA-Z0-9-]*$', id)

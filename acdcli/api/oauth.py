@@ -145,18 +145,21 @@ class AppspotOAuthHandler(OAuthHandler):
         logger.info('%s initialized' % self.__class__.__name__)
 
     def check_oauth_file_exists(self):
-        """:raises Exception"""
-        if not os.path.isfile(self.oauth_data_path):
-            webbrowser.open_new_tab(AppspotOAuthHandler.APPSPOT_URL)
-            input('A browser tab will have/be opened at %s.\nPlease accept the request '
-                  % AppspotOAuthHandler.APPSPOT_URL +
-                  'and save the plaintext response data into a file called "%s"'
-                  % self.OAUTH_DATA_FILE +
-                  ' in the directory "%s".\nThen, press a key to continue.\n' % self.path)
+        """:raises FileNotFoundError"""
+        if os.path.isfile(self.oauth_data_path):
+            return
 
-            if not os.path.isfile(self.oauth_data_path):
-                logger.error('File "%s" not found.' % self.OAUTH_DATA_FILE)
-                raise Exception
+        input('For the one-time authentication a browser (tab) will be opened at %s.\n'
+              % AppspotOAuthHandler.APPSPOT_URL + 'Please accept the request and ' +
+              'save the plaintext response data into a file called "%s" ' % self.OAUTH_DATA_FILE +
+              'in the directory "%s".\nPress a key to open a browser.\n' % self.path)
+        webbrowser.open_new_tab(AppspotOAuthHandler.APPSPOT_URL)
+
+        input('Press a key if you have saved the "%s" file into "%s".\n'
+              % (self.OAUTH_DATA_FILE, self.path))
+
+        with open(self.oauth_data_path):
+            pass
 
     def refresh_auth_token(self):
         """:raises RequestError"""
