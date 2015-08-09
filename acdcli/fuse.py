@@ -138,11 +138,7 @@ class ACDFuse(Operations):
                      st_ctime=(node.created - datetime(1970, 1, 1)) / timedelta(seconds=1))
 
         if node.is_folder():
-            nlinks = 1 + len(node.parents)
-            for c in node.children:
-                if c.is_folder() and c.is_available():
-                    nlinks += 1
-            return dict(st_mode=stat.S_IFDIR | 0o0777, st_nlink=nlinks, **times)
+            return dict(st_mode=stat.S_IFDIR | 0o0777, st_nlink=node.size, **times)
         if node.is_file():
             return dict(st_mode=stat.S_IFREG | 0o0666,
                         st_nlink=len(node.parents), st_size=node.size, **times)

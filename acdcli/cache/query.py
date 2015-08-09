@@ -1,3 +1,7 @@
+"""
+Collection of common database queries.
+"""
+
 import logging
 from sqlalchemy import func
 

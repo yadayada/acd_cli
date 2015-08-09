@@ -1,7 +1,10 @@
-"""Formatters for query bundle iterables"""
+"""
+Formatters for query bundle iterables
+"""
 
 import os
 import sys
+import datetime
 
 colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
 colors = dict(c.split('=') for c in colors)
@@ -52,6 +55,25 @@ def color_status(status):
         return seq_tpl % '31' + status[0] + res  # red
 
 
+def date_str(time_: datetime.datetime) -> str:
+    """Creates colored date string similar to ls -l."""
+    if time_.year == datetime.date.year:
+        last_seg = str(time_.year).rjust(5)
+    else:
+        last_seg = '{0.hour:02}:{0.minute:02}'.format(time_)
+    return nor_fmt % ('{0:%b} %s %s'.format(time_) % (str(time_.day).rjust(2), last_seg))
+
+
+def size_nlink_str(node):
+    from acdcli.utils.progress import file_size_str
+
+    if node.is_file():
+        return nor_fmt % file_size_str(node.size).rjust(7)
+    elif node.is_folder():
+        return nor_fmt % str(node.size).rjust(7)
+    return ''
+
+
 class ListFormatter(object):
     @staticmethod
     def __new__(cls, bunches, **kwargs):
@@ -60,7 +82,7 @@ class ListFormatter(object):
 
 class LSFormatter(ListFormatter):
     @staticmethod
-    def __new__(cls, bunches, recursive=False):
+    def __new__(cls, bunches, recursive=False, long=False):
         is_first = True
         for bunch in bunches:
             node = bunch.node
@@ -69,9 +91,11 @@ class LSFormatter(ListFormatter):
                 bunch.path = node.containing_folder()
             if recursive and node.is_folder() and not is_first and children > 0:
                 yield ''
-            yield '[{}] [{}] {}{}'.format(
+            yield '[{}] [{}] {}{}{}{}'.format(
                 nor_fmt % node.id,
                 color_status(node.status),
+                (size_nlink_str(node) + ' ') if long else '',
+                (date_str(node.modified) + ' ') if long else '',
                 color_path(bunch.path) if node.is_folder() and children else '',
                 color_path(node.simple_name())
             )
@@ -96,13 +120,11 @@ class LongIDFormatter(ListFormatter):
 class TreeFormatter(ListFormatter):
     @staticmethod
     def __new__(cls, bunches):
-        prev = None
         for bunch in bunches:
             pre = ''
             if bunch.depth > 0:
                 pre = ' ' * 4 * bunch.depth
             yield pre + color_path(bunch.node.simple_name())
-            prev = bunch
 
 
 class IDFormatter(ListFormatter):

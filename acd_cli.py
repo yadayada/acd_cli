@@ -755,7 +755,7 @@ def find_regex_action(args: argparse.Namespace) -> int:
 @offline_action
 def children_action(args: argparse.Namespace) -> int:
     nodes = query.list_children(args.node, args.recursive, args.include_trash)
-    for entry in format.ListFormatter(nodes, recursive=args.recursive):
+    for entry in format.ListFormatter(nodes, recursive=args.recursive, long=args.long):
         print(entry)
 
 
@@ -1001,6 +1001,7 @@ def main():
 
     list_c_sp = subparsers.add_parser('children', aliases=['ls', 'dir'],
                                       help='[+] list folder\'s children [offline operation]\n\n')
+    list_c_sp.add_argument('--long', '-l', action='store_true', help='long listing format')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node')
@@ -1025,7 +1026,8 @@ def main():
     dummy_p = argparse.ArgumentParser().add_subparsers()
     re_dummy_sp = dummy_p.add_parser('', add_help=False)
     re_dummy_sp.add_argument('--max-connections', '-x', action='store', type=int, default=1,
-                             help='set the maximum concurrent connections [default: 1]')
+                             help='set the maximum concurrent connections [default: 1, '
+                                  'maximum: %i' % QueuedLoader.MAX_NUM_WORKERS + ']')
     max_ret.attach(re_dummy_sp)
     re_dummy_sp.add_argument('--exclude-ending', '-xe', action='append', dest='exclude_fe',
                              default=[], help='exclude files whose endings match the given string,'

@@ -243,6 +243,13 @@ class Folder(Node):
             if c.is_available():
                 yield c
 
+    @property
+    def size(self):
+        nlinks = 1 + len(self.parents)
+        for c in self.children:
+            if c.is_folder() and c.is_available():
+                nlinks += 1
+        return nlinks
 
 """End of 'schema'"""
 
