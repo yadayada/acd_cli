@@ -819,7 +819,7 @@ def dump_sql_action(args: argparse.Namespace):
 
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
-    acdcli.fuse.mount(args.path, ro=args.ro, foreground=args.foreground,
+    acdcli.fuse.mount(args.path, dict(nlinks=args.nlinks), ro=args.ro, foreground=args.foreground,
                       allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -1135,6 +1135,24 @@ def main():
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
+    fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
+    fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
+    fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
+    fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
+                         help='allow access to root user')
+    fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
+                         help='allow access to other users')
+    fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
+    fuse_sp.add_argument('path')
+    fuse_sp.set_defaults(func=mount_action)
+
+    umount_sp = subparsers.add_parser('umount', help='[+] unmount cloud drive(s)')
+    umount_sp.add_argument('--lazy', '-l', '-z', action='store_true')
+    umount_sp.add_argument('path', nargs='?', default=None, help='local path to unmount [optional]')
+    umount_sp.set_defaults(func=unmount_action)
+
+    # undocumented actions
+
     de_sp = subparsers.add_parser('delete-everything', add_help=False)
     de_sp.set_defaults(func=delete_everything_action)
 
@@ -1146,20 +1164,7 @@ def main():
     dmp_sp = subparsers.add_parser('dumpsql', add_help=False)
     dmp_sp.set_defaults(func=dump_sql_action)
 
-    fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
-    fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
-    fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
-    fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
-                         help='allow access to root user')
-    fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
-                         help='allow access to other users')
-    fuse_sp.add_argument('path')
-    fuse_sp.set_defaults(func=mount_action)
-
-    umount_sp = subparsers.add_parser('umount', help='[+] unmount cloud drive(s)')
-    umount_sp.add_argument('--lazy', '-l', '-z', action='store_true')
-    umount_sp.add_argument('path', nargs='?', default=None, help='local path to unmount [optional]')
-    umount_sp.set_defaults(func=unmount_action)
+    # plugins
 
     plugin_log = [str(plugins.Plugin)]
     for plugin in plugins.Plugin:

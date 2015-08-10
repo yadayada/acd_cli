@@ -9,6 +9,7 @@ import json
 import time
 
 from acdcli.api import common, account, metadata, oauth
+from .test_helper import gen_rand_id
 
 logging.basicConfig(level=logging.INFO)
 common.BackOffRequest._wait = lambda: None
@@ -34,8 +35,12 @@ class APITestCase(unittest.TestCase):
     def testValidID2(self):
         self.assertTrue(common.is_valid_id('a0b1c2d3e4f5g6h7i8j9k0'))
 
-    def testValidID2(self):
+    def testValidID3(self):
         self.assertTrue(common.is_valid_id('a0b1c2d3e4f--6h7i8j9k0'))
+
+    def testValidIDs(self):
+        for _ in range(1000):
+            self.assertTrue(common.is_valid_id(gen_rand_id()))
 
     def testInvalidID0(self):
         self.assertFalse(common.is_valid_id(''))

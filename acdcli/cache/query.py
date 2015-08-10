@@ -3,6 +3,7 @@ Collection of common database queries.
 """
 
 import logging
+from functools import lru_cache
 from sqlalchemy import func
 
 from . import db
@@ -29,6 +30,7 @@ def node_with_parent(name: str, parent_id: str):
                 return r
 
 
+@lru_cache()
 def get_root_node() -> db.Folder:
     for f in db.Session.query(db.Folder).filter_by(name=None):
         if len(f.parents) == 0:

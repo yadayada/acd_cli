@@ -8,7 +8,8 @@ def gen_rand_name():
 
 
 def gen_rand_id():
-    return str.join('', (random.choice(string.ascii_letters + string.digits + '-') for _ in range(22)))
+    return str.join('', (random.choice(string.ascii_letters + string.digits + '-_')
+                         for _ in range(22)))
 
 
 def gen_rand_md5():

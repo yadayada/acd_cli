@@ -189,7 +189,10 @@ class AppspotOAuthHandler(OAuthHandler):
 
 
 class LocalOAuthHandler(OAuthHandler):
-    """https://developer.amazon.com/public/apis/experience/cloud-drive/content/getting-started"""
+    """A local OAuth handler that works with a whitelisted security profile.
+    The profile must not be created prior to June 2015. Profiles created prior to this month
+    are not able to use the new scope "clouddrive:read_all" that replaces "clouddrive:read".
+    https://developer.amazon.com/public/apis/experience/cloud-drive/content/getting-started"""
 
     CLIENT_DATA_FILE = 'client_data'
 
@@ -241,14 +244,11 @@ class LocalOAuthHandler(OAuthHandler):
     def check_oauth_file_exists(self):
         """:raises Exception"""
         if not os.path.isfile(self.oauth_data_path):
-            r = requests.post(self.AMAZON_OA_LOGIN_URL, params=self.OAUTH_ST1())
-            if r.status_code != requests.status_codes.codes.ok:
-                logging.critical('Error')
-                raise Exception
+            from urllib.parse import urlencode
 
-            webbrowser.open_new_tab(r.url)
-            print('A window will have opened at %s' % self.AMAZON_OA_LOGIN_URL)
-
+            url = self.AMAZON_OA_LOGIN_URL + '?' + urlencode(self.OAUTH_ST1())
+            webbrowser.open_new_tab(url)
+            print('A window will have opened at %s' % url)
             ret_url = input('Please log in or accept '
                             'and enter the URL you have been redirected to: ')
             ret_q = parse_qs(urlparse(ret_url).query)

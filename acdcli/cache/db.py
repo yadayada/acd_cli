@@ -13,18 +13,18 @@ logger = logging.getLogger(__name__)
 Session = None
 engine = None
 
-Base = declarative_base()
+_Base = declarative_base()
 
-DB_SCHEMA_VER = 1
-DB_FILENAME = 'nodes.db'
+_DB_SCHEMA_VER = 1
+_DB_FILENAME = 'nodes.db'
 
-parentage_table = Table('parentage', Base.metadata,
+_parentage_table = Table('parentage', _Base.metadata,
                         Column('parent', String(50), ForeignKey('folders.id'), primary_key=True),
                         Column('child', String(50), ForeignKey('nodes.id'), primary_key=True)
                         )
 
 
-class Metadate(Base):
+class Metadate(_Base):
     """added in v1"""
     __tablename__ = 'metadata'
 
@@ -69,7 +69,7 @@ class _KeyValueStorage(object):
 KeyValueStorage = _KeyValueStorage()
 
 
-class Label(Base):
+class Label(_Base):
     """added in v1"""
     __tablename__ = 'labels'
 
@@ -78,7 +78,7 @@ class Label(Base):
 
 
 # TODO: cycle safety for full_path()
-class Node(Base):
+class Node(_Base):
     __tablename__ = 'nodes'
 
     # apparently 22 chars; max length is 22 for folders according to API doc ?!
@@ -135,8 +135,8 @@ class Node(Base):
             return ''
         return self.parents[0].full_path()
 
-    parents = relationship('Folder', secondary=parentage_table,
-                           primaryjoin=id == parentage_table.c.child,
+    parents = relationship('Folder', secondary=_parentage_table,
+                           primaryjoin=id == _parentage_table.c.child,
                            backref=backref('children', lazy='dynamic')
                            )
 
@@ -265,7 +265,7 @@ def _regex_match(pattern: str, col: str):
 
 def init(path='', check=IntegrityCheckType['full']):
     logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
-    db_path = os.path.join(path, DB_FILENAME)
+    db_path = os.path.join(path, _DB_FILENAME)
 
     # doesn't seem to work on Windows
     from ctypes import util, CDLL
@@ -304,12 +304,12 @@ def init(path='', check=IntegrityCheckType['full']):
     integrity_check(check)
 
     if uninitialized:
-        r = engine.execute('PRAGMA user_version = %i;' % DB_SCHEMA_VER)
+        r = engine.execute('PRAGMA user_version = %i;' % _DB_SCHEMA_VER)
         r.close()
 
     logger.info('Cache %sconsidered uninitialized.' % ('' if uninitialized else 'not '))
 
-    Base.metadata.create_all(engine)
+    _Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
     Session = scoped_session(session_factory)
 
@@ -322,7 +322,7 @@ def init(path='', check=IntegrityCheckType['full']):
 
     logger.info('DB schema version is %s.' % ver)
 
-    if DB_SCHEMA_VER > ver:
+    if _DB_SCHEMA_VER > ver:
         _migrate(ver)
 
     return True
@@ -344,16 +344,16 @@ def dump_table_sql():
     def dump(sql, *multiparams, **params):
         print(sql.compile(dialect=engine.dialect))
     engine = create_engine('sqlite://', strategy='mock', executor=dump)
-    Base.metadata.create_all(engine, checkfirst=False)
+    _Base.metadata.create_all(engine, checkfirst=False)
 
 
 def drop_all():
-    Base.metadata.drop_all(engine)
+    _Base.metadata.drop_all(engine)
     logger.info('Dropped all tables.')
 
 
 def remove_db_file(path: str):
-    db_path = os.path.join(path, DB_FILENAME)
+    db_path = os.path.join(path, _DB_FILENAME)
     try:
         os.remove(db_path)
     except OSError:

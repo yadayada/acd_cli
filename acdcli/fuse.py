@@ -111,10 +111,11 @@ class StreamedResponseCache(object):
 
 
 class ACDFuse(Operations):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.total, _ = account.fs_sizes()
         self.free = self.total - query.calculate_usage()
         self.fh = 1
+        self.nlinks = kwargs['nlinks']
 
     def readdir(self, path, fh):
         logger.debug('readdir %s' % path)
@@ -128,8 +129,7 @@ class ACDFuse(Operations):
     def getattr(self, path, fh=None):
         logger.debug('getattr %s' % path)
 
-        id = query.resolve_path(path, trash=False)
-        node = query.get_node(id)
+        node, _ = query.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
@@ -138,10 +138,13 @@ class ACDFuse(Operations):
                      st_ctime=(node.created - datetime(1970, 1, 1)) / timedelta(seconds=1))
 
         if node.is_folder():
-            return dict(st_mode=stat.S_IFDIR | 0o0777, st_nlink=node.size, **times)
+            nlinks = dict(st_nlink=node.size) if self.nlinks else dict()
+            return dict(st_mode=stat.S_IFDIR | 0o0777,
+                        st_nlink=node.size if self.nlinks else 0, **times)
         if node.is_file():
             return dict(st_mode=stat.S_IFREG | 0o0666,
-                        st_nlink=len(node.parents), st_size=node.size, **times)
+                        st_nlink=len(node.parents) if self.nlinks else 0,
+                        st_size=node.size, **times)
 
     def read(self, path, length, offset, fh):
         logger.debug("read %s, ln: %d of: %d fh %d" % (os.path.basename(path), length, offset, fh))
@@ -323,7 +326,7 @@ class ACDFuse(Operations):
         logger.debug('chmod %s %d %d' % (path, uid, gid))
 
 
-def mount(path: str, **kwargs):
+def mount(path: str, args: dict, **kwargs):
     if not query.get_root_node():
         logger.critical('Root node not found. Aborting.')
         return 1
@@ -331,7 +334,7 @@ def mount(path: str, **kwargs):
         logger.critical('Mount directory does not exist.')
         return 1
 
-    FUSE(ACDFuse(), path, entry_timeout=60, auto_cache=True,
+    FUSE(ACDFuse(**args), path, entry_timeout=60, auto_cache=True,
          nothreads=True,  # threading will break the caching
          uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
