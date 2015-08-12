@@ -4,9 +4,10 @@ import os
 import stat
 import errno
 import logging
-from time import time
+from time import time, sleep
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
+from multiprocessing import Process
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.cache import query, sync
@@ -19,6 +20,21 @@ FUSE_BS = 128 * 1024
 CHUNK_SZ = content.CHUNK_SIZE
 
 
+def _autosync(interval: int):
+    if not interval:
+        return
+
+    import acd_cli
+
+    interval = max(30, interval)
+    while True:
+        try:
+            acd_cli.sync_node_list(full=False)
+        except:
+            pass
+        sleep(interval)
+
+
 class FuseOSError(FuseError):
     def __init__(self, err_no):
         logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
@@ -26,7 +42,7 @@ class FuseOSError(FuseError):
 
 
 class StreamedResponseCache(object):
-    """Stream response cache intended for consecutive access."""
+    """Stream response cache intended for consecutive access of file chunks."""
 
     class StreamChunk(object):
         __slots__ = ('offset', 'r', 'end')
@@ -115,7 +131,11 @@ class ACDFuse(Operations):
         self.total, _ = account.fs_sizes()
         self.free = self.total - query.calculate_usage()
         self.fh = 1
-        self.nlinks = kwargs['nlinks']
+        self.nlinks = kwargs.get('nlinks', False)
+
+        sync_interval = kwargs.get('interval', 0)
+        p = Process(target=_autosync, args=(sync_interval,))
+        p.start()
 
     def readdir(self, path, fh):
         logger.debug('readdir %s' % path)
@@ -288,7 +308,7 @@ class ACDFuse(Operations):
     @staticmethod
     def _move(id, old_folder, new_folder):
         try:
-            r = metadata.move_node_from(id, old_folder, new_folder)
+            r = metadata.move_node(id, old_folder, new_folder)
         except RequestError as e:
             if e.status_code == e.CODE.CONN_EXCEPTION:
                 raise FuseOSError(errno.ECOMM)
@@ -297,7 +317,7 @@ class ACDFuse(Operations):
             sync.insert_node(r)
 
     def open(self, path, flags):
-        logger.debug('open %s' % path)
+        logger.debug('open %s %x' % (path, flags))
         self.fh += 1
         return self.fh
 
@@ -331,7 +351,7 @@ def mount(path: str, args: dict, **kwargs):
         logger.critical('Root node not found. Aborting.')
         return 1
     if not os.path.isdir(path):
-        logger.critical('Mount directory does not exist.')
+        logger.critical('Mountpoint does not exist or already used.')
         return 1
 
     FUSE(ACDFuse(**args), path, entry_timeout=60, auto_cache=True,

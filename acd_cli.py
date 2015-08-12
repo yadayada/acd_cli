@@ -130,9 +130,10 @@ def sync_node_list(full=False):
 
     if len(nodes) > 0:
         sync.insert_nodes(nodes, partial=not full)
-    db.KeyValueStorage.update(
-        {CacheConsts.CHECKPOINT_KEY: ncp, CacheConsts.LAST_SYNC_KEY: time.time()})
-    return
+    db.KeyValueStorage.update({CacheConsts.LAST_SYNC_KEY: time.time()})
+
+    if len(nodes) > 0 or len(purged) > 0:
+        db.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: ncp})
 
 
 def old_sync():
@@ -819,7 +820,8 @@ def dump_sql_action(args: argparse.Namespace):
 
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
-    acdcli.fuse.mount(args.path, dict(nlinks=args.nlinks), ro=args.ro, foreground=args.foreground,
+    acdcli.fuse.mount(args.path, dict(nlinks=args.nlinks, interval=args.interval),
+                      ro=args.ro, foreground=args.foreground,
                       allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -996,7 +998,7 @@ def main():
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
                                     help='[+] print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
-    tree_sp.add_argument('node', nargs='?', default=None, help='root node for the tree')
+    tree_sp.add_argument('node', nargs='?', default=None, help='root folder for the tree')
     tree_sp.set_defaults(func=tree_action)
 
     list_c_sp = subparsers.add_parser('children', aliases=['ls', 'dir'],
@@ -1004,7 +1006,8 @@ def main():
     list_c_sp.add_argument('--long', '-l', action='store_true', help='long listing format')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
-    list_c_sp.add_argument('node')
+    list_c_sp.add_argument('node', nargs='?', default='/',
+                           help='folder to display contents of [optional]')
     list_c_sp.set_defaults(func=children_action)
 
     find_sp = subparsers.add_parser('find', aliases=['f'], help=
@@ -1143,6 +1146,8 @@ def main():
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
                          help='allow access to other users')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
+    fuse_sp.add_argument('--interval', '-i', type=int, default=60,
+                         help='sync every x seconds [default: 60, off: 0]')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 

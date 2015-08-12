@@ -173,9 +173,6 @@ def resolve(path: str, root=None, trash=True) -> tuple:
     segments = path.split('/')
     if segments[0] == '' and not root:
         root = get_root_node()
-        # empty cache
-        if not root:
-            return None, None
 
     if not root:
         return None, None
