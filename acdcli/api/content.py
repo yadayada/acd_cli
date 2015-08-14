@@ -8,6 +8,7 @@ import mimetypes
 from collections import OrderedDict
 import logging
 from urllib.parse import quote_plus
+from requests import Response
 
 try:
     from requests_toolbelt import MultipartEncoder
@@ -122,16 +123,21 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
     return r.json()
 
 
-def multipart_stream(metadata, stream, boundary: str, read_callbacks=None):
-    """Generator for chunked multipart/form-data file upload from stream input."""
-    yield str.encode('--%s\r\nContent-Disposition: form-data; '
-                     'name="metadata"\r\n\r\n' % boundary)
-    yield str.encode('%s\r\n' % json.dumps(metadata))
-    yield str.encode('--%s\r\n' % boundary)
+def multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None):
+    """Generator for chunked multipart/form-data file upload from stream input.
+    :param metadata: file info, leave empty for overwrite
+    :param stream: readable object
+    """
+
+    if metadata:
+        yield str.encode('--%s\r\nContent-Disposition: form-data; '
+                         'name="metadata"\r\n\r\n' % boundary)
+        yield str.encode('%s\r\n' % json.dumps(metadata))
+        yield str.encode('--%s\r\n' % boundary)
     yield b'Content-Disposition: form-data; name="content"; filename="foo"\r\n'
     yield b'Content-Type: application/octet-stream\r\n\r\n'
     while True:
-        f = stream.buffer.read(FS_RW_CHUNK_SZ)
+        f = stream.read(FS_RW_CHUNK_SZ)
         if f:
             for cb in read_callbacks:
                 cb(f)
@@ -180,6 +186,23 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
 
+    return r.json()
+
+
+def overwrite_stream(stream, node_id, read_callbacks=None, deduplication=False) -> dict:
+    params = {} if deduplication else {'suppress': 'deduplication'}
+
+    metadata = {}
+    import uuid
+    boundary = uuid.uuid4().hex
+
+    r = BackOffRequest.put(get_content_url() + 'nodes/', + node_id + '/content', params=params,
+                           data=multipart_stream(metadata, stream, boundary, read_callbacks),
+                           stream=True,
+                           headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})
+
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
     return r.json()
 
 
@@ -272,22 +295,24 @@ def chunked_download(node_id: str, file: io.BufferedWriter, **kwargs):
             continue
 
         curr_ln = 0
-        # connection exceptions occur here
-        for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
-            if chunk:  # filter out keep-alive new chunks
-                file.write(chunk)
-                file.flush()
-                for wcb in write_callbacks:
-                    wcb(chunk)
-                curr_ln += len(chunk)
+        try:
+            for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
+                if chunk:  # filter out keep-alive new chunks
+                    file.write(chunk)
+                    file.flush()
+                    for wcb in write_callbacks:
+                        wcb(chunk)
+                    curr_ln += len(chunk)
+        finally:
+            r.close()
+
         chunk_start += CHUNK_SIZE
         retries = 0
-        r.close()
 
     return
 
 
-def response_chunk(node_id: str, offset: int, length: int, **kwargs):
+def response_chunk(node_id: str, offset: int, length: int, **kwargs) -> Response:
     ok_codes = [http.PARTIAL_CONTENT]
     end = offset + length - 1
     logger.debug('chunk o %d l %d' % (offset, length))
@@ -310,7 +335,24 @@ def download_chunk(node_id: str, offset: int, length: int, **kwargs):
         return
 
     buffer = bytearray()
-    for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
-        if chunk:
-            buffer.extend(chunk)
+    try:
+        for chunk in r.iter_content(chunk_size=FS_RW_CHUNK_SZ):
+            if chunk:
+                buffer.extend(chunk)
+    finally:
+        r.close()
     return buffer
+
+
+def download_thumbnail(node_id: str, file_name: str, max_dim=128):
+    """Download a movie's/picture's thumbnail into a file."""
+
+    r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
+                       params={'viewBox': max_dim}, stream=True)
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
+    try:
+        with open(file_name, 'wb') as f:
+            f.write(r.raw.read())
+    finally:
+        r.close()

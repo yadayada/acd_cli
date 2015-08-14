@@ -609,7 +609,7 @@ def upload_stream_action(args: argparse.Namespace) -> int:
     prog = progress.FileProgress(0)
     ql = QueuedLoader(max_retries=0)
     job = partial(upload_stream,
-                  sys.stdin, args.name, args.parent, args.deduplicate, pg_handler=prog)
+                  sys.stdin.buffer, args.name, args.parent, args.deduplicate, pg_handler=prog)
     ql.add_jobs([job])
 
     return ql.start()
