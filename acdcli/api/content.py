@@ -43,9 +43,8 @@ class TeeBufferedReader(object):
     def read(self, ln=-1):
         ln = ln if ln in (0, -1) else FS_RW_CHUNK_SZ
         chunk = self._file.read(ln)
-        if self._callbacks:
-            for callback in self._callbacks:
-                callback(chunk)
+        for callback in self._callbacks or []:
+            callback(chunk)
         return chunk
 
 
@@ -133,13 +132,13 @@ def multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None)
         yield str.encode('--%s\r\nContent-Disposition: form-data; '
                          'name="metadata"\r\n\r\n' % boundary)
         yield str.encode('%s\r\n' % json.dumps(metadata))
-        yield str.encode('--%s\r\n' % boundary)
+    yield str.encode('--%s\r\n' % boundary)
     yield b'Content-Disposition: form-data; name="content"; filename="foo"\r\n'
     yield b'Content-Type: application/octet-stream\r\n\r\n'
     while True:
         f = stream.read(FS_RW_CHUNK_SZ)
         if f:
-            for cb in read_callbacks:
+            for cb in read_callbacks or []:
                 cb(f)
             yield f
         else:
@@ -196,7 +195,7 @@ def overwrite_stream(stream, node_id, read_callbacks=None, deduplication=False) 
     import uuid
     boundary = uuid.uuid4().hex
 
-    r = BackOffRequest.put(get_content_url() + 'nodes/', + node_id + '/content', params=params,
+    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params,
                            data=multipart_stream(metadata, stream, boundary, read_callbacks),
                            stream=True,
                            headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})

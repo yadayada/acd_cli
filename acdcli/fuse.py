@@ -8,8 +8,10 @@ from time import time, sleep
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from multiprocessing import Process
+from threading import Thread
+from queue import Queue
 
-from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
+from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations, LoggingMixIn
 from acdcli.cache import query, sync
 from acdcli.api import account, content, metadata, trash
 from acdcli.api.common import RequestError
@@ -41,8 +43,8 @@ class FuseOSError(FuseError):
         super().__init__(err_no)
 
 
-class StreamedResponseCache(object):
-    """Stream response cache intended for consecutive access of file chunks."""
+class ReadProxy(object):
+    """Dict of stream chunks for consecutive read access of files."""
 
     class StreamChunk(object):
         __slots__ = ('offset', 'r', 'end')
@@ -95,7 +97,7 @@ class StreamedResponseCache(object):
                 i -= 1
 
             try:
-                chunk = StreamedResponseCache.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
+                chunk = ReadProxy.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
             except RequestError as e:
                 logger.error('Creating chunk failed. Code: %i, msg: %s' % (e.status_code, e.msg))
                 raise FuseOSError(errno.ECOMM)
@@ -126,7 +128,73 @@ class StreamedResponseCache(object):
         cls.files[id].clear()
 
 
-class ACDFuse(Operations):
+class WriteProxy(object):
+    class WriteStream(object):
+        def __init__(self):
+            self.q = Queue(maxsize=2 ** 10)
+            self.offset = 0
+            self.error = False
+            self.closed = False
+
+        def write(self, data):
+            self.q.put(data)
+            self.offset += len(data)
+
+        def read(self, ln=0):
+            if self.error:
+                raise FuseOSError(errno.EREMOTEIO)
+            # TODO: raise on timeout
+
+            if self.closed and self.q.empty():
+                return b''
+
+            b = [self.q.get()]
+            self.q.task_done()
+            while not self.q.empty():
+                b.append(self.q.get())
+                self.q.task_done()
+
+            return b''.join(b)
+
+        def close(self):
+            self.closed = True
+            if self.error:
+                pass
+
+    files = defaultdict(WriteStream)
+
+    @staticmethod
+    def write_n_sync(stream: WriteStream, node_id: str):
+        try:
+            r = content.overwrite_stream(stream, node_id)
+        except RequestError as e:
+            stream.error = True
+            logger.error('Error writing file. Code: %i, msg: %s' % (e.status_code, e.msg))
+        else:
+            sync.insert_node(r)
+
+    @classmethod
+    def write(cls, node_id, fh, offset, bytes_):
+        f = cls.files[fh]
+
+        if f.offset == offset:
+            f.write(bytes_)
+        else:
+            logger.warning('Wrong offset for writing to fh %s.' % fh)
+
+        if offset == 0:
+            t = Thread(target=cls.write_n_sync, args=(f, node_id))
+            t.daemon = True
+            t.start()
+
+    @classmethod
+    def release(cls, fh):
+        f = cls.files.get(fh)
+        if f:
+            f.close()
+
+
+class ACDFuse(LoggingMixIn, Operations):
     def __init__(self, **kwargs):
         self.total, _ = account.fs_sizes()
         self.free = self.total - query.calculate_usage()
@@ -172,7 +240,7 @@ class ACDFuse(Operations):
         if node.size == 0:
             return b''
 
-        return StreamedResponseCache.get(node.id, offset, length, node.size)
+        return ReadProxy.get(node.id, offset, length, node.size)
 
     def statfs(self, path):
         bs = 512 * 1024
@@ -321,20 +389,25 @@ class ACDFuse(Operations):
         self.fh += 1
         return self.fh
 
-    # def write(self, path, data, offset, fh):
-    #     logger.debug('write %s , l: %d, o: %d, fh: %d' % (path, 0, offset, fh))
-    #     # with open(os.devnull, 'wb') as dn:
-    #     return len(data)
+    def write(self, path, data, offset, fh):
+        if offset == 0:
+            n, p = query.resolve(path)
+            node_id = n.id
+        else:
+            node_id = ''
+        WriteProxy.write(node_id, fh, offset, data)
+        return len(data)
 
-    # def truncate(self, path, length, fh=None):
-    #     logger.debug('truncate %s path, %d' % (path, length))
-    #     pass
+    def truncate(self, path, length, fh=None):
+        # TODO
+        pass
 
     def release(self, path, fh):
         logger.debug('release %s, %d' % (path, fh))
 
         node, _ = query.resolve(path, trash=False)
-        StreamedResponseCache.release(node.id)
+        ReadProxy.release(node.id)
+        WriteProxy.release(fh)
 
     def utimens(self, path, times=None):
         logger.debug('utimens %s' % path)
