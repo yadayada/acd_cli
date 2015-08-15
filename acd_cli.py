@@ -84,6 +84,7 @@ SIZE_MISMATCH = 128
 CACHE_ASYNC = 256
 DUPLICATE = 512
 DUPLICATE_DIR = 1024
+NAME_COLLISION = 2048
 
 
 def signal_handler(signal_, frame):
@@ -282,10 +283,15 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             pg_handler.done()
             return DUPLICATE
 
-    cached_file = query.node_with_parent(short_nm, parent_id)
+    conflicting_node = query.conflicting_node(short_nm, parent_id)
     file_id = None
-    if cached_file:
-        file_id = cached_file.id
+    if conflicting_node:
+        if conflicting_node.is_folder():
+            logger.error('Name collision with existing folder '
+                           'in the same location: "%".' % short_nm)
+            return NAME_COLLISION
+
+        file_id = conflicting_node.id
 
     if not file_id:
         logger.info('Uploading %s' % path)
@@ -326,7 +332,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         pg_handler.done()
         return 0
 
-    rmod = (cached_file.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
+    rmod = (conflicting_node.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
     rmod = datetime.utcfromtimestamp(rmod)
     lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
@@ -334,7 +340,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
     # ctime is checked because files can be overwritten by files with older mtime
-    if rmod < lmod or (rmod < lcre and cached_file.size != os.path.getsize(path)) \
+    if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
             or force:
         return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret_val
     elif not force:

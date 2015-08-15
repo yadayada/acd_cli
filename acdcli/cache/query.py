@@ -23,11 +23,13 @@ def get_node(node_id: str) -> db.Node:
     return db.Session.query(db.Node).filter_by(id=node_id).first()
 
 
-def node_with_parent(name: str, parent_id: str):
-    for r in db.Session.query(db.Node).filter_by(name=name):
-        for p in r.parents:
-            if p.id == parent_id:
-                return r
+def conflicting_node(name: str, parent_id: str):
+    """Finds conflicting node in folder specified by parent_id."""
+    p = get_node(parent_id)
+    if p:
+        for c in p.children:
+            if c.is_available() and c.name == name:
+                return c
 
 
 @lru_cache()
