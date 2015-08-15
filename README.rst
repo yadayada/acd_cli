@@ -137,20 +137,21 @@ Exit Status
 When the script is done running, its exit status can be checked for flags. If no error occurs,
 the exit status will be 0. Possible flag values are:
 
-=====================    =======
-        flag              value
-=====================    =======
-general error                1
-argument error               2
-failed file transfer         8
-upload timeout              16
-hash mismatch               32
-error creating folder       64
-file size mismatch         128
-cache outdated             256
-remote duplicate           512
-duplicate inode           1024
-=====================    =======
+===========================  =======
+        flag                  value
+===========================  =======
+general error                    1
+argument error                   2
+failed file transfer             8
+upload timeout                  16
+hash mismatch                   32
+error creating folder           64
+file size mismatch             128
+cache outdated                 256
+remote duplicate               512
+duplicate inode               1024
+file/folder name collision    2048
+===========================  =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
 
@@ -167,15 +168,15 @@ Basic operations
 ----------------------------------
 List directory           ✅
 Read                     ✅
-Write                    ❌
+Write                    ✅
 Rename                   ✅
 Move                     ✅
 Trashing                 ✅ [#]_
-OS-level trashing        partially [#]_
+OS-level trashing        ✅
 View trash               ❌
 Misc
 ----------------------------------
-Automatic sync           ❌
+Automatic sync           ✅
 Hard links               partially [#]_
 Symbolic links           ❌
 =====================  ===========
