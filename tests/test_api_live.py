@@ -6,6 +6,7 @@ import os
 import io
 import random
 import string
+import mmap
 
 from acdcli.api import account, common, content, metadata, trash, oauth
 from acdcli.api.common import RequestError
@@ -32,12 +33,15 @@ def gen_rand_file(size=gen_rand_sz()) -> tuple:
     return fn, size
 
 
-def gen_rand_bytes(size=gen_rand_sz()) -> io.BytesIO:
-    b = io.BytesIO()
-    b.write(os.urandom(size))
-    b.seek(0)
-    return b
+def gen_rand_anon_mmap(size=gen_rand_sz()) -> tuple:
+    mmo = mmap.mmap(-1, size)
+    mmo.write(os.urandom(size))
+    mmo.seek(0)
+    return mmo
 
+
+def do_not_run(func):
+    return lambda x: None
 
 content._CHUNK_SIZE = content.CHUNK_SIZE
 content._CONSECUTIVE_DL_LIMIT = content.CONSECUTIVE_DL_LIMIT
@@ -88,15 +92,21 @@ class APILiveTestCase(unittest.TestCase):
         n = trash.move_to_trash(n['id'])
         os.remove(fn)
 
-    def test_overwrite(self):
+    def test_upload_stream(self):
         fn = gen_rand_nm()
-        open(fn, 'wb').close()
-        n = content.upload_file(fn)
+        mmo = gen_rand_anon_mmap()
+        h = hashing.IncrementalHasher()
+        n = content.upload_stream(mmo, fn, parent=None, read_callbacks=[h.update])
+        self.assertEqual(n['contentProperties']['md5'], h.get_result())
+        trash.move_to_trash(n['id'])
+
+    def test_overwrite(self):
+        fn, _ = gen_rand_file()
+        n = content.create_file(fn)
         self.assertIn('id', n)
         n = content.overwrite_file(n['id'], fn)
         self.assertEqual(n['contentProperties']['version'], 2)
         trash.move_to_trash(n['id'])
-        os.remove(fn)
 
     def test_download(self):
         fn, sz = gen_rand_file()
@@ -143,6 +153,7 @@ class APILiveTestCase(unittest.TestCase):
         #os.remove(fn + content.PARTIAL_SUFFIX)
         self.assertEqual(cm.exception.status_code, RequestError.CODE.INCOMPLETE_RESULT)
         content.download_file(n['id'], fn, length=sz)
+        trash.move_to_trash(n['id'])
         os.remove(fn)
 
     def test_download_resume(self):
@@ -165,6 +176,17 @@ class APILiveTestCase(unittest.TestCase):
         self.assertEqual(md5, dl_md5)
         os.remove(fn)
 
+    def test_create_file(self):
+        name = gen_rand_nm()
+        node = content.create_file(name)
+        trash.move_to_trash(node['id'])
+        self.assertEqual(node['name'], name)
+        self.assertEqual(node['parents'][0], metadata.get_root_id())
+
+    def test_get_root_id(self):
+        id = metadata.get_root_id()
+        self.assertTrue(common.is_valid_id(id))
+
     # helper
     def create_random_dir(self):
         nm = gen_rand_nm()
@@ -180,6 +202,7 @@ class APILiveTestCase(unittest.TestCase):
     # metadata.py
     #
 
+    @do_not_run
     def test_get_changes(self):
         nodes, purged_nodes, checkpoint, reset = metadata.get_changes(include_purged=False)
         self.assertGreaterEqual(len(nodes), 1)
@@ -189,6 +212,24 @@ class APILiveTestCase(unittest.TestCase):
         self.assertEqual(len(nodes), 0)
         self.assertEqual(len(purged_nodes), 0)
         self.assertFalse(reset)
+
+    def test_move_node(self):
+        f_id = self.create_random_dir()
+        node = content.create_file(gen_rand_nm())
+        old_parent = node['parents'][0]
+        node = metadata.move_node(node['id'], old_parent, f_id)
+        self.assertEqual(node['parents'][0], f_id)
+        trash.move_to_trash(f_id)
+        trash.move_to_trash(node['id'])
+
+    def test_rename_node(self):
+        nm = gen_rand_nm()
+        nm2 = gen_rand_nm()
+        node = content.create_file(nm)
+        self.assertEqual(node['name'], nm)
+        node = metadata.rename_node(node['id'], nm2)
+        self.assertEqual(node['name'], nm2)
+        trash.move_to_trash(node['id'])
 
     #
     # trash.py

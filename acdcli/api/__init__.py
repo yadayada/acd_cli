@@ -1,8 +1,14 @@
-__version__ = '0.8.2'
+__version__ = '0.8.3'
 __all__ = ('account', 'common', 'content', 'metadata', 'trash')
 
 """
-================
+
+*******
+ACD API
+*******
+
+Needs to be initialized by calling common.init(path).
+
 Node JSON Format
 ================
 

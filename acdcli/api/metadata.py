@@ -1,3 +1,5 @@
+"""Node metadata operations"""
+
 import json
 import logging
 import http.client as http
@@ -110,8 +112,8 @@ def get_changes(checkpoint='', include_purged=False) -> ChangeSet:
     return ChangeSet(nodes, purged_nodes, checkpoint, reset)
 
 
-def get_metadata(node_id: str) -> dict:
-    params = {'tempLink': 'true'}
+def get_metadata(node_id: str, assets=False) -> dict:
+    params = {'tempLink': 'true', 'asset': 'ALL' if assets else 'NONE'}
     r = BackOffRequest.get(get_metadata_url() + 'nodes/' + node_id, params=params)
     if r.status_code not in OK_CODES:
         raise RequestError(r.status_code, r.text)
@@ -164,8 +166,11 @@ def remove_child(parent_id: str, child_id: str) -> dict:
     return r.json()
 
 
-def move_node(child_id: str, old_parent_id: str, new_parent_id: str) -> dict:
-    data = {'fromParent': old_parent_id, 'childId': child_id}
+def move_node(node_id: str, old_parent_id: str, new_parent_id: str) -> dict:
+    """Moves node with given ID from old parent to new parent. Not tested with multi-parent nodes.
+    :returns dict: changed node dict
+    """
+    data = {'fromParent': old_parent_id, 'childId': node_id}
     r = BackOffRequest.post(get_metadata_url() + 'nodes/' + new_parent_id + '/children',
                             data=json.dumps(data))
     if r.status_code not in OK_CODES:
@@ -182,6 +187,14 @@ def set_available(node_id: str) -> dict:
     """Sets node status from 'PENDING' to 'AVAILABLE'."""
     properties = {'status': 'AVAILABLE'}
     return update_metadata(node_id, properties)
+
+
+def get_owner_id():
+    from . import content, trash
+
+    node = content.create_file('acd_cli_get_owner_id')
+    trash.move_to_trash(node['id'])
+    return node['createdBy']
 
 
 def list_properties(node_id: str, owner_id: str) -> dict:

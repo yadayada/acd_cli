@@ -82,7 +82,7 @@ def insert_folders(folders: list):
         logger.warning('Error inserting folders.')
         session.rollback()
 
-    logger.info('Inserted/updated %d folders.' % len(folders))
+    logger.info('Inserted/updated %d folder(s).' % len(folders))
 
 
 def insert_files(files: list):
@@ -133,4 +133,4 @@ def insert_parentage(nodes: list, partial=True):
             conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, n['id'])
     trans.commit()
 
-    logger.info('Parented %d nodes.' % len(nodes))
+    logger.info('Parented %d node(s).' % len(nodes))

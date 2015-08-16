@@ -1,3 +1,5 @@
+"""ACD account information"""
+
 import logging
 import collections
 
@@ -55,6 +57,7 @@ class _Usage(object):
 
 
 def get_account_info() -> dict:
+    """Gets account status [ACTIVE, ...?] and terms of use version."""
     r = BackOffRequest.get(get_metadata_url() + 'account/info')
     return r.json()
 
@@ -74,6 +77,6 @@ def get_quota() -> dict:
 
 
 def fs_sizes() -> tuple:
-    """returns total and free space"""
+    """:returns tuple: total and free space"""
     q = get_quota()
     return q.get('quota', 0), q.get('available', 0)

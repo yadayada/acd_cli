@@ -5,7 +5,7 @@ import sys
 
 import acd_cli
 
-from acdcli.cache import db, sync
+from acdcli.cache import db, sync, query
 from acdcli.api import common, account, metadata, oauth
 
 from .test_helper import gen_file, gen_folder, gen_bunch_of_nodes
@@ -31,9 +31,12 @@ class ActionTestCase(unittest.TestCase):
 
     def setUp(self):
         sys.argv = [acd_cli._app_name]
+        db.init(path)
 
     def tearDown(self):
         sys.stdout = self.stdout
+        db.remove_db_file(path)
+        query.get_root_node.cache_clear()
 
     # tests
 
@@ -44,16 +47,16 @@ class ActionTestCase(unittest.TestCase):
 
     def testClearCache(self):
         sys.argv.append('cc')
-        db.init(path)
         self.assertEqual(run_main(), None)
 
     def testClearCacheNonExist(self):
+        db.remove_db_file(path)
         sys.argv.append('cc')
         self.assertEqual(run_main(), acd_cli.ERROR_RETVAL)
 
     # listing
 
-    @patch('acd_cli.print')
+    @patch('sys.stdout.write')
     def testTree(self, print_):
         db.init(path)
         files, folders = gen_bunch_of_nodes(50)
@@ -61,9 +64,9 @@ class ActionTestCase(unittest.TestCase):
         sync.insert_nodes(files + folders)
         sys.argv.extend(['tree', '-t'])
         self.assertEqual(run_main(), None)
-        self.assertEqual(len(print_.mock_calls), 51)
+        self.assertEqual(len(print_.mock_calls), 100)
 
-    @patch('acd_cli.print')
+    @patch('sys.stdout.write')
     def testList(self, print_):
         db.init(path)
         folder = gen_folder([])
@@ -72,7 +75,7 @@ class ActionTestCase(unittest.TestCase):
         sync.insert_nodes(files + [folder])
         sys.argv.extend(['ls', '-t', '/'])
         self.assertEqual(run_main(), None)
-        self.assertEqual(len(print_.mock_calls), 50)
+        self.assertEqual(len(print_.mock_calls), 100)
 
     # find actions
 
@@ -108,8 +111,9 @@ class ActionTestCase(unittest.TestCase):
         self.assertEqual(run_main(), acd_cli.INIT_FAILED_RETVAL)
 
     def testCheckCacheNonEmpty(self):
-        db.init(path)
         folder = gen_folder()
         sync.insert_nodes([folder])
         sys.argv.extend(['ls', '/'])
         self.assertEqual(run_main(), None)
+
+    # helper functions
