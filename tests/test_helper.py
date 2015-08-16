@@ -29,7 +29,7 @@ def gen_folder(folders: list=None):
         'name': gen_rand_name(),
         'parents': [],
         'restricted': False,
-        'status': random.choice(['TRASH', 'AVAILABLE']),
+        'status': 'AVAILABLE' if not folders else random.choice(['TRASH', 'AVAILABLE']),
         'version': random.randint(1, 20)
     }
     if not folders:

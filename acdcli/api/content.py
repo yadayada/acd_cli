@@ -27,7 +27,7 @@ CONSECUTIVE_DL_LIMIT = CHUNK_SIZE
 logger = logging.getLogger(__name__)
 
 
-class TeeBufferedReader(object):
+class _TeeBufferedReader(object):
     """Creates proxy buffered reader object that allows callbacks on read operations."""
 
     def __init__(self, file: io.BufferedReader, callbacks: list=None):
@@ -48,9 +48,9 @@ class TeeBufferedReader(object):
         return chunk
 
 
-def tee_open(path: str, **kwargs) -> TeeBufferedReader:
+def _tee_open(path: str, **kwargs) -> _TeeBufferedReader:
     f = open(path, 'rb')
-    return TeeBufferedReader(f, **kwargs)
+    return _TeeBufferedReader(f, **kwargs)
 
 
 def create_folder(name: str, parent=None) -> dict:
@@ -107,7 +107,7 @@ def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplica
     if parent:
         metadata['parents'] = [parent]
     mime_type = _get_mimetype(basename)
-    f = tee_open(file_name, callbacks=read_callbacks)
+    f = _tee_open(file_name, callbacks=read_callbacks)
 
     # basename is ignored
     m = MultipartEncoder(fields=OrderedDict([('metadata', json.dumps(metadata)),
@@ -130,11 +130,11 @@ def multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None)
 
     if metadata:
         yield str.encode('--%s\r\nContent-Disposition: form-data; '
-                         'name="metadata"\r\n\r\n' % boundary)
-        yield str.encode('%s\r\n' % json.dumps(metadata))
-    yield str.encode('--%s\r\n' % boundary)
-    yield b'Content-Disposition: form-data; name="content"; filename="foo"\r\n'
-    yield b'Content-Type: application/octet-stream\r\n\r\n'
+                         'name="metadata"\r\n\r\n' % boundary +
+                         '%s\r\n' % json.dumps(metadata))
+    yield str.encode('--%s\r\n' % boundary) + \
+        b'Content-Disposition: form-data; name="content"; filename="foo"\r\n' + \
+        b'Content-Type: application/octet-stream\r\n\r\n'
     while True:
         f = stream.read(FS_RW_CHUNK_SZ)
         if f:
@@ -143,8 +143,8 @@ def multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None)
             yield f
         else:
             break
-    yield str.encode('\r\n--%s--\r\n' % boundary)
-    yield str.encode('multipart/form-data; boundary=%s' % boundary)
+    yield str.encode('\r\n--%s--\r\n' % boundary +
+                     'multipart/form-data; boundary=%s' % boundary)
 
 
 def upload_stream(stream, file_name: str, parent: str=None,
@@ -174,7 +174,7 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
 
     basename = os.path.basename(file_name)
     mime_type = _get_mimetype(basename)
-    f = tee_open(file_name, callbacks=read_callbacks)
+    f = _tee_open(file_name, callbacks=read_callbacks)
 
     # basename is ignored
     m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})

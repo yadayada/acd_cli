@@ -1,4 +1,4 @@
-"""Experimental fusepy read support"""
+"""fusepy filesystem"""
 
 import os
 import stat
@@ -206,8 +206,6 @@ class ACDFuse(LoggingMixIn, Operations):
         p.start()
 
     def readdir(self, path, fh):
-        logger.debug('readdir %s' % path)
-
         node, _ = query.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
@@ -215,8 +213,6 @@ class ACDFuse(LoggingMixIn, Operations):
         return [_ for _ in ['.', '..'] + [c.name for c in node.available_children()]]
 
     def getattr(self, path, fh=None):
-        logger.debug('getattr %s' % path)
-
         node, _ = query.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
@@ -234,8 +230,11 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_nlink=len(node.parents) if self.nlinks else 0,
                         st_size=node.size, **times)
 
+    # TODO?
+    # def getxattr(self, path, name, position=0):
+    #     pass
+
     def read(self, path, length, offset, fh):
-        logger.debug("read %s, ln: %d of: %d fh %d" % (os.path.basename(path), length, offset, fh))
         node, _ = query.resolve(path, trash=False)
         if node.size == 0:
             return b''
@@ -253,8 +252,6 @@ class ACDFuse(LoggingMixIn, Operations):
                     )
 
     def mkdir(self, path, mode):
-        logger.debug('+mkdir %s' % path)
-
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
         pid = query.resolve_path(ppath)
@@ -297,16 +294,12 @@ class ACDFuse(LoggingMixIn, Operations):
             sync.insert_node(r)
 
     def rmdir(self, path):
-        logger.debug('-rmdir %s' % path)
         self._trash(path)
 
     def unlink(self, path):
-        logger.debug('-unlink %s' % path)
         self._trash(path)
 
     def create(self, path, mode):
-        logger.debug('+create %s' % path)
-
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
         pid = query.resolve_path(ppath)
@@ -330,8 +323,6 @@ class ACDFuse(LoggingMixIn, Operations):
     def rename(self, old, new):
         if old == new:
             return
-
-        logger.debug('rename %s %s' % (old, new))
 
         id = query.resolve_path(old)
         if not id:
@@ -399,12 +390,10 @@ class ACDFuse(LoggingMixIn, Operations):
         return len(data)
 
     def truncate(self, path, length, fh=None):
-        # TODO
+        # TODO: truncate to 0
         pass
 
     def release(self, path, fh):
-        logger.debug('release %s, %d' % (path, fh))
-
         node, _ = query.resolve(path, trash=False)
         ReadProxy.release(node.id)
         WriteProxy.release(fh)
@@ -416,7 +405,7 @@ class ACDFuse(LoggingMixIn, Operations):
         logger.debug('chmod %s %s' % (path, oct(mode)))
 
     def chown(self, path, uid, gid):
-        logger.debug('chmod %s %d %d' % (path, uid, gid))
+        pass
 
 
 def mount(path: str, args: dict, **kwargs):

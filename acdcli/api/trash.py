@@ -1,8 +1,13 @@
+"""
+Node trashing and restoration.
+https://developer.amazon.com/public/apis/experience/cloud-drive/content/trash
+"""
+
 from .common import *
 
 
 def list_trash() -> list:
-    """retrieves top-level trash list"""
+    """Retrieves top-level trash list"""
     return BackOffRequest.paginated_get(get_metadata_url() + 'trash')
 
 

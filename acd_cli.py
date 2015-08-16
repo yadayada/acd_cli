@@ -33,7 +33,7 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a4'
+__version__ = '0.3.0a5'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -52,6 +52,20 @@ try:
         requests.utils.default_user_agent = new_dau
 except:
     pass
+
+
+# monkey patch for suppressing overlong http.client's HTTPConnection send debug prints
+def ellipses_print(*args, **kwargs):
+    for a in args:
+        if len(a) > 2000:
+            print('[...]', **kwargs)
+            return
+
+    print(*args, **kwargs)
+
+import http.client as cl
+cl.print = ellipses_print
+
 
 # path settings
 
@@ -159,18 +173,20 @@ def old_sync():
 #
 
 RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
-RETRY_RETVALS = [UL_DL_FAILED]
+STD_RETRY_RETVALS = [UL_DL_FAILED]
 
 
 def retry_on(ret_vals: list):
-    """:param ret_vals: list of retry values on which execution should be repeated"""
+    """Retry decorator that sets the wrapped function's progress handler argument according to its
+    return value and wraps the return value in RetryRetVal object.
+    :param ret_vals: list of retry values on which execution should be repeated"""
 
     def wrap(f):
-        def wrapped(*args, **kwargs):
-            ret_val = 1
+        def wrapped(*args, **kwargs) -> RetryRetVal:
+            ret_val = ERROR_RETVAL
             try:
                 ret_val = f(*args, **kwargs)
-            except Exception as e:
+            except Exception:
                 import traceback
                 logger.error(traceback.format_exc())
             h = kwargs.get('pg_handler')
@@ -185,7 +201,7 @@ def retry_on(ret_vals: list):
     return wrap
 
 
-def compare_hashes(hash1: str, hash2: str, file_name: str):
+def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     if hash1 != hash2:
         logger.error('Hash mismatch between local and remote file for "%s".' % file_name)
         return HASH_MISMATCH
@@ -258,7 +274,7 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str,
     except OSError as e:
         logger.error('Skipping directory %s because of an error.' % directory)
         logger.info(e)
-        return
+        return ERROR_RETVAL
 
     ret_val = 0
     for entry in entries:
@@ -269,7 +285,7 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str,
     return ret_val
 
 
-@retry_on(RETRY_RETVALS)
+@retry_on(STD_RETRY_RETVALS)
 def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
                 pg_handler: progress.FileProgress=None) -> RetryRetVal:
     short_nm = os.path.basename(path)
@@ -288,7 +304,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if conflicting_node:
         if conflicting_node.is_folder():
             logger.error('Name collision with existing folder '
-                           'in the same location: "%".' % short_nm)
+                         'in the same location: "%".' % short_nm)
             return NAME_COLLISION
 
         file_id = conflicting_node.id
@@ -349,7 +365,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         return 0
 
 
-@retry_on(RETRY_RETVALS)
+@retry_on(STD_RETRY_RETVALS)
 def overwrite(node_id, local_file, dedup=False,
               pg_handler: progress.FileProgress=None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
@@ -442,7 +458,7 @@ def traverse_dl_folder(node_id: str, local_path: str, exclude: list, jobs: list)
     return ret_val
 
 
-@retry_on(RETRY_RETVALS)
+@retry_on(STD_RETRY_RETVALS)
 def download_file(node_id: str, local_path: str,
                   pg_handler: progress.FileProgress=None) -> RetryRetVal:
     node = query.get_node(node_id)
@@ -460,10 +476,6 @@ def download_file(node_id: str, local_path: str,
         return UL_DL_FAILED
     else:
         return compare_hashes(hasher.get_result(), md5, name)
-
-
-def compare(local: str, remote_id):
-    pass
 
 
 #
@@ -836,11 +848,6 @@ def mount_action(args: argparse.Namespace):
 def unmount_action(args: argparse.Namespace):
     import acdcli.fuse
     return acdcli.fuse.unmount(args.path, args.lazy)
-
-
-@offline_action
-def compare_action(args: argparse.Namespace):
-    pass
 
 
 #

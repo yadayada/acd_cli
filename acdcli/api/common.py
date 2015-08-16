@@ -53,7 +53,8 @@ REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.
 
 
 def init(path='') -> bool:
-    logger.info('Initializing acd with path "%s".' % path)
+    """Initializes OAuth and endpoints."""
+    logger.info('Initializing ACD with path "%s".' % path)
 
     global cache_path
     cache_path = path
@@ -228,6 +229,8 @@ class BackOffRequest(object):
         cls._succeeded() if r.status_code in acc_codes else cls._failed()
         return r
 
+    # HTTP verbs
+
     @classmethod
     def get(cls, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return cls._request('GET', url, acc_codes, **kwargs)
@@ -250,6 +253,7 @@ class BackOffRequest(object):
 
     @classmethod
     def paginated_get(cls, url: str, params: dict=None) -> list:
+        """Gets node list in segments of 200."""
         if params is None:
             params = {}
         node_list = []
@@ -266,7 +270,7 @@ class BackOffRequest(object):
             else:
                 if ret['count'] != len(node_list):
                     logger.warning(
-                        'Expected {} items, received {}.'.format(ret['count'], len(node_list)))
+                        'Expected %i items in page, received %i.' % (ret['count'], len(node_list)))
                 break
 
         return node_list
