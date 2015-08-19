@@ -8,7 +8,7 @@ from time import time, sleep
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from multiprocessing import Process
-from threading import Thread
+from threading import Thread, Lock
 from queue import Queue
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations, LoggingMixIn
@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 FUSE_BS = 128 * 1024
 CHUNK_SZ = content.CHUNK_SIZE
+MAX_CHUNKS_PER_FILE = 15
+CHUNK_TIMEOUT = 5
+
+WRITE_TIMEOUT = 60
+WRITE_BUFFER_SZ = 2 ** 10
+
+MIN_AUTOSYNC_INTERVAL = 30
 
 
 def _autosync(interval: int):
@@ -28,7 +35,7 @@ def _autosync(interval: int):
 
     import acd_cli
 
-    interval = max(30, interval)
+    interval = max(MIN_AUTOSYNC_INTERVAL, interval)
     while True:
         try:
             acd_cli.sync_node_list(full=False)
@@ -75,35 +82,37 @@ class ReadProxy(object):
             self.r.close()
 
     class File(object):
-        __slots__ = ('chunks', 'access')
+        __slots__ = ('chunks', 'access', 'lock')
 
         def __init__(self):
-            self.chunks = deque(maxlen=15)
+            self.chunks = deque(maxlen=MAX_CHUNKS_PER_FILE)
             self.access = time()
+            self.lock = Lock()
 
         def get(self, id, offset, length, total):
             self.access = time()
 
-            i = self.chunks.__len__() - 1
-            while i >= 0:
-                c = self.chunks[i]
-                if c.has_byte_range(offset, length):
-                    try:
-                        bytes_ = c.get(length)
-                    except:
-                        self.chunks.remove(c)
-                    else:
-                        return bytes_
-                i -= 1
+            with self.lock:
+                i = self.chunks.__len__() - 1
+                while i >= 0:
+                    c = self.chunks[i]
+                    if c.has_byte_range(offset, length):
+                        try:
+                            bytes_ = c.get(length)
+                        except:
+                            self.chunks.remove(c)
+                        else:
+                            return bytes_
+                    i -= 1
 
             try:
-                chunk = ReadProxy.StreamChunk(id, offset, CHUNK_SZ, timeout=5)
+                with self.lock:
+                    chunk = ReadProxy.StreamChunk(id, offset, CHUNK_SZ, timeout=CHUNK_TIMEOUT)
+                    self.chunks.append(chunk)
+                    return chunk.get(length)
             except RequestError as e:
                 logger.error('Creating chunk failed. Code: %i, msg: %s' % (e.status_code, e.msg))
                 raise FuseOSError(errno.ECOMM)
-            else:
-                self.chunks.append(chunk)
-                return chunk.get(length)
 
         def clear(self):
             for chunk in self.chunks:
@@ -129,15 +138,19 @@ class ReadProxy(object):
 
 
 class WriteProxy(object):
+    """Dict of WriteStreams for consecutive write operations."""
+
     class WriteStream(object):
+        __slots__ = ('q', 'offset', 'error', 'closed')
+
         def __init__(self):
-            self.q = Queue(maxsize=2 ** 10)
+            self.q = Queue(maxsize=WRITE_BUFFER_SZ)
             self.offset = 0
             self.error = False
             self.closed = False
 
         def write(self, data):
-            self.q.put(data)
+            self.q.put(data, timeout=WRITE_TIMEOUT)
             self.offset += len(data)
 
         def read(self, ln=0):
@@ -195,6 +208,18 @@ class WriteProxy(object):
 
 
 class ACDFuse(LoggingMixIn, Operations):
+    class XATTRS(object):
+        ID = 'acd.id'
+        DESCR = 'acd.description'
+
+        @classmethod
+        def vars(cls):
+            return [getattr(cls, x) for x in set(dir(cls)) - set(dir(type('', (object,), {})))
+                    if not callable(getattr(cls, x))]
+
+    class FXATTRS(XATTRS):
+        MD5 = 'acd.md5'
+
     def __init__(self, **kwargs):
         self.total, _ = account.fs_sizes()
         self.free = self.total - query.calculate_usage()
@@ -230,13 +255,28 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_nlink=len(node.parents) if self.nlinks else 0,
                         st_size=node.size, **times)
 
-    # TODO?
-    # def getxattr(self, path, name, position=0):
-    #     pass
+    def listxattr(self, path):
+        node, _ = query.resolve(path, trash=False)
+        if node.is_file():
+            return self.FXATTRS.vars()
+        elif node.is_folder():
+            return self.XATTRS
+
+    def getxattr(self, path, name, position=0):
+        node, _ = query.resolve(path, trash=False)
+
+        if name == self.XATTRS.ID:
+            return bytes(node.id, encoding='utf-8')
+        elif name == self.XATTRS.DESCR:
+            return bytes(node.description if node.description else '', encoding='utf-8')
+        elif name == self.FXATTRS.MD5:
+            return bytes(node.md5, encoding='utf-8')
+
+        raise FuseOSError(errno.ENODATA)
 
     def read(self, path, length, offset, fh):
         node, _ = query.resolve(path, trash=False)
-        if node.size == 0:
+        if node.size == 0 or node.size == offset:
             return b''
 
         return ReadProxy.get(node.id, offset, length, node.size)
@@ -331,7 +371,7 @@ class ACDFuse(LoggingMixIn, Operations):
         new_bn, old_bn = os.path.basename(new), os.path.basename(old)
         new_dn, old_dn = os.path.dirname(new), os.path.dirname(old)
 
-        existing_id = query.resolve_path(new)
+        existing_id = query.resolve_path(new, False)
         if existing_id:
             en = query.get_node(existing_id)
             if en and en.is_file() and en.size == 0:
@@ -416,8 +456,7 @@ def mount(path: str, args: dict, **kwargs):
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path, entry_timeout=60, auto_cache=True,
-         nothreads=True,  # threading will break the caching
+    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60, auto_cache=True,
          uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
          **kwargs

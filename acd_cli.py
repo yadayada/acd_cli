@@ -839,7 +839,8 @@ def dump_sql_action(args: argparse.Namespace):
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
     acdcli.fuse.mount(args.path, dict(nlinks=args.nlinks, interval=args.interval),
-                      ro=args.ro, foreground=args.foreground,
+                      ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
+                      nonempty=args.nonempty,
                       allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -1154,6 +1155,9 @@ def main():
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
+    fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
+    fuse_sp.add_argument('--nonempty', '-ne', action='store_true',
+                         help='allow mounting over a non-empty directory')
     fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
                          help='allow access to root user')
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
