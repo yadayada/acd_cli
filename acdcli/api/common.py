@@ -121,6 +121,8 @@ class RequestError(Exception):
         REFRESH_FAILED = 1004
         INVALID_TOKEN = 1005
 
+    codes = requests.codes
+
     def __init__(self, status_code: int, msg: str):
         self.status_code = status_code
         if msg:
@@ -152,7 +154,7 @@ class BackOffRequest(object):
     It is necessary to init this module before use.
     """
 
-    __session = None
+    # __session = None
     __thr_local = local()
     __lock = Lock()
     __retries = 0
@@ -194,8 +196,8 @@ class BackOffRequest(object):
     @classmethod
     @catch_conn_exception
     def _request(cls, type_, url: str, acc_codes: list, **kwargs) -> requests.Response:
-        if not cls.__session:
-            cls.__session = requests.session()
+        # if not cls.__session:
+        #     cls.__session = requests.session()
         cls._wait()
 
         with cls.__lock:
@@ -221,7 +223,7 @@ class BackOffRequest(object):
             timeout = REQUESTS_TIMEOUT
 
         try:
-            r = cls.__session.request(type_, url, headers=headers, timeout=timeout, **kwargs)
+            r = requests.request(type_, url, headers=headers, timeout=timeout, **kwargs)
         except:
             cls._failed()
             raise

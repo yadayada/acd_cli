@@ -97,6 +97,18 @@ def create_file(file_name: str, parent: str=None) -> dict:
     return r.json()
 
 
+def clear_file(node_id: str) -> dict:
+    m = MultipartEncoder(fields={('content', (' ', io.BytesIO(), _get_mimetype()))})
+
+    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params={},
+                           data=m, stream=True, headers={'Content-Type': m.content_type})
+
+    if r.status_code not in OK_CODES:
+        raise RequestError(r.status_code, r.text)
+
+    return r.json()
+
+
 def upload_file(file_name: str, parent: str=None, read_callbacks=None, deduplication=False) -> dict:
     params = {'suppress': 'deduplication'}
     if deduplication and os.path.getsize(file_name) > 0:
@@ -188,16 +200,13 @@ def overwrite_file(node_id: str, file_name: str, read_callbacks=None, deduplicat
     return r.json()
 
 
-def overwrite_stream(stream, node_id, read_callbacks=None, deduplication=False) -> dict:
-    params = {} if deduplication else {'suppress': 'deduplication'}
-
+def overwrite_stream(stream, node_id, read_callbacks=None) -> dict:
     metadata = {}
     import uuid
     boundary = uuid.uuid4().hex
 
-    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content', params=params,
+    r = BackOffRequest.put(get_content_url() + 'nodes/' + node_id + '/content',
                            data=multipart_stream(metadata, stream, boundary, read_callbacks),
-                           stream=True,
                            headers={'Content-Type': 'multipart/form-data; boundary=%s' % boundary})
 
     if r.status_code not in OK_CODES:
@@ -245,9 +254,8 @@ def download_file(node_id: str, basename: str, dirname: str=None, **kwargs):
     chunked_download(node_id, f, offset=offset, **kwargs)
     pos = f.tell()
     f.close()
-    if length > 0:
-        if pos < length:
-            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] ')
+    if length > 0 and pos < length:
+        raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_cli] download incomplete.')
 
     if os.path.isfile(dl_path):
         logger.info('Deleting existing file "%s".' % dl_path)
@@ -344,7 +352,13 @@ def download_chunk(node_id: str, offset: int, length: int, **kwargs):
 
 
 def download_thumbnail(node_id: str, file_name: str, max_dim=128):
-    """Download a movie's/picture's thumbnail into a file."""
+    """Download a movie's/picture's thumbnail into a file.
+    Officially supports the image formats JPEG, BMP, PNG, TIFF, some RAW formats
+    and the video formats MP4, QuickTime, AVI, MTS, MPEG, ASF, WMV, FLV, OGG.
+    See http://www.amazon.com/gp/help/customer/display.html?nodeId=201634590
+    Additionally supports MKV.
+    :param max_dim: maximum width or height of the resized image/video thumbnail
+    """
 
     r = BackOffRequest.get(get_content_url() + 'nodes/' + node_id + '/content',
                        params={'viewBox': max_dim}, stream=True)

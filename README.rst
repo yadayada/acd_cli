@@ -168,7 +168,7 @@ Basic operations
 ----------------------------------
 List directory           ✅
 Read                     ✅
-Write                    ✅
+Write                    ✅ [#]_
 Rename                   ✅
 Move                     ✅
 Trashing                 ✅
@@ -181,6 +181,7 @@ Hard links               partially [#]_
 Symbolic links           ❌
 =====================  ===========
 
+.. [#] partial writes are not possible (i.e. writes at random offsets)
 .. [#] restoring might not work
 .. [#] manually created hard links will be listed
 

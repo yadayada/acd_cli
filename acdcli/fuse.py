@@ -1,5 +1,6 @@
 """fusepy filesystem"""
 
+import sys
 import os
 import stat
 import errno
@@ -9,7 +10,7 @@ from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from multiprocessing import Process
 from threading import Thread, Lock
-from queue import Queue
+from queue import Queue, Full as QueueFull
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations, LoggingMixIn
 from acdcli.cache import query, sync
@@ -45,9 +46,28 @@ def _autosync(interval: int):
 
 
 class FuseOSError(FuseError):
-    def __init__(self, err_no):
+    def __init__(self, err_no: int):
         logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
         super().__init__(err_no)
+
+    @classmethod
+    def convert(cls, e: RequestError):
+        """:raises FUSEOSError"""
+
+        try:
+            caller = sys._getframe().f_back.f_code.co_name + ': '
+        except AttributeError:
+            caller = ''
+        logger.error(caller + e.__str__())
+
+        if e.status_code == e.CODE.CONN_EXCEPTION:
+            raise FuseOSError(errno.ECOMM)
+        elif e.status_code == e.codes.CONFLICT:
+            raise FuseOSError(errno.EEXIST)
+        elif e.status_code == e.codes.REQUESTED_RANGE_NOT_SATISFIABLE:
+            raise FuseOSError(errno.EFAULT)
+        else:
+            raise FuseOSError(errno.EREMOTEIO)
 
 
 class ReadProxy(object):
@@ -111,8 +131,7 @@ class ReadProxy(object):
                     self.chunks.append(chunk)
                     return chunk.get(length)
             except RequestError as e:
-                logger.error('Creating chunk failed. Code: %i, msg: %s' % (e.status_code, e.msg))
-                raise FuseOSError(errno.ECOMM)
+                FuseOSError.convert(e)
 
         def clear(self):
             for chunk in self.chunks:
@@ -150,13 +169,16 @@ class WriteProxy(object):
             self.closed = False
 
         def write(self, data):
-            self.q.put(data, timeout=WRITE_TIMEOUT)
+            try:
+                self.q.put(data, timeout=WRITE_TIMEOUT)
+            except QueueFull:
+                logger.error('Write timeout.')
+                raise FuseOSError(errno.ETIMEDOUT)
             self.offset += len(data)
 
         def read(self, ln=0):
             if self.error:
                 raise FuseOSError(errno.EREMOTEIO)
-            # TODO: raise on timeout
 
             if self.closed and self.q.empty():
                 return b''
@@ -193,7 +215,8 @@ class WriteProxy(object):
         if f.offset == offset:
             f.write(bytes_)
         else:
-            logger.warning('Wrong offset for writing to fh %s.' % fh)
+            logger.error('Wrong offset for writing to fh %s.' % fh)
+            raise FuseOSError(errno.EFAULT)
 
         if offset == 0:
             t = Thread(target=cls.write_n_sync, args=(f, node_id))
@@ -260,7 +283,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if node.is_file():
             return self.FXATTRS.vars()
         elif node.is_folder():
-            return self.XATTRS
+            return self.XATTRS.vars()
 
     def getxattr(self, path, name, position=0):
         node, _ = query.resolve(path, trash=False)
@@ -301,19 +324,14 @@ class ACDFuse(LoggingMixIn, Operations):
         try:
             r = content.create_folder(name, pid)
         except RequestError as e:
-            if e.status_code == e.CODE.CONN_EXCEPTION:
-                raise FuseOSError(errno.ECOMM)
-            elif e.status_code == 409:
-                raise FuseOSError(errno.EEXIST)
-            else:
-                raise FuseOSError(errno.EREMOTEIO)
+            FuseOSError.convert(e)
         else:
             sync.insert_node(r)
 
     @staticmethod
     def _trash(path):
         logger.debug('trash %s' % path)
-        node, parent = query.resolve(path)
+        node, parent = query.resolve(path, False)
 
         if not node:  # or not parent:
             raise FuseOSError(errno.ENOENT)
@@ -326,10 +344,7 @@ class ACDFuse(LoggingMixIn, Operations):
             # else:
             r = trash.move_to_trash(node.id)
         except RequestError as e:
-            if e.status_code == e.CODE.CONN_EXCEPTION:
-                raise FuseOSError(errno.ECOMM)
-            else:
-                raise FuseOSError(errno.EREMOTEIO)
+            FuseOSError.convert(e)
         else:
             sync.insert_node(r)
 
@@ -342,7 +357,7 @@ class ACDFuse(LoggingMixIn, Operations):
     def create(self, path, mode):
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
-        pid = query.resolve_path(ppath)
+        pid = query.resolve_path(ppath, False)
         if not pid:
             raise FuseOSError(errno.ENOTDIR)
 
@@ -350,12 +365,7 @@ class ACDFuse(LoggingMixIn, Operations):
             r = content.create_file(name, pid)
             sync.insert_node(r)
         except RequestError as e:
-            if e.status_code == e.CODE.CONN_EXCEPTION:
-                raise FuseOSError(errno.ECOMM)
-            elif e.status_code == 409:
-                raise FuseOSError(errno.EEXIST)
-            else:
-                raise FuseOSError(errno.EREMOTEIO)
+            FuseOSError.convert(e)
 
         self.fh += 1
         return self.fh
@@ -364,7 +374,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if old == new:
             return
 
-        id = query.resolve_path(old)
+        id = query.resolve_path(old, False)
         if not id:
             raise FuseOSError(errno.ENOENT)
 
@@ -374,7 +384,7 @@ class ACDFuse(LoggingMixIn, Operations):
         existing_id = query.resolve_path(new, False)
         if existing_id:
             en = query.get_node(existing_id)
-            if en and en.is_file() and en.size == 0:
+            if en and en.is_file():
                 trash.move_to_trash(existing_id)
             else:
                 raise FuseOSError(errno.EEXIST)
@@ -383,8 +393,8 @@ class ACDFuse(LoggingMixIn, Operations):
             self._rename(id, new_bn)
 
         if new_dn != old_dn:
-            odir_id = query.resolve_path(old_dn)
-            ndir_id = query.resolve_path(new_dn)
+            odir_id = query.resolve_path(old_dn, False)
+            ndir_id = query.resolve_path(new_dn, False)
             if not odir_id or not ndir_id:
                 raise FuseOSError(errno.ENOTDIR)
             self._move(id, odir_id, ndir_id)
@@ -394,13 +404,7 @@ class ACDFuse(LoggingMixIn, Operations):
         try:
             r = metadata.rename_node(id, name)
         except RequestError as e:
-            logger.debug(e)
-            if e.status_code == e.CODE.CONN_EXCEPTION:
-                raise FuseOSError(errno.ECOMM)
-            elif e.status_code == 409:
-                raise FuseOSError(errno.EEXIST)
-            else:
-                raise FuseOSError(errno.EREMOTEIO)
+            FuseOSError.convert(e)
         else:
             sync.insert_node(r)
 
@@ -409,9 +413,7 @@ class ACDFuse(LoggingMixIn, Operations):
         try:
             r = metadata.move_node(id, old_folder, new_folder)
         except RequestError as e:
-            if e.status_code == e.CODE.CONN_EXCEPTION:
-                raise FuseOSError(errno.ECOMM)
-            raise FuseOSError(errno.EREMOTEIO)
+            FuseOSError.convert(e)
         else:
             sync.insert_node(r)
 
@@ -422,7 +424,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def write(self, path, data, offset, fh):
         if offset == 0:
-            n, p = query.resolve(path)
+            n, p = query.resolve(path, False)
             node_id = n.id
         else:
             node_id = ''
@@ -430,8 +432,11 @@ class ACDFuse(LoggingMixIn, Operations):
         return len(data)
 
     def truncate(self, path, length, fh=None):
-        # TODO: truncate to 0
-        pass
+        """Actually truncating to a length of 0 would result in errors.
+        Truncating to >0 is not supported by the ACD API.
+        """
+        if length > 0:
+            raise FuseOSError(errno.ENOSYS)
 
     def release(self, path, fh):
         node, _ = query.resolve(path, trash=False)
@@ -439,7 +444,10 @@ class ACDFuse(LoggingMixIn, Operations):
         WriteProxy.release(fh)
 
     def utimens(self, path, times=None):
-        logger.debug('utimens %s' % path)
+        """:param times: """
+        if times:
+            mtime = times[1]
+            # TODO: update time
 
     def chmod(self, path, mode):
         logger.debug('chmod %s %s' % (path, oct(mode)))
