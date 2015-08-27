@@ -272,10 +272,10 @@ class ACDFuse(LoggingMixIn, Operations):
         if node.is_folder():
             nlinks = dict(st_nlink=node.size) if self.nlinks else dict()
             return dict(st_mode=stat.S_IFDIR | 0o0777,
-                        st_nlink=node.size if self.nlinks else 0, **times)
+                        st_nlink=node.size if self.nlinks else 1, **times)
         if node.is_file():
             return dict(st_mode=stat.S_IFREG | 0o0666,
-                        st_nlink=len(node.parents) if self.nlinks else 0,
+                        st_nlink=len(node.parents) if self.nlinks else 1,
                         st_size=node.size, **times)
 
     def listxattr(self, path):
