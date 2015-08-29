@@ -102,8 +102,6 @@ NAME_COLLISION = 2048
 
 
 def signal_handler(signal_, frame):
-    # if db.Session:
-    #     db.Session.rollback()
     sys.exit(KEYB_INTERR_RETVAL)
 
 
@@ -214,7 +212,9 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, forc
                        dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
     """Creates upload job if passed path is a file, delegates directory traversal otherwise.
     Detects soft links that link to an already queued directory.
-    :param dirs: List of directories' inodes traversed so far"""
+    :param dirs: list of directories' inodes traversed so far
+    :param exclude: list of file exclusion patterns
+    :param exclude_paths: list of paths for file or directory exclusion"""
 
     if os.path.realpath(path) in [os.path.realpath(p) for p in exclude_paths]:
         logger.info('Skipping upload of path "%s".' % path)
@@ -665,7 +665,8 @@ def download_action(args: argparse.Namespace) -> int:
 
 
 def cat_action(args: argparse.Namespace) -> int:
-    if not query.get_node(args.node):
+    n = query.get_node(args.node)
+    if not n or not n.is_file():
         return INVALID_ARG_RETVAL
 
     try:
@@ -1169,7 +1170,8 @@ def get_parser() -> tuple:
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
-    fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
+    # fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
+    fuse_sp.add_argument('--multi-threaded', '-mt', action='store_false', dest='single_threaded')
     fuse_sp.add_argument('--nonempty', '-ne', action='store_true',
                          help='allow mounting over a non-empty directory')
     fuse_sp.add_argument('--allow-root', '-ar', action='store_true',

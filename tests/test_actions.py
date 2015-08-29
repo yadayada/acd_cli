@@ -2,6 +2,8 @@ import unittest
 from mock import patch, mock_open, MagicMock, sentinel
 import os
 import sys
+import json
+import httpretty
 
 import acd_cli
 
@@ -23,6 +25,7 @@ def run_main() -> int:
 
 
 def devnull():
+    """Redirect stdout to /dev/null"""
     sys.stdout = open(os.devnull, 'w')
 
 
@@ -93,10 +96,26 @@ class ActionTestCase(unittest.TestCase):
 
     # FUSE
 
+    # @httpretty.activate
+    # def testMount(self):
+    #     httpretty. \
+    #         register_uri(httpretty.GET, common.get_metadata_url() + 'account/quota',
+    #                      body=json.dumps({'available:': 100, 'quota': 100}))
+    #
+    #     sys.argv.extend(['-d', 'mount', '-i', '0',
+    #                      os.path.join(os.path.dirname(__file__), 'dummy_files/mountpoint')])
+    #     sync.insert_nodes([gen_folder()])
+    #     self.assertEqual(run_main(), None)
+
+    def testUnmount(self):
+        sys.argv.append('umount')
+        self.assertEqual(run_main(), 0)
+
     # undocumented actions
 
     def testInit(self):
         sys.argv.append('init')
+        sync.insert_nodes([gen_folder()])
         self.assertEqual(run_main(), None)
 
     def testDumpSQL(self):

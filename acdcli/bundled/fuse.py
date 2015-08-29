@@ -907,7 +907,7 @@ class LoggingMixIn:
     log = logging.getLogger('fuse.log')
 
     def __call__(self, op, path, *args):
-        self.log.debug('-> %s %s %s', op, path, repr(args) if op != 'write' else repr(args[1:]))
+        self.log.debug('-> %s %s %s', op, path, repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
 
         ret = '[Unhandled Exception]'
         try:

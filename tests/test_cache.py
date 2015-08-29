@@ -79,3 +79,16 @@ class CacheTestCase(unittest.TestCase):
         sync.insert_nodes(files + folders)
         children = query.list_children(folders[0]['id'], recursive=True, trash=True)
         self.assertEqual(sum(1 for _ in children), len(files + folders) - 1)
+
+    def testCalculateUsageEmpty(self):
+        self.assertEqual(query.calculate_usage(), 0)
+
+    def testCalculateUsageEmpty2(self):
+        sync.insert_node(gen_folder())
+        self.assertEqual(query.calculate_usage(), 0)
+
+    def testCalculateUsage(self):
+        folders, files = gen_bunch_of_nodes(50)
+        sync.insert_nodes(folders + files)
+        ttlsz = sum(f['contentProperties']['size'] for f in files)
+        self.assertEqual(query.calculate_usage(), ttlsz)

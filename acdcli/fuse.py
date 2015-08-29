@@ -270,7 +270,6 @@ class ACDFuse(LoggingMixIn, Operations):
                      st_ctime=(node.created - datetime(1970, 1, 1)) / timedelta(seconds=1))
 
         if node.is_folder():
-            nlinks = dict(st_nlink=node.size) if self.nlinks else dict()
             return dict(st_mode=stat.S_IFDIR | 0o0777,
                         st_nlink=node.size if self.nlinks else 1, **times)
         if node.is_file():
@@ -299,6 +298,10 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def read(self, path, length, offset, fh):
         node, _ = query.resolve(path, trash=False)
+
+        if not node:
+            raise(FuseOSError(errno.ENOENT))
+
         if node.size == 0 or node.size == offset:
             return b''
 
@@ -440,8 +443,9 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def release(self, path, fh):
         node, _ = query.resolve(path, trash=False)
-        ReadProxy.release(node.id)
-        WriteProxy.release(fh)
+        if node:
+            ReadProxy.release(node.id)
+            WriteProxy.release(fh)
 
     def utimens(self, path, times=None):
         """:param times: """
