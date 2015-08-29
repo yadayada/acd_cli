@@ -7,7 +7,7 @@ find
 ----
 
 The find action will perform a case-insensitive search for files and folders that include the
-name or name segment given as argument, so e.g. ``acdcli find foo` will find "foo" , "Foobar", etc.
+name or name segment given as argument, so e.g. ``acdcli find foo`` will find "foo" , "Foobar", etc.
 
 find-md5
 --------

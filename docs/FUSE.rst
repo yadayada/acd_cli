@@ -32,5 +32,5 @@ Symbolic links           ❌
 For debugging purposes, the recommended command to run is
 
 ::
-    acdcli -d mount -i0 -fg /mount/point
 
+    acdcli -d mount -i0 -fg /mount/point

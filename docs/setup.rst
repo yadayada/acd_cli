@@ -1,7 +1,7 @@
 Setting up acd\_cli
 ===================
 
-The `readme <../README.rst>_` describes the recommended PIP installation methods.
+The `readme <../README.rst>`_ describes the recommended PIP installation methods.
 
 If you are worried about Python dependencies or possibly messing up your system, use a virtualenv.
 
@@ -10,8 +10,8 @@ PIP errors
 
 A version incompatibility may arise with PIP when upgrading the requests package.
 PIP will throw the following error:
+::
 
-..
     ImportError: cannot import name 'IncompleteRead'
 
 Run these commands to fix it:

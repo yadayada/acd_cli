@@ -50,7 +50,7 @@ This action will upload the standard input stream to a file.
 Syntax:
 ::
 
-some_process | acdcli stream file_name /remote/path
+    some_process | acdcli stream file_name /remote/path
 
 Cat
 ~~~
