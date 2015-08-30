@@ -73,7 +73,9 @@ class APILiveTestCase(unittest.TestCase):
     #
 
     def test_get_quota(self):
-        account.get_quota()
+        q = account.get_quota()
+        self.assertIn('quota', q)
+        self.assertIn('available', q)
 
     def test_get_usage(self):
         account.get_account_usage()

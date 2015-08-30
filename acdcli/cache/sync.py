@@ -21,11 +21,13 @@ logger = logging.getLogger(__name__)
 
 
 def remove_purged(purged: list):
-    session = db.Session()
+    if not purged:
+        return
+
     for p_id in purged:
-        session.query(db.Node).filter_by(id=p_id).delete()
-    session.commit()
-    logger.info('Purged %i nodes.' % len(purged))
+        db.Session.query(db.Node).filter_by(id=p_id).delete()
+    db.Session.commit()
+    logger.info('Purged %i node(s).' % len(purged))
 
 
 def insert_nodes(nodes: list, partial=True):
@@ -51,7 +53,7 @@ def insert_nodes(nodes: list, partial=True):
 def insert_node(node: db.Node):
     """Inserts single file or folder into cache."""
     if not node:
-        pass
+        return
     insert_nodes([node])
 
 
@@ -63,7 +65,6 @@ def insert_folders(folders: list):
     if not folders:
         return
 
-    session = db.Session()
     for folder in folders:
         logger.debug(folder)
 
@@ -74,13 +75,13 @@ def insert_folders(folders: list):
                       iso_date.parse(folder['modifiedDate']),
                       folder['status'])
         f.updated = datetime.utcnow()
-        session.merge(f)
+        db.Session.merge(f)
 
     try:
-        session.commit()
+        db.Session.commit()
     except IntegrityError:
-        logger.warning('Error inserting folders.')
-        session.rollback()
+        logger.warning('Error inserting folder(s).')
+        db.Session.rollback()
 
     logger.info('Inserted/updated %d folder(s).' % len(folders))
 
@@ -122,6 +123,9 @@ def insert_files(files: list):
 
 
 def insert_parentage(nodes: list, partial=True):
+    if not nodes:
+        return
+
     conn = db.engine.connect()
     trans = conn.begin()
 

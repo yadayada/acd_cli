@@ -4,22 +4,27 @@ acd\_cli
 ========
 
 **acd\_cli** provides a command line interface to Amazon Cloud Drive and allows mounting your
-cloud drive using FUSE for *read* access. It is currently in beta stage.
+cloud drive using FUSE for read and write access. It is currently in beta stage.
 
-Features
---------
+Node Cache Features
+-------------------
 
-- local node metadata caching
+- caching of local node metadata in an SQLite database
 - addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
+- file search
+
+CLI Features
+------------
+
+- tree or flat listing of files and folders
 - simultaneous uploads/downloads, retry on error
 - basic plugin support
 
 File Operations
 ~~~~~~~~~~~~~~~
 
-- tree or flat listing of files and folders
 - upload/download of single files and directories
-- stream upload/download
+- streamed upload/download
 - folder creation
 - trashing/restoring
 - moving/renaming nodes
@@ -30,8 +35,10 @@ Quick Start
 Installation
 ~~~~~~~~~~~~
 
-The easiest way is to directly install from PyPI. Please check which pip command is
-appropriate for Python 3 packages in your environment. I will be using 'pip3' in the examples.
+Please check which pip command is appropriate for Python 3 packages in your environment.
+I will be using 'pip3' as superuser in the examples.
+
+The easiest way is to directly install from PyPI.
 ::
 
    pip3 install --upgrade --pre acdcli
@@ -43,7 +50,7 @@ The most up-to-date way is to directly install from github.
    pip3 install --upgrade git+https://github.com/yadayada/acd_cli.git
 
 
-If you do not want to install, have a look at the necessary dependencies_.
+Further setup options and dependencies are described in the `setup guide <docs/setup.rst>`_.
 
 First Run
 ~~~~~~~~~
@@ -75,6 +82,8 @@ be asked to paste the redirect URL into your shell.
 
 Usage
 -----
+
+acd_cli can be run as ``acd_cli`` or ``acdcli``.
 
 Most actions need the node cache to be initialized and up-to-date, so please run a sync.
 A sync will fetch the changes since the last sync or the full node list if the cache is empty.
@@ -122,14 +131,16 @@ arguments of an action and their order can be printed by calling ``acd_cli [acti
 Most node arguments may be specified as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
-The number of concurrent transfers can be specified using the argument ``-x [no]``.
+There are more detailed instructions for `file transfer actions <docs/transfer.rst>`_ and
+`find actions <docs/find.rst>`_.
 
-When uploading/downloading large amounts of files, it is advisable to save the log messages to a file.
-This can be done by using the verbose argument and appending ``2> >(tee acd.log >&2)`` to the command.
+Mounting
+~~~~~~~~
 
-Files can be excluded via optional parameter by file ending, e.g. ``-xe bak``,
-or regular expression on the whole file name, e.g. ``-xr "^thumbs\.db$"``.
-Both exclusion methods are case insensitive.
+First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``.
+To unmount later, run ``acd_cli umount``.
+
+Further information can be found in the `FUSE documentation <docs/FUSE.rst>`_.
 
 Exit Status
 ~~~~~~~~~~~
@@ -155,36 +166,6 @@ file/folder name collision    2048
 
 If multiple errors occur, their values will be compounded by a binary OR operation.
 
-Mounting
-~~~~~~~~
-
-First, create an empty mount directory, then run ``acd_cli mount path/to/mountpoint``.
-To unmount later, run ``acd_cli umount``.
-
-=====================  ===========
-Feature                 Working
-=====================  ===========
-Basic operations
-----------------------------------
-List directory           ✅
-Read                     ✅
-Write                    ✅
-Rename                   ✅
-Move                     ✅
-Trashing                 ✅ [#]_
-OS-level trashing        ✅
-View trash               ❌
-Misc
-----------------------------------
-Automatic sync           ✅
-Hard links               partially [#]_
-Symbolic links           ❌
-=====================  ===========
-
-.. [#] equivalent to a filesystem level permanent delete
-.. [#] restoration info cannot be written, manual restoring should work
-.. [#] manually created hard links will be listed
-
 Proxy support
 ~~~~~~~~~~~~~
 
@@ -196,8 +177,8 @@ environment.
 
     $ export HTTPS_PROXY="https://user:pass@1.2.3.4:8080/"
 
-Usage Example
--------------
+CLI Usage Example
+-----------------
 
 In this example, a two-level folder hierarchy is created in an empty cloud drive.
 Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
@@ -229,18 +210,6 @@ Then, a relative local path ``local/spam`` is uploaded recursively using two con
 The standard node listing format includes the node ID, the first letter of its status and its full path.
 Possible statuses are "AVAILABLE" and "TRASH".
 
-Uninstalling
-------------
-
-Please run ``acd_cli delete-everything`` first to delete your authentication and node data in the cache path.
-Then, use pip to uninstall::
-
-    pip3 uninstall acdcli
-
-Then, revoke the permission for ``acd_cli_oa`` to access your cloud drive in your Amazon profile,
-more precisely at https://www.amazon.com/ap/adam.
-
-
 Known Issues
 ------------
 
@@ -250,7 +219,6 @@ If you encounter Unicode problems, check that your locale is set correctly or us
 argument to force the script to use UTF-8 output encoding.
 Windows users may try to execute the provided `reg file <assets/win_codepage.reg>`_
 (tested with Windows 8.1) to set the command line interface encoding to cp65001.
-
 
 API Restrictions
 ~~~~~~~~~~~~~~~~
@@ -265,36 +233,15 @@ Contribute
 
 Have a look at the `contributing guidelines <CONTRIBUTING.rst>`_.
 
-.. _dependencies:
-
-Dependencies
-------------
-
-Python Packages
-~~~~~~~~~~~~~~~
-
-- `appdirs <https://github.com/ActiveState/appdirs>`_
-- `dateutils <https://github.com/paxan/python-dateutil>`_ (recommended)
-- `requests <https://github.com/kennethreitz/requests>`_ >= 2.1.0
-- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_ (recommended)
-- `sqlalchemy <https://bitbucket.org/zzzeek/sqlalchemy/>`_
-
-Recommended packages are not strictly necessary; but they will be preferred to
-workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
-
-If you want to the dependencies using your distribution's packaging system and
-are using a distro based on Debian 'jessie', the necessary packages are
-``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
-
-FUSE
-~~~~
-
-For the mounting feature, fuse >= 2.6 is needed according to
-`pyfuse <https://github.com/terencehonles/fusepy>`_.
-On a Debian-based distribution, the according package should simply be named 'fuse'.
-
 Recent Changes
 --------------
+
+..
+    0.3.1
+    ~~~~~
+
+    * general improvements for FUSE
+    * FUSE write support added
 
 0.3.0
 ~~~~~

@@ -54,7 +54,8 @@ def get_file_count() -> int:
 
 
 def calculate_usage() -> int:
-    return db.Session.query(func.sum(db.File.size)).scalar()
+    u = db.Session.query(func.sum(db.File.size)).scalar()
+    return u if u else 0
 
 
 def file_size(id: str) -> int:

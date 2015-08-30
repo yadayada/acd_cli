@@ -102,8 +102,6 @@ NAME_COLLISION = 2048
 
 
 def signal_handler(signal_, frame):
-    # if db.Session:
-    #     db.Session.rollback()
     sys.exit(KEYB_INTERR_RETVAL)
 
 
@@ -210,11 +208,17 @@ def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     return 0
 
 
-def create_upload_jobs(dirs: list, path: str, parent_id: str,
-                       overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
+def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, force: bool,
+                       dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
     """Creates upload job if passed path is a file, delegates directory traversal otherwise.
     Detects soft links that link to an already queued directory.
-    :param dirs: List of directories' inodes traversed so far"""
+    :param dirs: list of directories' inodes traversed so far
+    :param exclude: list of file exclusion patterns
+    :param exclude_paths: list of paths for file or directory exclusion"""
+
+    if os.path.realpath(path) in [os.path.realpath(p) for p in exclude_paths]:
+        logger.info('Skipping upload of path "%s".' % path)
+        return 0
 
     if not os.access(path, os.R_OK):
         logger.error('Path "%s" is not accessible.' % path)
@@ -226,7 +230,8 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str,
             logger.warning('Duplicate directory detected: "%s".' % path)
             return DUPLICATE_DIR
         dirs.append(ino)
-        return traverse_ul_dir(dirs, path, parent_id, overwr, force, dedup, exclude, jobs)
+        return traverse_ul_dir(dirs, path, parent_id, overwr, force, dedup,
+                               exclude, exclude_paths, jobs)
     elif os.path.isfile(path):
         short_nm = os.path.basename(path)
         for reg in exclude:
@@ -240,8 +245,8 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str,
         return 0
 
 
-def traverse_ul_dir(dirs: list, directory: str, parent_id: str,
-                    overwr: bool, force: bool, dedup: bool, exclude: list, jobs: list) -> int:
+def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, force: bool,
+                    dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
     """Duplicates local directory structure."""
 
     if parent_id is None:
@@ -280,7 +285,7 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str,
     for entry in entries:
         full_path = os.path.join(real_path, entry)
         ret_val |= create_upload_jobs(dirs, full_path, curr_node.id,
-                                      overwr, force, dedup, exclude, jobs)
+                                      overwr, force, dedup, exclude, exclude_paths, jobs)
 
     return ret_val
 
@@ -610,7 +615,7 @@ def upload_action(args: argparse.Namespace) -> int:
             continue
 
         ret_val |= create_upload_jobs([], path, args.parent, args.overwrite, args.force,
-                                      args.deduplicate, excl_re, jobs)
+                                      args.deduplicate, excl_re, args.exclude_path, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
@@ -660,7 +665,8 @@ def download_action(args: argparse.Namespace) -> int:
 
 
 def cat_action(args: argparse.Namespace) -> int:
-    if not query.get_node(args.node):
+    n = query.get_node(args.node)
+    if not n or not n.is_file():
         return INVALID_ARG_RETVAL
 
     try:
@@ -823,7 +829,7 @@ def remove_child_action(args: argparse.Namespace) -> int:
 
 def metadata_action(args: argparse.Namespace) -> int:
     try:
-        r = metadata.get_metadata(args.node)
+        r = metadata.get_metadata(args.node, args.assets)
         pprint(r)
     except RequestError as e:
         print(e)
@@ -839,7 +845,8 @@ def dump_sql_action(args: argparse.Namespace):
 def mount_action(args: argparse.Namespace):
     import acdcli.fuse
     acdcli.fuse.mount(args.path, dict(nlinks=args.nlinks, interval=args.interval),
-                      ro=args.ro, foreground=args.foreground,
+                      ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
+                      nonempty=args.nonempty,
                       allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -848,6 +855,10 @@ def mount_action(args: argparse.Namespace):
 def unmount_action(args: argparse.Namespace):
     import acdcli.fuse
     return acdcli.fuse.unmount(args.path, args.lazy)
+
+
+def init_action(args: argparse.Namespace):
+    from importlib import reload
 
 
 #
@@ -958,7 +969,7 @@ class Argument(object):
         subparser.add_argument(*self.args, **self.kwargs)
 
 
-def main():
+def get_parser() -> tuple:
     max_ret = Argument('--max-retries', '-r', action='store', type=int, default=0,
                        help='set the maximum number of retries [default: 0]')
 
@@ -971,11 +982,12 @@ def main():
                'precede it by two dashes and a space, e.g. \'-- -xfH...\'\n'
                '  * actions marked with [+] have optional arguments'
                '')
-    opt_parser.add_argument('-v', '--verbose', action='count',
-                            help='prints some info messages to stderr; '
+    log_group = opt_parser.add_mutually_exclusive_group()
+    log_group.add_argument('-v', '--verbose', action='count',
+                           help='prints some info messages to stderr; '
                                  'use "-vv" to also get sqlalchemy info')
-    opt_parser.add_argument('-d', '--debug', action='count',
-                            help='prints info and debug to stderr; '
+    log_group.add_argument('-d', '--debug', action='count',
+                           help='prints info and debug to stderr; '
                                  'use "-dd" to also get sqlalchemy debug messages')
     opt_parser.add_argument('-c', '--color', default=format.ColorMode['never'],
                             choices=format.ColorMode.keys(),
@@ -985,7 +997,7 @@ def main():
                                  '[uses the Linux-style LS_COLORS environment variable]')
     opt_parser.add_argument('-i', '--check', default=db.IntegrityCheckType['full'],
                             choices=db.IntegrityCheckType.keys(),
-                            help='')
+                            help='select database integrity check type [default: full]')
     opt_parser.add_argument('-u', '--utf', action='store_true',
                             help='force utf output')
     opt_parser.add_argument('-nw', '--no-wait', action='store_true', help=argparse.SUPPRESS)
@@ -1055,6 +1067,9 @@ def main():
 
     upload_sp = subparsers.add_parser('upload', aliases=['ul'], parents=[re_dummy_sp],
                                       help='[+] file and directory upload to a remote destination')
+    upload_sp.add_argument('--exclude-path', '-xp', action='append', dest='exclude_path',
+                           default=[], help='exclude file or directory '
+                                            'that match the given string')
     upload_sp.add_argument('--overwrite', '-o', action='store_true',
                            help='overwrite if local modification time is higher '
                                 'or local ctime is higher than remote modification time '
@@ -1148,12 +1163,17 @@ def main():
 
     meta_sp = subparsers.add_parser('metadata', aliases=['m'],
                                     help='print a node\'s metadata [raw JSON]\n\n')
+    meta_sp.add_argument('--assets', '-a', action='store_true')
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
+    # fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
+    fuse_sp.add_argument('--multi-threaded', '-mt', action='store_false', dest='single_threaded')
+    fuse_sp.add_argument('--nonempty', '-ne', action='store_true',
+                         help='allow mounting over a non-empty directory')
     fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
                          help='allow access to root user')
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
@@ -1176,11 +1196,17 @@ def main():
 
     # useful for interactive mode
     dn_sp = subparsers.add_parser('init', aliases=['i'], add_help=False)
-    dn_sp.set_defaults(func=None)
+    dn_sp.set_defaults(func=init_action)
 
     # dump sql database creation sequence to stdout
     dmp_sp = subparsers.add_parser('dumpsql', add_help=False)
     dmp_sp.set_defaults(func=dump_sql_action)
+
+    return opt_parser, subparsers
+
+
+def main():
+    opt_parser, subparsers = get_parser()
 
     # plugins
 
@@ -1209,7 +1235,7 @@ def main():
     if args.func not in nocache_actions:
         if not db.init(CACHE_PATH, args.check):
             sys.exit(INIT_FAILED_RETVAL)
-        if args.func and args.func != sync_action:
+        if args.func != sync_action:
             if not check_cache():
                 sys.exit(INIT_FAILED_RETVAL)
 

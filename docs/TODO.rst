@@ -15,7 +15,6 @@ General
 FUSE
 ~~~~
 
-* file write (upload) (#77)
 * invalidate chunks of StreamedResponseCache
 * multi-threading
 
@@ -25,6 +24,7 @@ File Transfer
 * autosplit large files (#32)
 * more sophisticated progress handler that supports offsets
 * copy local mtime on upload (#58)
+* add path exclusion by argument for download
 
 User experience
 ~~~~~~~~~~~~~~~
