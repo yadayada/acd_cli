@@ -858,7 +858,10 @@ def unmount_action(args: argparse.Namespace):
 
 
 def init_action(args: argparse.Namespace):
-    from importlib import reload
+    try:
+        from importlib import reload
+    except ImportError:
+        from imp import reload
 
 
 #
