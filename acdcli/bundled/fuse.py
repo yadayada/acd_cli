@@ -901,20 +901,3 @@ class LoggingMixIn:
             raise
         finally:
             self.log.debug('<- %s %s', op, repr(ret))
-
-
-class LoggingMixIn:
-    log = logging.getLogger('fuse.log')
-
-    def __call__(self, op, path, *args):
-        self.log.debug('-> %s %s %s', op, path, repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
-
-        ret = '[Unhandled Exception]'
-        try:
-            ret = getattr(self, op)(path, *args)
-            return ret
-        except OSError as e:
-            ret = str(e)
-            raise
-        finally:
-            self.log.debug('<- %s %s', op, repr(ret) if op != 'read' else '')

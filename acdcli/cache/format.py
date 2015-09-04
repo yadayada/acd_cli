@@ -70,7 +70,7 @@ def size_nlink_str(node):
     if node.is_file():
         return nor_fmt % file_size_str(node.size).rjust(7)
     elif node.is_folder():
-        return nor_fmt % str(node.size).rjust(7)
+        return nor_fmt % str(node.nlinks).rjust(7)
     return ''
 
 

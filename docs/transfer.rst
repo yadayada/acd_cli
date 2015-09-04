@@ -19,6 +19,9 @@ Syntax:
 
    acdcli upload /local/path [/local/next_path [...]] /remote/path
 
+If the ``--overwrite`` (``-o``) argument is specified, remote file will be updated if
+a) the local file's modification time is higher or
+b) the local file's creation time is higher and the file size is different.
 
 Overwrite
 ~~~~~~~~~

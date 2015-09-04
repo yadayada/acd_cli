@@ -1,13 +1,12 @@
 """
 This is a template that you can use for adding custom plugins.
-May be subject to changes in the near future.
 """
 
 from . import *
 
 
 class TestPlugin(Plugin):
-    MIN_VERSION = '0.1.3'
+    MIN_VERSION = '0.3.0a6'
 
     @classmethod
     def attach(cls, subparsers: argparse.ArgumentParser, log: list, **kwargs):
@@ -23,7 +22,12 @@ class TestPlugin(Plugin):
 
     @classmethod
     def action(cls, args: argparse.Namespace) -> int:
-        """ This is where the magic happens. Return a zero for success, a non-zero int for failure. """
+        """ This is where the magic happens.
+        Return a zero for success, a non-zero int for failure. """
         if not args.silent:
             print('This plugin works.')
+
+        # args.cache().do_something()
+        # args.acd_client().do_something()
+
         return 0

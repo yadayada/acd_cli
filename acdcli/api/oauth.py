@@ -7,37 +7,12 @@ import webbrowser
 import datetime
 from urllib.parse import urlparse, parse_qs
 
-__all__ = ('init', 'get_auth_header')
-
 logger = logging.getLogger(__name__)
-handler = None
-""":type: OAuthHandler"""
-
-
-def init(path: str='') -> bool:
-    global handler
-    handler = _create_handler(path)
-    return True
-
-
-def get_auth_header() -> dict:
-    return {'Authorization': handler.get_auth_token()}
-
 
 TOKEN_INFO_URL = 'https://api.amazon.com/auth/o2/tokeninfo'
 
 
-def get_access_token_info() -> dict:
-    """json keywords
-    int exp: expiration time in sec
-    str aud: client id
-    user_id, app_id, iat (exp time)
-    """
-    r = requests.get(TOKEN_INFO_URL, params={'access_token': handler.oauth_data['access_token']})
-    return r.json()
-
-
-def _create_handler(path: str):
+def create_handler(path: str):
     try:
         return LocalOAuthHandler(path)
     except:
@@ -52,7 +27,7 @@ class OAuthHandler(object):
         ACC_TOKEN = 'access_token'
         REFR_TOKEN = 'refresh_token'
         EXP_TIME = 'exp_time'  # manually added
-        REDIRECT_URI = 'redirect_uri' # only for local
+        REDIRECT_URI = 'redirect_uri'  # only for local
 
     def __init__(self, path):
         self.path = path
@@ -133,6 +108,19 @@ class OAuthHandler(object):
     def check_oauth_file_exists(self):
         """Check for OAuth file existence and one-time initialize if necessary. Throws on error."""
         raise NotImplementedError
+
+    def get_access_token_info(self) -> dict:
+        """json keywords
+        int exp: expiration time in sec
+        str aud: client id
+        user_id, app_id, iat (exp time)
+        """
+        r = requests.get(TOKEN_INFO_URL,
+                         params={'access_token': self.oauth_data['access_token']})
+        return r.json()
+
+    def get_auth_header(self) -> dict:
+        return {'Authorization': self.get_auth_token()}
 
 
 class AppspotOAuthHandler(OAuthHandler):

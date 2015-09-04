@@ -2,7 +2,6 @@
 
 import logging
 import collections
-
 from .common import *
 
 logger = logging.getLogger(__name__)
@@ -56,27 +55,25 @@ class _Usage(object):
         return '%.1f' % num, '%s%s' % ('Yi', suffix)
 
 
-def get_account_info() -> dict:
-    """Gets account status [ACTIVE, ...?] and terms of use version."""
-    r = BackOffRequest.get(get_metadata_url() + 'account/info')
-    return r.json()
+class AccountMixin(object):
+    def get_account_info(self) -> dict:
+        """Gets account status [ACTIVE, ...?] and terms of use version."""
+        r = self.BOReq.get(self.metadata_url + 'account/info')
+        return r.json()
 
+    def get_account_usage(self) -> str:
+        r = self.BOReq.get(self.metadata_url + 'account/usage')
+        if r.status_code not in OK_CODES:
+            raise RequestError(r.status_code, r.text)
+        return _Usage(r.json())
 
-def get_account_usage() -> str:
-    r = BackOffRequest.get(get_metadata_url() + 'account/usage')
-    if r.status_code not in OK_CODES:
-        raise RequestError(r.status_code, r.text)
-    return _Usage(r.json())
+    def get_quota(self) -> dict:
+        r = self.BOReq.get(self.metadata_url + 'account/quota')
+        if r.status_code not in OK_CODES:
+            raise RequestError(r.status_code, r.text)
+        return r.json()
 
-
-def get_quota() -> dict:
-    r = BackOffRequest.get(get_metadata_url() + 'account/quota')
-    if r.status_code not in OK_CODES:
-        raise RequestError(r.status_code, r.text)
-    return r.json()
-
-
-def fs_sizes() -> tuple:
-    """:returns tuple: total and free space"""
-    q = get_quota()
-    return q.get('quota', 0), q.get('available', 0)
+    def fs_sizes(self) -> tuple:
+        """:returns tuple: total and free space"""
+        q = self.get_quota()
+        return q.get('quota', 0), q.get('available', 0)

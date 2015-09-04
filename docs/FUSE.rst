@@ -21,16 +21,20 @@ View trash               ❌
 Misc
 ----------------------------------
 Automatic sync           ✅
+ctime/mtime update       ❌
+Custom permissions       ❌
 Hard links               partially [#]_
-Symbolic links           ❌
+Symbolic links           ❌ [#]_
 =====================  ===========
 
 .. [#] partial writes are not possible (i.e. writes at random offsets)
 .. [#] restoring might not work
-.. [#] manually created hard links will be listed
+.. [#] manually created hard links will be displayed, but it is discouraged to use them
+.. [#] soft links are not part of the ACD API
 
 For debugging purposes, the recommended command to run is
 
 ::
 
     acdcli -d mount -i0 -fg /mount/point
+
