@@ -1,8 +1,8 @@
 FUSE module
 ===========
 
-The FUSE support is still in its early stage and may be prone to bugs
-(`<https://github.com/yadayada/acd_cli/labels/FUSE>`_).
+The FUSE support is still in its early stage and may be
+(`prone to bugs <https://github.com/yadayada/acd_cli/labels/FUSE>`_).
 acd\_cli has the following features implemented:
 
 =====================  ===========

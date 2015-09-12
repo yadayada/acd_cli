@@ -73,6 +73,7 @@ class ReadProxy(object):
 
     def __init__(self, acd_client):
         self.acd_client = acd_client
+        self.lock = Lock()
         self.files = defaultdict(ReadProxy.File)
 
     class StreamChunk(object):
@@ -145,13 +146,18 @@ class ReadProxy(object):
                 self.chunks.clear()
 
     def get(self, id_, offset, length, total):
-        return self.files[id_].get(self.acd_client, id_, offset, length, total)
+        with self.lock:
+            f = self.files[id_]
+            return f.get(self.acd_client, id_, offset, length, total)
 
     def invalidate(self):
         pass
 
     def release(self, id_):
-        self.files[id_].clear()
+        with self.lock:
+            f = self.files.get(id_)
+        if f:
+            f.clear()
 
 
 class WriteProxy(object):
@@ -368,7 +374,7 @@ class ACDFuse(LoggingMixIn, Operations):
             # if len(node.parents) > 1:
             #     r = metadata.remove_child(parent.id, node.id)
             # else:
-            r = self.cache.move_to_trash(node.id)
+            r = self.acd_client.move_to_trash(node.id)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
@@ -404,8 +410,8 @@ class ACDFuse(LoggingMixIn, Operations):
         if not id:
             raise FuseOSError(errno.ENOENT)
 
-        new_bn, old_bn = os.path.basename(new), os.path.basename(old)
-        new_dn, old_dn = os.path.dirname(new), os.path.dirname(old)
+        new_bn, new_dn = os.path.basename(new), os.path.dirname(new)
+        old_bn, old_dn = os.path.basename(old), os.path.dirname(old)
 
         existing_id = self.cache.resolve_path(new, False)
         if existing_id:
@@ -419,11 +425,11 @@ class ACDFuse(LoggingMixIn, Operations):
             self._rename(id, new_bn)
 
         if new_dn != old_dn:
-            odir_id = self.cache.resolve_path(old_dn, False)
+            # odir_id = self.cache.resolve_path(old_dn, False)
             ndir_id = self.cache.resolve_path(new_dn, False)
-            if not odir_id or not ndir_id:
+            if not ndir_id:
                 raise FuseOSError(errno.ENOTDIR)
-            self._move(id, odir_id, ndir_id)
+            self._move(id, ndir_id)
 
     def _rename(self, id, name):
         try:
@@ -433,7 +439,7 @@ class ACDFuse(LoggingMixIn, Operations):
         else:
             self.cache.insert_node(r)
 
-    def _move(self, id, old_folder, new_folder):
+    def _move(self, id, new_folder):
         try:
             r = self.acd_client.move_node(id, new_folder)
         except RequestError as e:
@@ -456,11 +462,17 @@ class ACDFuse(LoggingMixIn, Operations):
         return len(data)
 
     def truncate(self, path, length, fh=None):
-        """Actually truncating to a length of 0 would result in errors.
-        Truncating to >0 is not supported by the ACD API.
+        """ Truncating to >0 is not supported by the ACD API.
         """
-        if length > 0:
-            n, _ = self.cache.resolve(path)
+        n, _ = self.cache.resolve(path)
+        if length == 0:
+            try:
+                r = self.acd_client.clear_file(n.id)
+            except RequestError as e:
+                raise FuseOSError.convert(e)
+            else:
+                self.cache.insert_node(r)
+        elif length > 0:
             if n.size != length:
                 raise FuseOSError(errno.ENOSYS)
 
@@ -510,7 +522,8 @@ def mount(path: str, args: dict, **kwargs):
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60, auto_cache=True,
+    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60,
+         auto_cache=True, sync_read=True,
          uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
          **kwargs

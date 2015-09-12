@@ -314,7 +314,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if conflicting_node:
         if conflicting_node.is_folder():
             logger.error('Name collision with existing folder '
-                         'in the same location: "%".' % short_nm)
+                         'in the same location: "%s".' % short_nm)
             return NAME_COLLISION
 
         file_id = conflicting_node.id
@@ -1172,8 +1172,8 @@ def get_parser() -> tuple:
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
-    # fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
-    fuse_sp.add_argument('--multi-threaded', '-mt', action='store_false', dest='single_threaded')
+    fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
+    # fuse_sp.add_argument('--multi-threaded', '-mt', action='store_false', dest='single_threaded')
     fuse_sp.add_argument('--nonempty', '-ne', action='store_true',
                          help='allow mounting over a non-empty directory')
     fuse_sp.add_argument('--allow-root', '-ar', action='store_true',
@@ -1267,7 +1267,7 @@ def main():
 
 
 if __name__ == "__main__":
-    if 'init' in sys.argv:
+    if sys.argv[-1] == 'init':
         try:
             from importlib import reload
         except ImportError:
