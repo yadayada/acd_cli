@@ -852,7 +852,7 @@ def mount_action(args: argparse.Namespace):
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
                                       nlinks=args.nlinks, interval=args.interval),
                       ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
-                      nonempty=args.nonempty,
+                      nonempty=args.nonempty, modules=args.modules,
                       allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -1180,6 +1180,8 @@ def get_parser() -> tuple:
                          help='allow access to root user')
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
                          help='allow access to other users')
+    fuse_sp.add_argument('--modules', action='store', default='',
+                         help='add iconv or subdir modules')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
     fuse_sp.add_argument('--interval', '-i', type=int, default=60,
                          help='sync every x seconds [default: 60, off: 0]')
