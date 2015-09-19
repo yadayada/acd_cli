@@ -66,7 +66,12 @@ of the OAuth procedure at https://tensile-runway-92512.appspot.com/src.
 Advanced Users
 ++++++++++++++
 
-Alternatively, you may put your own security profile data in a file called ``client_data`` in the cache directory.
+If you have security concerns regarding the Appspot authentication, have a look at Amazon's 
+`ACD getting started guide 
+<https://developer.amazon.com/public/apis/experience/cloud-drive/content/getting-started>`_.
+Select all permissions for your security profile and add a redirect URL to ``http://localhost``.
+
+Put your own security profile data in a file called ``client_data`` in the cache directory.
 It needs to be created prior to starting the program and adhere to the following form.
 
 .. code :: json
@@ -76,8 +81,7 @@ It needs to be created prior to starting the program and adhere to the following
      "CLIENT_SECRET": ""
  }
 
-Your security profile must be able to redirect to ``http://localhost``.
-The procedure is similar to the above, the difference is that you will
+The procedure is similar to the Appspot one above, the difference is that you will
 be asked to paste the redirect URL into your shell.
 
 Usage

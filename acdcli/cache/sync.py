@@ -4,6 +4,7 @@ Syncs Amazon Node API objects with SQLite database.
 
 import logging
 from datetime import datetime, timedelta
+from itertools import islice
 
 try:
     import dateutil.parser as iso_date
@@ -14,29 +15,41 @@ except ImportError:
         def parse(str_: str):
             return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
 
-from . import schema
+from .schema import Node, File, Folder, Label, _parentage_table
 
 logger = logging.getLogger(__name__)
 
 
+def iter_slice(it, length=100):
+    return [_ for _ in islice(it, length)]
+
+
 class SyncMixin(object):
     def remove_purged(self, purged: list):
-        """:param purged: list of purged node ids"""
+        """Removes purged nodes from database
+        :param purged: list of purged node IDs"""
         if not purged:
             return
+
+        it = iter(purged)
+        its = lambda: iter_slice(it)
 
         conn = self.engine.connect()
         trans = conn.begin()
 
-        conn.execute(schema.Node.__table__.delete().where(schema.Node.id.in_(purged)))
-        conn.execute(schema.File.__table__.delete().where(schema.File.id.in_(purged)))
-        conn.execute(schema.Folder.__table__.delete().where(schema.Folder.id.in_(purged)))
-        conn.execute(schema._parentage_table.delete()
-                     .where(schema._parentage_table.columns.parent.in_(purged)))
-        conn.execute(schema._parentage_table.delete()
-                     .where(schema._parentage_table.columns.child.in_(purged)))
+        slice_ = its()
+        while slice_:
+            conn.execute(Node.__table__.delete().where(Node.id.in_(slice_)))
+            conn.execute(File.__table__.delete().where(File.id.in_(slice_)))
+            conn.execute(Folder.__table__.delete().where(Folder.id.in_(slice_)))
+            conn.execute(_parentage_table.delete()
+                         .where(_parentage_table.columns.parent.in_(slice_)))
+            conn.execute(_parentage_table.delete()
+                         .where(_parentage_table.columns.child.in_(slice_)))
 
-        conn.execute(schema.Label.__table__.delete().where(schema.Label.id.in_(purged)))
+            conn.execute(Label.__table__.delete().where(Label.id.in_(slice_)))
+
+            slice_ = its()
 
         trans.commit()
         conn.close()
@@ -62,7 +75,7 @@ class SyncMixin(object):
 
         self.insert_parentage(files + folders, partial)
 
-    def insert_node(self, node: schema.Node):
+    def insert_node(self, node: dict):
         """Inserts single file or folder into cache."""
         if not node:
             return
@@ -75,10 +88,10 @@ class SyncMixin(object):
         if not folders:
             return
 
-        stmt1 = str(schema.Node.__table__.insert())
+        stmt1 = str(Node.__table__.insert())
         stmt1 = stmt1.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
-        stmt2 = str(schema.Folder.__table__.insert())
+        stmt2 = str(Folder.__table__.insert())
         stmt2 = stmt2.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
         conn = self.engine.connect()
@@ -108,10 +121,10 @@ class SyncMixin(object):
         if not files:
             return
 
-        stmt1 = str(schema.Node.__table__.insert())
+        stmt1 = str(Node.__table__.insert())
         stmt1 = stmt1.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
-        stmt2 = str(schema.File.__table__.insert())
+        stmt2 = str(File.__table__.insert())
         stmt2 = stmt2.replace('INSERT INTO', 'INSERT OR REPLACE INTO')
 
         conn = self.engine.connect()
@@ -152,11 +165,19 @@ class SyncMixin(object):
         trans = conn.begin()
 
         if partial:
-            conn.execute('DELETE FROM parentage WHERE child IN (%s)' %
-                         ', '.join([('"%s"' % n['id']) for n in nodes]))
+            it = iter(nodes)
+            its = lambda: iter_slice(it)
+
+            slice_ = its()
+            while slice_:
+                conn.execute('DELETE FROM parentage WHERE child IN (%s)' %
+                             ', '.join([('"%s"' % n['id']) for n in slice_]))
+                slice_ = its()
+
         for n in nodes:
             for p in n['parents']:
                 conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, n['id'])
+
         trans.commit()
         conn.close()
 
