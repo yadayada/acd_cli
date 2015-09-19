@@ -12,22 +12,20 @@ from multiprocessing import Process
 from threading import Thread, Lock
 from queue import Queue, Full as QueueFull
 
-from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations, LoggingMixIn
-from acdcli.cache import query, sync
-from acdcli.api import account, content, metadata, trash
+from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
+from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
 
 logger = logging.getLogger(__name__)
 
 FUSE_BS = 128 * 1024
-CHUNK_SZ = content.CHUNK_SIZE
 MAX_CHUNKS_PER_FILE = 15
 CHUNK_TIMEOUT = 5
 
 WRITE_TIMEOUT = 60
 WRITE_BUFFER_SZ = 2 ** 10
 
-MIN_AUTOSYNC_INTERVAL = 30
+MIN_AUTOSYNC_INTERVAL = 60
 
 
 def _autosync(interval: int):
@@ -47,11 +45,11 @@ def _autosync(interval: int):
 
 class FuseOSError(FuseError):
     def __init__(self, err_no: int):
-        logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
+        # logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
         super().__init__(err_no)
 
-    @classmethod
-    def convert(cls, e: RequestError):
+    @staticmethod
+    def convert(e: RequestError):
         """:raises FUSEOSError"""
 
         try:
@@ -73,12 +71,17 @@ class FuseOSError(FuseError):
 class ReadProxy(object):
     """Dict of stream chunks for consecutive read access of files."""
 
+    def __init__(self, acd_client):
+        self.acd_client = acd_client
+        self.lock = Lock()
+        self.files = defaultdict(ReadProxy.File)
+
     class StreamChunk(object):
         __slots__ = ('offset', 'r', 'end')
 
-        def __init__(self, id, offset, length, **kwargs):
+        def __init__(self, acd_client, id_, offset, length, **kwargs):
             self.offset = offset
-            self.r = content.response_chunk(id, offset, length, **kwargs)
+            self.r = acd_client.response_chunk(id_, offset, length, **kwargs)
             self.end = offset + int(self.r.headers['content-length']) - 1
 
         def has_byte_range(self, offset, length):
@@ -90,7 +93,6 @@ class ReadProxy(object):
 
         def get(self, length):
             b = next(self.r.iter_content(length))
-            logger.debug('streamed %ib' % len(b))
             self.offset += len(b)
 
             if len(b) < length and self.offset <= self.end:
@@ -109,7 +111,7 @@ class ReadProxy(object):
             self.access = time()
             self.lock = Lock()
 
-        def get(self, id, offset, length, total):
+        def get(self, acd_client, id_, offset, length, total):
             self.access = time()
 
             with self.lock:
@@ -127,37 +129,44 @@ class ReadProxy(object):
 
             try:
                 with self.lock:
-                    chunk = ReadProxy.StreamChunk(id, offset, CHUNK_SZ, timeout=CHUNK_TIMEOUT)
+                    chunk = ReadProxy.StreamChunk(acd_client, id_, offset,
+                                                  CHUNK_SZ, timeout=CHUNK_TIMEOUT)
                     self.chunks.append(chunk)
                     return chunk.get(length)
             except RequestError as e:
                 FuseOSError.convert(e)
 
         def clear(self):
-            for chunk in self.chunks:
-                try:
-                    chunk.close()
-                except:
-                    pass
-            self.chunks.clear()
+            with self.lock:
+                for chunk in self.chunks:
+                    try:
+                        chunk.close()
+                    except:
+                        pass
+                self.chunks.clear()
 
-    files = defaultdict(File)
+    def get(self, id_, offset, length, total):
+        with self.lock:
+            f = self.files[id_]
+            return f.get(self.acd_client, id_, offset, length, total)
 
-    @classmethod
-    def get(cls, id, offset, length, total):
-        return cls.files[id].get(id, offset, length, total)
-
-    @classmethod
-    def invalidate(cls):
+    def invalidate(self):
         pass
 
-    @classmethod
-    def release(cls, id):
-        cls.files[id].clear()
+    def release(self, id_):
+        with self.lock:
+            f = self.files.get(id_)
+        if f:
+            f.clear()
 
 
 class WriteProxy(object):
     """Dict of WriteStreams for consecutive write operations."""
+
+    def __init__(self, acd_client, cache):
+        self.acd_client = acd_client
+        self.cache = cache
+        self.files = defaultdict(WriteProxy.WriteStream)
 
     class WriteStream(object):
         __slots__ = ('q', 'offset', 'error', 'closed')
@@ -196,21 +205,17 @@ class WriteProxy(object):
             if self.error:
                 pass
 
-    files = defaultdict(WriteStream)
-
-    @staticmethod
-    def write_n_sync(stream: WriteStream, node_id: str):
+    def write_n_sync(self, stream: WriteStream, node_id: str):
         try:
-            r = content.overwrite_stream(stream, node_id)
+            r = self.acd_client.overwrite_stream(stream, node_id)
         except RequestError as e:
             stream.error = True
             logger.error('Error writing file. Code: %i, msg: %s' % (e.status_code, e.msg))
         else:
-            sync.insert_node(r)
+            self.cache.insert_node(r)
 
-    @classmethod
-    def write(cls, node_id, fh, offset, bytes_):
-        f = cls.files[fh]
+    def write(self, node_id, fh, offset, bytes_):
+        f = self.files[fh]
 
         if f.offset == offset:
             f.write(bytes_)
@@ -219,15 +224,33 @@ class WriteProxy(object):
             raise FuseOSError(errno.EFAULT)
 
         if offset == 0:
-            t = Thread(target=cls.write_n_sync, args=(f, node_id))
+            t = Thread(target=self.write_n_sync, args=(f, node_id))
             t.daemon = True
             t.start()
 
-    @classmethod
-    def release(cls, fh):
-        f = cls.files.get(fh)
+    def release(self, fh):
+        f = self.files.get(fh)
         if f:
             f.close()
+
+
+class LoggingMixIn(object):
+    """Modified pyfuse LoggingMixIn that does not log read or written bytes."""
+    log = logging.getLogger('fuse.log')
+
+    def __call__(self, op, path, *args):
+        self.log.debug('-> %s %s %s', op, path,
+                       repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
+
+        ret = '[Unhandled Exception]'
+        try:
+            ret = getattr(self, op)(path, *args)
+            return ret
+        except OSError as e:
+            ret = str(e)
+            raise
+        finally:
+            self.log.debug('<- %s %s', op, repr(ret) if op != 'read' else '')
 
 
 class ACDFuse(LoggingMixIn, Operations):
@@ -244,8 +267,15 @@ class ACDFuse(LoggingMixIn, Operations):
         MD5 = 'acd.md5'
 
     def __init__(self, **kwargs):
-        self.total, _ = account.fs_sizes()
-        self.free = self.total - query.calculate_usage()
+        self.cache = kwargs['cache']
+        self.acd_client = kwargs['acd_client']
+
+        self.rp = ReadProxy(self.acd_client)
+        self.wp = WriteProxy(self.acd_client, self.cache)
+        # self.pc = PathCache(self.cache)
+
+        self.total, _ = self.acd_client.fs_sizes()
+        self.free = self.total - self.cache.calculate_usage()
         self.fh = 1
         self.nlinks = kwargs.get('nlinks', False)
 
@@ -254,14 +284,14 @@ class ACDFuse(LoggingMixIn, Operations):
         p.start()
 
     def readdir(self, path, fh):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
         return [_ for _ in ['.', '..'] + [c.name for c in node.available_children()]]
 
     def getattr(self, path, fh=None):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
@@ -271,21 +301,21 @@ class ACDFuse(LoggingMixIn, Operations):
 
         if node.is_folder():
             return dict(st_mode=stat.S_IFDIR | 0o0777,
-                        st_nlink=node.size if self.nlinks else 1, **times)
+                        st_nlink=node.nlinks if self.nlinks else 1, **times)
         if node.is_file():
             return dict(st_mode=stat.S_IFREG | 0o0666,
-                        st_nlink=len(node.parents) if self.nlinks else 1,
+                        st_nlink=node.nlinks if self.nlinks else 1,
                         st_size=node.size, **times)
 
     def listxattr(self, path):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
         if node.is_file():
             return self.FXATTRS.vars()
         elif node.is_folder():
             return self.XATTRS.vars()
 
     def getxattr(self, path, name, position=0):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
 
         if name == self.XATTRS.ID:
             return bytes(node.id, encoding='utf-8')
@@ -297,15 +327,15 @@ class ACDFuse(LoggingMixIn, Operations):
         raise FuseOSError(errno.ENODATA)
 
     def read(self, path, length, offset, fh):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
 
         if not node:
-            raise(FuseOSError(errno.ENOENT))
+            raise FuseOSError(errno.ENOENT)
 
         if node.size == 0 or node.size == offset:
             return b''
 
-        return ReadProxy.get(node.id, offset, length, node.size)
+        return self.rp.get(node.id, offset, length, node.size)
 
     def statfs(self, path):
         bs = 512 * 1024
@@ -320,21 +350,20 @@ class ACDFuse(LoggingMixIn, Operations):
     def mkdir(self, path, mode):
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
-        pid = query.resolve_path(ppath)
+        pid = self.cache.resolve_path(ppath)
         if not pid:
             raise FuseOSError(errno.ENOTDIR)
 
         try:
-            r = content.create_folder(name, pid)
+            r = self.acd_client.create_folder(name, pid)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
-            sync.insert_node(r)
+            self.cache.insert_node(r)
 
-    @staticmethod
-    def _trash(path):
+    def _trash(self, path):
         logger.debug('trash %s' % path)
-        node, parent = query.resolve(path, False)
+        node, parent = self.cache.resolve(path, False)
 
         if not node:  # or not parent:
             raise FuseOSError(errno.ENOENT)
@@ -345,11 +374,11 @@ class ACDFuse(LoggingMixIn, Operations):
             # if len(node.parents) > 1:
             #     r = metadata.remove_child(parent.id, node.id)
             # else:
-            r = trash.move_to_trash(node.id)
+            r = self.acd_client.move_to_trash(node.id)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
-            sync.insert_node(r)
+            self.cache.insert_node(r)
 
     def rmdir(self, path):
         self._trash(path)
@@ -360,13 +389,13 @@ class ACDFuse(LoggingMixIn, Operations):
     def create(self, path, mode):
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
-        pid = query.resolve_path(ppath, False)
+        pid = self.cache.resolve_path(ppath, False)
         if not pid:
             raise FuseOSError(errno.ENOTDIR)
 
         try:
-            r = content.create_file(name, pid)
-            sync.insert_node(r)
+            r = self.acd_client.create_file(name, pid)
+            self.cache.insert_node(r)
         except RequestError as e:
             FuseOSError.convert(e)
 
@@ -377,18 +406,18 @@ class ACDFuse(LoggingMixIn, Operations):
         if old == new:
             return
 
-        id = query.resolve_path(old, False)
+        id = self.cache.resolve_path(old, False)
         if not id:
             raise FuseOSError(errno.ENOENT)
 
-        new_bn, old_bn = os.path.basename(new), os.path.basename(old)
-        new_dn, old_dn = os.path.dirname(new), os.path.dirname(old)
+        new_bn, new_dn = os.path.basename(new), os.path.dirname(new)
+        old_bn, old_dn = os.path.basename(old), os.path.dirname(old)
 
-        existing_id = query.resolve_path(new, False)
+        existing_id = self.cache.resolve_path(new, False)
         if existing_id:
-            en = query.get_node(existing_id)
+            en = self.cache.get_node(existing_id)
             if en and en.is_file():
-                trash.move_to_trash(existing_id)
+                self.acd_client.move_to_trash(existing_id)
             else:
                 raise FuseOSError(errno.EEXIST)
 
@@ -396,29 +425,27 @@ class ACDFuse(LoggingMixIn, Operations):
             self._rename(id, new_bn)
 
         if new_dn != old_dn:
-            odir_id = query.resolve_path(old_dn, False)
-            ndir_id = query.resolve_path(new_dn, False)
-            if not odir_id or not ndir_id:
+            # odir_id = self.cache.resolve_path(old_dn, False)
+            ndir_id = self.cache.resolve_path(new_dn, False)
+            if not ndir_id:
                 raise FuseOSError(errno.ENOTDIR)
-            self._move(id, odir_id, ndir_id)
+            self._move(id, ndir_id)
 
-    @staticmethod
-    def _rename(id, name):
+    def _rename(self, id, name):
         try:
-            r = metadata.rename_node(id, name)
+            r = self.acd_client.rename_node(id, name)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
-            sync.insert_node(r)
+            self.cache.insert_node(r)
 
-    @staticmethod
-    def _move(id, old_folder, new_folder):
+    def _move(self, id, new_folder):
         try:
-            r = metadata.move_node(id, old_folder, new_folder)
+            r = self.acd_client.move_node(id, new_folder)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
-            sync.insert_node(r)
+            self.cache.insert_node(r)
 
     def open(self, path, flags):
         logger.debug('open %s %x' % (path, flags))
@@ -427,25 +454,33 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def write(self, path, data, offset, fh):
         if offset == 0:
-            n, p = query.resolve(path, False)
+            n, p = self.cache.resolve(path, False)
             node_id = n.id
         else:
             node_id = ''
-        WriteProxy.write(node_id, fh, offset, data)
+        self.wp.write(node_id, fh, offset, data)
         return len(data)
 
     def truncate(self, path, length, fh=None):
-        """Actually truncating to a length of 0 would result in errors.
-        Truncating to >0 is not supported by the ACD API.
+        """ Truncating to >0 is not supported by the ACD API.
         """
-        if length > 0:
-            raise FuseOSError(errno.ENOSYS)
+        n, _ = self.cache.resolve(path)
+        if length == 0:
+            try:
+                r = self.acd_client.clear_file(n.id)
+            except RequestError as e:
+                raise FuseOSError.convert(e)
+            else:
+                self.cache.insert_node(r)
+        elif length > 0:
+            if n.size != length:
+                raise FuseOSError(errno.ENOSYS)
 
     def release(self, path, fh):
-        node, _ = query.resolve(path, trash=False)
+        node, _ = self.cache.resolve(path, trash=False)
         if node:
-            ReadProxy.release(node.id)
-            WriteProxy.release(fh)
+            self.rp.release(node.id)
+            self.wp.release(fh)
 
     def utimens(self, path, times=None):
         """:param times: """
@@ -460,15 +495,35 @@ class ACDFuse(LoggingMixIn, Operations):
         pass
 
 
+class LoggingMixIn:
+    """Modified pyfuse LoggingMixIn that does not log read and written bytes"""
+    log = logging.getLogger('acd_fuse')
+
+    def __call__(self, op, path, *args):
+        self.log.debug('-> %s %s %s', op, path,
+                       repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
+
+        ret = '[Unhandled Exception]'
+        try:
+            ret = getattr(self, op)(path, *args)
+            return ret
+        except OSError as e:
+            ret = str(e)
+            raise
+        finally:
+            self.log.debug('<- %s %s', op, repr(ret) if op != 'read' else '')
+
+
 def mount(path: str, args: dict, **kwargs):
-    if not query.get_root_node():
+    if not args['cache'].get_root_node():
         logger.critical('Root node not found. Aborting.')
         return 1
     if not os.path.isdir(path):
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60, auto_cache=True,
+    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60,
+         auto_cache=True, sync_read=True,
          uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
          **kwargs

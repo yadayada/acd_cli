@@ -18,15 +18,16 @@ class IncrementalHasher(object):
         return self.hasher.hexdigest()
 
 
-def hash_bytes(bytes_) -> str:
+def hash_file_obj(fo) -> str:
     hasher = hashlib.md5()
-    bytes_.seek(0)
-    for chunk in iter(lambda: bytes_.read(1024 ** 2), b''):
+    fo.seek(0)
+    for chunk in iter(lambda: fo.read(1024 ** 2), b''):
         hasher.update(chunk)
     return hasher.hexdigest()
 
+
 def hash_file(file_name: str) -> str:
     with open(file_name, 'rb') as f:
-        md5 = hash_bytes(f)
+        md5 = hash_file_obj(f)
     logger.debug('MD5 of "%s" is %s' % (os.path.basename(file_name), md5))
     return md5

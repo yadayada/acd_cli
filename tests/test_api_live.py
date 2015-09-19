@@ -4,40 +4,40 @@ import unittest
 import logging
 import os
 import io
+import sys
 import random
 import string
 import mmap
+import tempfile
 
-from acdcli.api import account, common, content, metadata, trash, oauth
+from acdcli.api import client, content, common
 from acdcli.api.common import RequestError
 from acdcli.utils import hashing
 
 logging.basicConfig(level=logging.INFO)
-common.BackOffRequest._wait = lambda: None
 path = os.path.join(os.path.dirname(__file__), 'cache_files')
-common.init(path)
-
-
-def gen_rand_nm():
-    return str.join('', (random.choice(string.ascii_letters + string.digits) for _ in range(64)))
 
 
 def gen_rand_sz():
     return random.randint(1, 32 * 1024)
 
 
-def gen_rand_file(size=gen_rand_sz()) -> tuple:
-    fn = gen_rand_nm()
-    with open(fn, 'wb') as f:
-        f.write(os.urandom(size))
-    return fn, size
+def gen_rand_nm():
+    return str.join('', (random.choice(string.ascii_letters + string.digits) for _ in range(32)))
+
+
+def gen_temp_file(size=gen_rand_sz()) -> tuple:
+    f = tempfile.NamedTemporaryFile(mode='w+b')
+    f.write(os.urandom(size))
+    f.seek(0)
+    return f, os.path.getsize(f.name)
 
 
 def gen_rand_anon_mmap(size=gen_rand_sz()) -> tuple:
     mmo = mmap.mmap(-1, size)
     mmo.write(os.urandom(size))
     mmo.seek(0)
-    return mmo
+    return mmo, size
 
 
 def do_not_run(func):
@@ -46,13 +46,13 @@ def do_not_run(func):
 content._CHUNK_SIZE = content.CHUNK_SIZE
 content._CONSECUTIVE_DL_LIMIT = content.CONSECUTIVE_DL_LIMIT
 
-import sys
-
 print(sys.argv)
 
 
 class APILiveTestCase(unittest.TestCase):
     def setUp(self):
+        self.acd_client = client.ACDClient(path)
+        self.acd_client.BOReq._wait = lambda: None
         self.assertTrue(os.path.isfile(os.path.join(path, 'oauth_data')))
         self.assertTrue(os.path.isfile(os.path.join(path, 'endpoint_data')))
 
@@ -65,140 +65,166 @@ class APILiveTestCase(unittest.TestCase):
     #
 
     def test_back_off_error(self):
-        common.BackOffRequest.get(common.get_content_url())
-        self.assertEqual(common.BackOffRequest._BackOffRequest__retries, 1)
+        self.acd_client.BOReq.get(self.acd_client.content_url)
+        self.assertEqual(self.acd_client.BOReq._BackOffRequest__retries, 1)
 
     #
     # account.py
     #
 
     def test_get_quota(self):
-        q = account.get_quota()
+        q = self.acd_client.get_quota()
         self.assertIn('quota', q)
         self.assertIn('available', q)
 
     def test_get_usage(self):
-        account.get_account_usage()
+        self.acd_client.get_account_usage()
 
     #
     # content.py
     #
 
     def test_upload(self):
-        fn, sz = gen_rand_file()
-        md5 = hashing.hash_file(fn)
-        n = content.upload_file(fn)
+        f, sz = gen_temp_file()
+        md5 = hashing.hash_file_obj(f)
+        n = self.acd_client.upload_file(f.name)
         self.assertIn('id', n)
         self.assertEqual(n['contentProperties']['size'], sz)
         self.assertEqual(n['contentProperties']['md5'], md5)
-        n = trash.move_to_trash(n['id'])
-        os.remove(fn)
+        n = self.acd_client.move_to_trash(n['id'])
 
     def test_upload_stream(self):
+        s, sz = gen_rand_anon_mmap()
         fn = gen_rand_nm()
-        mmo = gen_rand_anon_mmap()
         h = hashing.IncrementalHasher()
-        n = content.upload_stream(mmo, fn, parent=None, read_callbacks=[h.update])
+
+        n = self.acd_client.upload_stream(s, fn, parent=None, read_callbacks=[h.update])
         self.assertEqual(n['contentProperties']['md5'], h.get_result())
-        trash.move_to_trash(n['id'])
+        self.assertEqual(n['contentProperties']['size'], sz)
+
+        self.acd_client.move_to_trash(n['id'])
 
     def test_overwrite(self):
-        fn, _ = gen_rand_file()
-        n = content.create_file(fn)
+        f, sz = gen_temp_file()
+        h = hashing.IncrementalHasher()
+
+        n = self.acd_client.create_file(os.path.basename(f.name))
         self.assertIn('id', n)
-        n = content.overwrite_file(n['id'], fn)
+
+        n = self.acd_client.overwrite_file(n['id'], f.name, [h.update])
         self.assertEqual(n['contentProperties']['version'], 2)
-        trash.move_to_trash(n['id'])
+        self.assertEqual(n['contentProperties']['md5'], h.get_result())
+
+        self.acd_client.move_to_trash(n['id'])
+
+    def test_overwrite_stream(self):
+        s, sz = gen_rand_anon_mmap()
+        fn = gen_rand_nm()
+        h = hashing.IncrementalHasher()
+
+        n = self.acd_client.create_file(fn)
+        self.assertIn('id', n)
+
+        n = self.acd_client.overwrite_stream(s, n['id'], [h.update])
+        self.assertEqual(n['contentProperties']['md5'], h.get_result())
+        self.assertEqual(n['contentProperties']['size'], sz)
+
+        self.acd_client.move_to_trash(n['id'])
 
     def test_download(self):
-        fn, sz = gen_rand_file()
+        f, sz = gen_temp_file()
         self.assertTrue(sz < content.CONSECUTIVE_DL_LIMIT)
-        md5 = hashing.hash_file(fn)
-        n = content.upload_file(fn)
+        md5 = hashing.hash_file_obj(f)
+        n = self.acd_client.upload_file(f.name)
         self.assertIn('id', n)
-        os.remove(fn)
-        self.assertFalse(os.path.exists(fn))
-        content.download_file(n['id'], fn)
-        md5_dl = hashing.hash_file(fn)
+
+        f.close()
+        self.assertFalse(os.path.exists(f.name))
+
+        self.acd_client.download_file(n['id'], f.name)
+        md5_dl = hashing.hash_file(f.name)
         self.assertEqual(md5, md5_dl)
-        trash.move_to_trash(n['id'])
-        os.remove(fn)
+        self.acd_client.move_to_trash(n['id'])
 
     def test_download_chunked(self):
         ch_sz = gen_rand_sz()
         content.CHUNK_SIZE = ch_sz
-        fn, sz = gen_rand_file(size=5 * ch_sz)
-        md5 = hashing.hash_file(fn)
-        n = content.upload_file(fn)
+        f, sz = gen_temp_file(size=5 * ch_sz)
+        md5 = hashing.hash_file_obj(f)
+
+        n = self.acd_client.upload_file(f.name)
         self.assertEqual(n['contentProperties']['md5'], md5)
-        os.remove(fn)
-        self.assertFalse(os.path.exists(fn))
+        f.close()
+        self.assertFalse(os.path.exists(f.name))
+
         f = io.BytesIO()
-        content.chunked_download(n['id'], f, length=sz)
-        trash.move_to_trash(n['id'])
-        dl_md5 = hashing.hash_bytes(f)
+        self.acd_client.chunked_download(n['id'], f, length=sz)
+        self.acd_client.move_to_trash(n['id'])
+        dl_md5 = hashing.hash_file_obj(f)
         self.assertEqual(sz, f.tell())
         self.assertEqual(md5, dl_md5)
 
     def test_incomplete_download(self):
         ch_sz = gen_rand_sz()
         content.CHUNK_SIZE = ch_sz
-        fn, sz = gen_rand_file(size=5 * ch_sz)
-        md5 = hashing.hash_file(fn)
-        n = content.upload_file(fn)
-        self.assertEqual(n['contentProperties']['md5'], md5)
-        os.remove(fn)
-        self.assertFalse(os.path.exists(fn))
-        with self.assertRaises(RequestError) as cm:
-            content.download_file(n['id'], fn, length=sz + 1)
+        f, sz = gen_temp_file(size=5 * ch_sz)
+        md5 = hashing.hash_file_obj(f)
 
-        #os.remove(fn + content.PARTIAL_SUFFIX)
+        n = self.acd_client.upload_file(f.name)
+        self.assertEqual(n['contentProperties']['md5'], md5)
+        f.close()
+
+        with self.assertRaises(RequestError) as cm:
+            self.acd_client.download_file(n['id'], f.name, length=sz + 1)
+
         self.assertEqual(cm.exception.status_code, RequestError.CODE.INCOMPLETE_RESULT)
-        content.download_file(n['id'], fn, length=sz)
-        trash.move_to_trash(n['id'])
-        os.remove(fn)
+        self.acd_client.download_file(n['id'], f.name, length=sz)
+        self.acd_client.move_to_trash(n['id'])
+        os.remove(f.name)
 
     def test_download_resume(self):
         ch_sz = gen_rand_sz()
         content.CHUNK_SIZE = ch_sz
         content.CONSECUTIVE_DL_LIMIT = ch_sz
-        fn, sz = gen_rand_file(size=5 * ch_sz)
-        md5 = hashing.hash_file(fn)
-        n = content.upload_file(fn)
+        f, sz = gen_temp_file(size=5 * ch_sz)
+        md5 = hashing.hash_file(f.name)
+        n = self.acd_client.upload_file(f.name)
         self.assertEqual(n['contentProperties']['md5'], md5)
-        os.remove(fn)
-        self.assertFalse(os.path.exists(fn))
-        p_fn = fn + content.PARTIAL_SUFFIX
+        f.close()
+
+        basename = os.path.basename(f.name)
+        self.assertFalse(os.path.exists(f.name))
+        p_fn = basename + content.PARTIAL_SUFFIX
         with open(p_fn, 'wb') as f:
-            content.chunked_download(n['id'], f, length=int(sz * random.random()))
+            self.acd_client.chunked_download(n['id'], f, length=int(sz * random.random()))
         self.assertLess(os.path.getsize(p_fn), sz)
-        content.download_file(n['id'], fn)
-        trash.move_to_trash(n['id'])
-        dl_md5 = hashing.hash_file(fn)
+        self.acd_client.download_file(n['id'], basename)
+        self.acd_client.move_to_trash(n['id'])
+        dl_md5 = hashing.hash_file(basename)
         self.assertEqual(md5, dl_md5)
-        os.remove(fn)
+        os.remove(basename)
 
     def test_create_file(self):
         name = gen_rand_nm()
-        node = content.create_file(name)
-        trash.move_to_trash(node['id'])
+        node = self.acd_client.create_file(name)
+        self.acd_client.move_to_trash(node['id'])
         self.assertEqual(node['name'], name)
-        self.assertEqual(node['parents'][0], metadata.get_root_id())
+        self.assertEqual(node['parents'][0], self.acd_client.get_root_id())
 
     def test_get_root_id(self):
-        id = metadata.get_root_id()
+        id = self.acd_client.get_root_id()
         self.assertTrue(common.is_valid_id(id))
 
     # helper
     def create_random_dir(self):
         nm = gen_rand_nm()
-        n = content.create_folder(nm)
+        n = self.acd_client.create_folder(nm)
         self.assertIn('id', n)
         return n['id']
 
     def test_mkdir(self):
         f_id = self.create_random_dir()
-        trash.move_to_trash(f_id)
+        self.acd_client.move_to_trash(f_id)
 
     #
     # metadata.py
@@ -206,32 +232,32 @@ class APILiveTestCase(unittest.TestCase):
 
     @do_not_run
     def test_get_changes(self):
-        nodes, purged_nodes, checkpoint, reset = metadata.get_changes(include_purged=False)
+        nodes, purged_nodes, checkpoint, reset = self.acd_client.get_changes(include_purged=False)
         self.assertGreaterEqual(len(nodes), 1)
         self.assertEqual(len(purged_nodes), 0)
         self.assertTrue(reset)
-        nodes, purged_nodes, checkpoint, reset = metadata.get_changes(checkpoint=checkpoint)
+        nodes, purged_nodes, checkpoint, reset = self.acd_client.get_changes(checkpoint=checkpoint)
         self.assertEqual(len(nodes), 0)
         self.assertEqual(len(purged_nodes), 0)
         self.assertFalse(reset)
 
     def test_move_node(self):
         f_id = self.create_random_dir()
-        node = content.create_file(gen_rand_nm())
+        node = self.acd_client.create_file(gen_rand_nm())
         old_parent = node['parents'][0]
-        node = metadata.move_node(node['id'], old_parent, f_id)
+        node = self.acd_client.move_node(node['id'], f_id)
         self.assertEqual(node['parents'][0], f_id)
-        trash.move_to_trash(f_id)
-        trash.move_to_trash(node['id'])
+        self.acd_client.move_to_trash(f_id)
+        self.acd_client.move_to_trash(node['id'])
 
     def test_rename_node(self):
         nm = gen_rand_nm()
         nm2 = gen_rand_nm()
-        node = content.create_file(nm)
+        node = self.acd_client.create_file(nm)
         self.assertEqual(node['name'], nm)
-        node = metadata.rename_node(node['id'], nm2)
+        node = self.acd_client.rename_node(node['id'], nm2)
         self.assertEqual(node['name'], nm2)
-        trash.move_to_trash(node['id'])
+        self.acd_client.move_to_trash(node['id'])
 
     #
     # trash.py
@@ -243,16 +269,16 @@ class APILiveTestCase(unittest.TestCase):
 
     def test_restore(self):
         f_id = self.create_random_dir()
-        n = trash.move_to_trash(f_id)
+        n = self.acd_client.move_to_trash(f_id)
         self.assertEqual(n['status'], 'TRASH')
-        n = trash.restore(n['id'])
+        n = self.acd_client.restore(n['id'])
         self.assertEqual(n['status'], 'AVAILABLE')
-        n = trash.move_to_trash(n['id'])
+        n = self.acd_client.move_to_trash(n['id'])
         self.assertEqual(n['status'], 'TRASH')
 
     def test_purge(self):
         f_id = self.create_random_dir()
-        n = trash.move_to_trash(f_id)
+        n = self.acd_client.move_to_trash(f_id)
         self.assertEqual(n['status'], 'TRASH')
         with self.assertRaises(RequestError):
-            trash.purge(n['id'])
+            self.acd_client.purge(n['id'])

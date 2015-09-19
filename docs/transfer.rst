@@ -13,11 +13,17 @@ Upload
 ~~~~~~
 
 The upload action will upload files or recursively upload directories.
+Existing files will not be changed, normally.
 
 Syntax:
 ::
 
    acdcli upload /local/path [/local/next_path [...]] /remote/path
+
+If the ``--overwrite`` (``-o``) argument is specified, a remote file will be updated if
+a) the local file's modification time is higher or
+b) the local file's creation time is higher and the file size is different.
+The ``--force`` (``-f``) argument can be used to force overwrite.
 
 
 Overwrite

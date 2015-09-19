@@ -2,54 +2,59 @@
 
 import unittest
 import httpretty
-from mock import patch, mock_open, MagicMock, sentinel
+from mock import patch, mock_open, MagicMock
 import logging
 import os
 import json
 import time
 
-from acdcli.api import common, account, metadata, oauth
+import acdcli.api.oauth as oauth
+
+from acdcli.api.account import _Usage
+from acdcli.api.common import *
+from acdcli.api.client import ACDClient
+
 from .test_helper import gen_rand_id
 
 logging.basicConfig(level=logging.INFO)
-common.BackOffRequest._wait = lambda: None
 path = os.path.join(os.path.dirname(__file__), 'dummy_files')
 
 
 class APITestCase(unittest.TestCase):
     def setUp(self):
-        common.init(path)
+        self.acd = ACDClient(path)
+        self.acd.BOReq._wait = lambda: None
 
     def testMetadataUrl(self):
-        self.assertEqual(common.get_metadata_url(), 'https://cdws.us-east-1.amazonaws.com/drive/v1/')
+        self.assertEqual(self.acd.metadata_url, 'https://cdws.us-east-1.amazonaws.com/drive/v1/')
 
     def testContentUrl(self):
-        self.assertEqual(common.get_content_url(), 'https://content-na.drive.amazonaws.com/cdproxy/')
+        self.assertEqual(self.acd.content_url, 'https://content-na.drive.amazonaws.com/cdproxy/')
 
     def testValidID0(self):
-        self.assertTrue(common.is_valid_id('abcdefghijklmnopqrstuv'))
+        self.assertTrue(is_valid_id('abcdefghijklmnopqrstuv'))
 
     def testValidID1(self):
-        self.assertTrue(common.is_valid_id('0123456789012345678901'))
+        self.assertTrue(is_valid_id('0123456789012345678901'))
 
     def testValidID2(self):
-        self.assertTrue(common.is_valid_id('a0b1c2d3e4f5g6h7i8j9k0'))
+        self.assertTrue(is_valid_id('a0b1c2d3e4f5g6h7i8j9k0'))
 
     def testValidID3(self):
-        self.assertTrue(common.is_valid_id('a0b1c2d3e4f--6h7i8j9k0'))
+        self.assertTrue(is_valid_id('a0b1c2d3e4f--6h7i8j9k0'))
 
     def testValidIDs(self):
         for _ in range(1000):
-            self.assertTrue(common.is_valid_id(gen_rand_id()))
+            self.assertTrue(is_valid_id(gen_rand_id()))
 
     def testInvalidID0(self):
-        self.assertFalse(common.is_valid_id(''))
+        self.assertFalse(is_valid_id(''))
 
     def testInvalidID1(self):
-        self.assertFalse(common.is_valid_id('äbcdéfghíjklmnöpqrstüv'))
+        self.assertFalse(is_valid_id('äbcdéfghíjklmnöpqrstüv'))
 
     def testInvalidID2(self):
-        self.assertFalse(common.is_valid_id('abcdefghijklmnopqrstu'))
+        self.assertFalse(is_valid_id('abcdefghijklmnopqrstu'))
 
     #
     # account
@@ -58,7 +63,7 @@ class APITestCase(unittest.TestCase):
     @httpretty.activate
     def testUsage(self):
         httpretty. \
-            register_uri(httpretty.GET, common.get_metadata_url() + 'account/usage',
+            register_uri(httpretty.GET, self.acd.metadata_url + 'account/usage',
                          body=json.dumps({"lastCalculated": "2014-08-13T23:17:41.365Z",
                                           "video": {"billable": {"bytes": 23524252, "count": 22},
                                                     "total": {"bytes": 23524252, "count": 22}},
@@ -69,12 +74,12 @@ class APITestCase(unittest.TestCase):
                                           "photo": {"billable": {"bytes": 9477988, "count": 25},
                                                     "total": {"bytes": 9477988, "count": 25}}})
                          )
-        self.assertIsInstance(account.get_account_usage(), account._Usage)
+        self.assertIsInstance(self.acd.get_account_usage(), _Usage)
 
     @httpretty.activate
     def testUsageEmpty(self):
-        httpretty.register_uri(httpretty.GET, common.get_metadata_url() + 'account/usage', body='{}')
-        self.assertEqual(str(account.get_account_usage()), '')
+        httpretty.register_uri(httpretty.GET, self.acd.metadata_url + 'account/usage', body='{}')
+        self.assertEqual(str(self.acd.get_account_usage()), '')
 
     #
     # metadata
@@ -82,11 +87,12 @@ class APITestCase(unittest.TestCase):
 
     @httpretty.activate
     def testChanges(self):
-        httpretty.register_uri(httpretty.POST, common.get_metadata_url() + 'changes',
+        httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": "foo", "reset": true, '
-                                    '"nodes": [ {"kind": "FILE", "status": "TRASH"} ], "statusCode": 200}\n'
+                                    '"nodes": [ {"kind": "FILE", "status": "TRASH"} ], '
+                                    '"statusCode": 200}\n'
                                     '{"end": true}')
-        nodes, purged_nodes, checkpoint, reset = metadata.get_changes()
+        nodes, purged_nodes, checkpoint, reset = self.acd.get_changes()
         self.assertEqual(len(nodes), 1)
         self.assertEqual(len(purged_nodes), 0)
         self.assertEqual(checkpoint, 'foo')
@@ -94,9 +100,10 @@ class APITestCase(unittest.TestCase):
 
     @httpretty.activate
     def testChangesMissingEnd(self):
-        httpretty.register_uri(httpretty.POST, common.get_metadata_url() + 'changes',
-                               body='{"checkpoint": "foo", "reset": true, "nodes": [], "statusCode": 200}\n')
-        nodes, purged_nodes, checkpoint, reset = metadata.get_changes()
+        httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
+                               body='{"checkpoint": "foo", "reset": true, "nodes": [], '
+                                    '"statusCode": 200}\n')
+        nodes, purged_nodes, checkpoint, reset = self.acd.get_changes()
         self.assertEqual(len(nodes), 0)
         self.assertEqual(len(purged_nodes), 0)
         self.assertEqual(checkpoint, 'foo')
@@ -104,9 +111,9 @@ class APITestCase(unittest.TestCase):
 
     @httpretty.activate
     def testChangesCorruptJSON(self):
-        httpretty.register_uri(httpretty.POST, common.get_metadata_url() + 'changes',
+        httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": }')
-        self.assertRaises(common.RequestError, metadata.get_changes)
+        self.assertRaises(RequestError, self.acd.get_changes)
 
     #
     # oauth
@@ -115,7 +122,7 @@ class APITestCase(unittest.TestCase):
     dummy_token = {'access_token': 'foo', 'expires_in': 3600, 'refresh_token': 'bar'}
 
     def testOAuthActualHandler(self):
-        self.assertIsInstance(oauth.handler, oauth.AppspotOAuthHandler)
+        self.assertIsInstance(self.acd.handler, oauth.AppspotOAuthHandler)
 
     @httpretty.activate
     def testOAuthAppSpotRefresh(self):
@@ -146,15 +153,15 @@ class APITestCase(unittest.TestCase):
 
     def testOAuthValidationMissingRefresh(self):
         inv = json.dumps({'access_token': 'foo', 'expires_in': 3600})
-        with self.assertRaises(common.RequestError):
+        with self.assertRaises(RequestError):
             oauth.OAuthHandler.validate(inv)
 
     def testOAuthValidationMissingAccess(self):
         inv = json.dumps({'expires_in': 3600, 'refresh_token': 'bar'})
-        with self.assertRaises(common.RequestError):
+        with self.assertRaises(RequestError):
             oauth.OAuthHandler.validate(inv)
 
     def testOAuthValidationMissingExpiration(self):
         inv = json.dumps({'access_token': 'foo', 'refresh_token': 'bar'})
-        with self.assertRaises(common.RequestError):
+        with self.assertRaises(RequestError):
             oauth.OAuthHandler.validate(inv)

@@ -70,18 +70,16 @@ def size_nlink_str(node):
     if node.is_file():
         return nor_fmt % file_size_str(node.size).rjust(7)
     elif node.is_folder():
-        return nor_fmt % str(node.size).rjust(7)
+        return nor_fmt % str(node.nlinks).rjust(7)
     return ''
 
 
 class ListFormatter(object):
-    @staticmethod
     def __new__(cls, bunches, **kwargs):
         return LSFormatter(bunches, **kwargs)
 
 
 class LSFormatter(ListFormatter):
-    @staticmethod
     def __new__(cls, bunches, recursive=False, long=False):
         is_first = True
         for bunch in bunches:
@@ -103,7 +101,6 @@ class LSFormatter(ListFormatter):
 
 
 class LongIDFormatter(ListFormatter):
-    @staticmethod
     def __new__(cls, bunches):
         for bunch in bunches:
             node = bunch.node
@@ -118,7 +115,6 @@ class LongIDFormatter(ListFormatter):
 
 
 class TreeFormatter(ListFormatter):
-    @staticmethod
     def __new__(cls, bunches):
         for bunch in bunches:
             pre = ''
@@ -128,14 +124,12 @@ class TreeFormatter(ListFormatter):
 
 
 class IDFormatter(ListFormatter):
-    @staticmethod
     def __new__(cls, bunches):
         for bunch in bunches:
             yield bunch.node.id
 
 
 class PathFormatter(ListFormatter):
-    @staticmethod
     def __new__(cls, bunches):
         for bunch in bunches:
             yield bunch.node.full_path()
