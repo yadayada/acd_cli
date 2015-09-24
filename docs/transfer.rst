@@ -5,6 +5,8 @@ acd\_cli offers multi-file transfer actions - upload and download -
 and single-file transfer actions - overwrite, stream and cat.
 
 Multi-file transfers can be done with concurrent connections by specifying the argument ``-x NUM``.
+If remote folder hierarchies or local directory hierarchies need to be created, this will be done
+prior to the file transfers.
 
 Actions
 -------
@@ -40,6 +42,7 @@ Download
 ~~~~~~~~
 
 The download action can download a single file or recursively download a directory.
+If a file already exists locally, it will not be overwritten.
 
 Syntax:
 ::
@@ -62,6 +65,15 @@ Cat
 ~~~
 
 This action outputs the content of a file to standard output.
+
+Abort/Resume
+------------
+
+Incomplete file downloads will be resumed automatically. Aborted file uploads are not resumable
+at the moment.
+
+Folder or directory hierarchies that were created for a transfer do not need to be recreated when
+resuming a transfer.
 
 Retry
 -----
