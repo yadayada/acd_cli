@@ -27,7 +27,7 @@ Use `code block markup <https://guides.github.com/features/mastering-markdown/>`
 output, log messages, etc.
 
 Questions may also be directed at `acd_cli@mail.com <mailto:acd_cli@mail.com>`_ or
-asked in the `chat <https://gitter.im/cloud-drive/acd_cli>`_.
+asked in the `chat <https://gitter.im/yadayada/acd_cli>`_.
 
 Code
 ----

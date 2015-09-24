@@ -280,7 +280,7 @@ Recent Changes
 
 .. |Gitter| image:: https://img.shields.io/badge/GITTER-join%20chat-brightgreen.svg
    :alt: Join the Gitter chat
-   :target: https://gitter.im/cloud-drive/acd_cli
+   :target: https://gitter.im/yadayada/acd_cli
 
 .. |PyPiVersion| image:: https://img.shields.io/pypi/v/acdcli.svg
    :alt: PyPi
