@@ -930,8 +930,6 @@ def set_encoding(force_utf: bool=False):
         sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
         utf_flag = True
 
-        logger.info('Stdout/stderr encoding changed to UTF-8.')
-
     return utf_flag
 
 
@@ -1226,12 +1224,15 @@ def main():
 
     args = opt_parser.parse_args()
 
+    utf_flag = set_encoding(force_utf=args.utf)
     set_log_level(args)
+    if utf_flag:
+        logger.info('Stdout/stderr encoding changed to UTF-8.')
+
+    check_py_version()
+
     for msg in plugin_log:
         logger.info(msg)
-
-    set_encoding(force_utf=args.utf)
-    check_py_version()
 
     global acd_client
     global cache
