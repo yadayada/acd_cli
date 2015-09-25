@@ -344,7 +344,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 return UL_TIMEOUT
             else:
                 logger.error(
-                    'Uploading "%s" failed. Code: %s, msg: %s' % (short_nm, e.status_code, e.msg))
+                    'Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
         else:
             cache.insert_node(r)
@@ -389,7 +389,7 @@ def overwrite(node_id, local_file, dedup=False,
 
         return compare_hashes(md5, hasher.get_result(), local_file)
     except RequestError as e:
-        logger.error('Error overwriting file. Code: %s, msg: %s' % (e.status_code, e.msg))
+        logger.error('Error overwriting file. %s' % str(e))
         return UL_DL_FAILED
 
 
@@ -405,7 +405,7 @@ def upload_stream(stream, file_name, parent_id, dedup=False,
         node = cache.get_node(r['id'])
         return compare_hashes(node.md5, hasher.get_result(), 'stream')
     except RequestError as e:
-        logger.error('Error uploading stream. Code: %s, msg: %s' % (e.status_code, e.msg))
+        logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
 
 
@@ -482,7 +482,7 @@ def download_file(node_id: str, local_path: str,
         acd_client.download_file(node_id, name, local_path, length=size,
                               write_callbacks=[hasher.update, pg_handler.update])
     except RequestError as e:
-        logger.error('Downloading "%s" failed. Code: %s, msg: %s' % (name, e.status_code, e.msg))
+        logger.error('Downloading "%s" failed. %s' % (name, str(e)))
         return UL_DL_FAILED
     else:
         return compare_hashes(hasher.get_result(), md5, name)
@@ -677,40 +677,71 @@ def cat_action(args: argparse.Namespace) -> int:
     try:
         acd_client.chunked_download(args.node, sys.stdout.buffer)
     except RequestError as e:
-        logger.error('Downloading failed. Code: %s, msg: %s' % (e.status_code, e.msg))
+        logger.error('Downloading failed. %s' % str(e))
         return UL_DL_FAILED
 
     return 0
 
 
-def create_action(args: argparse.Namespace) -> int:
-    parent, folder = os.path.split(args.new_folder)
-    # no trailing slash
-    if not folder:
-        parent, folder = os.path.split(parent)
+def mkdir(parent, name: str) -> bool:
+    """Creates a folder and inserts it into cache upon success."""
+    if parent.is_file():
+        logger.error('Cannot create directory "%s". Parent is not a folder.' % name)
+        return False
 
-    if not folder:
-        logger.error('Cannot create folder with empty name.')
-        return INVALID_ARG_RETVAL
+    c = parent.get_child(name)
+    if c:
+        if c.is_file():
+            logger.error('Cannot create directory "%s". File exists.' % name)
+            return False
+        else:
+            logger.warning('Folder "%s" already exists.' % name)
+            return True
 
-    if parent[-1:] == '' or parent[0] != '/':
-        parent = '/' + parent
-    p_id = cache.resolve_path(parent)
-    if not p_id:
-        logger.error('Invalid parent path "%s".' % parent)
-        return INVALID_ARG_RETVAL
+    parent_id = parent.id
 
     try:
-        r = acd_client.create_folder(folder, p_id)
+        r = acd_client.create_folder(name, parent_id)
     except RequestError as e:
-        logger.debug(str(e.status_code) + e.msg)
         if e.status_code == 409:
-            logger.warning('Folder "%s" already exists.' % folder)
+            logger.warning('Node "%s" already exists. %s' % (name, str(e)))
+            return False
         else:
-            logger.error('Error creating folder "%s".' % folder)
-            return ERR_CR_FOLDER
+            logger.error('Error creating folder "%s". %s' % (name, str(e)))
+            return False
     else:
         cache.insert_node(r)
+        return True
+
+
+def create_action(args: argparse.Namespace) -> int:
+    segments = [seg for seg in args.new_folder.split('/') if seg] # non-empty path segments
+
+    if not segments:
+        return
+
+    cur_path = '/'
+    parent = cache.get_root_node()
+
+    for s in segments[:-1]:
+        cur_path += s + '/'
+        child = parent.get_child(s)
+
+        if child:
+            parent = child
+            continue
+
+        if not args.parents:
+            logger.error('Path "%s" does not exist.' % cur_path)
+            return ERR_CR_FOLDER
+
+        if not mkdir(parent, s):
+            return ERR_CR_FOLDER
+
+        parent = parent.get_child(s)
+
+    if not mkdir(parent, segments[-1]):
+        return ERR_CR_FOLDER
 
 
 @no_autores_trash_action
@@ -1109,6 +1140,8 @@ def get_parser() -> tuple:
 
     cr_fo_sp = subparsers.add_parser('create', aliases=['c', 'mkdir'],
                                      help='create folder using an absolute path\n\n')
+    cr_fo_sp.add_argument('--parents', '-p', action='store_true',
+                          help='create parent folders as needed')
     cr_fo_sp.add_argument('new_folder', help='an absolute folder path, '
                                              'e.g. "/my/dir/"; trailing slash is optional')
     cr_fo_sp.set_defaults(func=create_action)
