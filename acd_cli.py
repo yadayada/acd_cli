@@ -82,6 +82,10 @@ if not os.path.isdir(CACHE_PATH):
         logger.critical('Error creating cache directory "%s"' % CACHE_PATH)
         sys.exit(1)
 
+# consts
+
+MIN_AUTOSYNC_INTERVAL = 60
+
 # return values
 
 ERROR_RETVAL = 1
@@ -170,6 +174,19 @@ def old_sync():
     cache.insert_nodes(files + folders, partial=False)
     cache.KeyValueStorage['sync_date'] = time.time()
 
+
+def autosync(interval: int):
+    if not interval:
+        return
+
+    interval = max(MIN_AUTOSYNC_INTERVAL, interval)
+    while True:
+        try:
+            sync_node_list(full=False)
+        except:
+            import traceback
+            logger.error(traceback.format_exc())
+        time.sleep(interval)
 
 #
 # File transfer
@@ -879,9 +896,11 @@ def dump_sql_action(args: argparse.Namespace):
 
 
 def mount_action(args: argparse.Namespace):
+    asp = partial(autosync, args.interval)
+
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
-                                      nlinks=args.nlinks, interval=args.interval),
+                                      nlinks=args.nlinks, autosync=asp),
                       ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
                       nonempty=args.nonempty, modules=args.modules,
                       allow_root=args.allow_root, allow_other=args.allow_other)

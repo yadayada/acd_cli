@@ -192,7 +192,7 @@ class Folder(Node):
     def get_child(self, name: str) -> Node:
         """ Gets non-trashed child by name. """
         for child in self.children:
-            if child.name == name and child.status != 'TRASH':
+            if child.name == name and child.status == 'AVAILABLE':
                 return child
         return
 

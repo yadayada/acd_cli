@@ -9,7 +9,7 @@ from time import time, sleep
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from multiprocessing import Process
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 from queue import Queue, Full as QueueFull
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
@@ -24,23 +24,6 @@ CHUNK_TIMEOUT = 5
 
 WRITE_TIMEOUT = 60
 WRITE_BUFFER_SZ = 2 ** 10
-
-MIN_AUTOSYNC_INTERVAL = 60
-
-
-def _autosync(interval: int):
-    if not interval:
-        return
-
-    import acd_cli
-
-    interval = max(MIN_AUTOSYNC_INTERVAL, interval)
-    while True:
-        try:
-            acd_cli.sync_node_list(full=False)
-        except:
-            pass
-        sleep(interval)
 
 
 class FuseOSError(FuseError):
@@ -161,7 +144,7 @@ class ReadProxy(object):
 
 
 class WriteProxy(object):
-    """Dict of WriteStreams for consecutive write operations."""
+    """Collection of WriteStreams for consecutive file write operations."""
 
     def __init__(self, acd_client, cache):
         self.acd_client = acd_client
@@ -169,15 +152,19 @@ class WriteProxy(object):
         self.files = defaultdict(WriteProxy.WriteStream)
 
     class WriteStream(object):
-        __slots__ = ('q', 'offset', 'error', 'closed')
+        """A WriteStream is a binary file-like object that is backed by a Queue."""
+        __slots__ = ('q', 'offset', 'error', 'closed', 'done')
 
         def __init__(self):
             self.q = Queue(maxsize=WRITE_BUFFER_SZ)
             self.offset = 0
-            self.error = False
+            self.error = False # read error
             self.closed = False
+            self.done = Event() # read done
 
         def write(self, data):
+            if self.error:
+                raise FuseOSError(errno.EREMOTEIO)
             try:
                 self.q.put(data, timeout=WRITE_TIMEOUT)
             except QueueFull:
@@ -186,9 +173,6 @@ class WriteProxy(object):
             self.offset += len(data)
 
         def read(self, ln=0):
-            if self.error:
-                raise FuseOSError(errno.EREMOTEIO)
-
             if self.closed and self.q.empty():
                 return b''
 
@@ -202,16 +186,22 @@ class WriteProxy(object):
 
         def close(self):
             self.closed = True
-            if self.error:
-                pass
+
+            # wait until read is complete
+            while True:
+                if self.error:
+                    raise FuseOSError(errno.EREMOTEIO)
+                if self.done.wait(1):
+                    return
 
     def write_n_sync(self, stream: WriteStream, node_id: str):
         try:
             r = self.acd_client.overwrite_stream(stream, node_id)
         except RequestError as e:
             stream.error = True
-            logger.error('Error writing file. Code: %i, msg: %s' % (e.status_code, e.msg))
+            logger.error('Error writing node "%s". %s' % (node_id, str(e)))
         else:
+            stream.done.set()
             self.cache.insert_node(r)
 
     def write(self, node_id, fh, offset, bytes_):
@@ -232,6 +222,7 @@ class WriteProxy(object):
         f = self.files.get(fh)
         if f:
             f.close()
+            del self.files[fh]
 
 
 class LoggingMixIn(object):
@@ -239,8 +230,15 @@ class LoggingMixIn(object):
     log = logging.getLogger('fuse.log')
 
     def __call__(self, op, path, *args):
-        self.log.debug('-> %s %s %s', op, path,
-                       repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
+        targs = None
+        if op == 'open':
+            targs = (('0x%0*x' % (4, args[0]),) + args[1:])
+        elif op == 'write':
+            targs = (len(args[0]),) + args[1:]
+        elif op == 'chmod':
+            targs = (oct(args[0]),) + args[1:]
+
+        self.log.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
 
         ret = '[Unhandled Exception]'
         try:
@@ -250,7 +248,9 @@ class LoggingMixIn(object):
             ret = str(e)
             raise
         finally:
-            self.log.debug('<- %s %s', op, repr(ret) if op != 'read' else '')
+            if op == 'read':
+                ret = ''
+            self.log.debug('<- %s %s', op, repr(ret))
 
 
 class ACDFuse(LoggingMixIn, Operations):
@@ -269,6 +269,7 @@ class ACDFuse(LoggingMixIn, Operations):
     def __init__(self, **kwargs):
         self.cache = kwargs['cache']
         self.acd_client = kwargs['acd_client']
+        autosync = kwargs['autosync']
 
         self.rp = ReadProxy(self.acd_client)
         self.wp = WriteProxy(self.acd_client, self.cache)
@@ -279,8 +280,7 @@ class ACDFuse(LoggingMixIn, Operations):
         self.fh = 1
         self.nlinks = kwargs.get('nlinks', False)
 
-        sync_interval = kwargs.get('interval', 0)
-        p = Process(target=_autosync, args=(sync_interval,))
+        p = Process(target=autosync)
         p.start()
 
     def readdir(self, path, fh):
@@ -417,7 +417,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if existing_id:
             en = self.cache.get_node(existing_id)
             if en and en.is_file():
-                self.acd_client.move_to_trash(existing_id)
+                self._trash(new)
             else:
                 raise FuseOSError(errno.EEXIST)
 
@@ -448,7 +448,6 @@ class ACDFuse(LoggingMixIn, Operations):
             self.cache.insert_node(r)
 
     def open(self, path, flags):
-        logger.debug('open %s %x' % (path, flags))
         self.fh += 1
         return self.fh
 
@@ -485,11 +484,14 @@ class ACDFuse(LoggingMixIn, Operations):
     def utimens(self, path, times=None):
         """:param times: """
         if times:
+            # atime = times[0]
             mtime = times[1]
-            # TODO: update time
+        else:
+            # atime = time()
+            mtime = time()
 
     def chmod(self, path, mode):
-        logger.debug('chmod %s %s' % (path, oct(mode)))
+        pass
 
     def chown(self, path, uid, gid):
         pass
