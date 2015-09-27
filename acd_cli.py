@@ -1302,7 +1302,7 @@ def main():
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
-        if args.func != sync_action:
+        if args.func not in [sync_action, old_sync_action]:
             if not check_cache():
                 sys.exit(INIT_FAILED_RETVAL)
 
