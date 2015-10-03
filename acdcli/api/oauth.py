@@ -16,7 +16,8 @@ def create_handler(path: str):
     try:
         return LocalOAuthHandler(path)
     except:
-        return AppspotOAuthHandler(path)
+        pass
+    return AppspotOAuthHandler(path)
 
 
 class OAuthHandler(object):
@@ -39,7 +40,7 @@ class OAuthHandler(object):
 
     @classmethod
     def validate(cls, oauth: str) -> dict:
-        """Validate and deserialize OAuth string
+        """Deserialize and validate an OAuth string
         :raises: RequestError"""
 
         from .common import RequestError
@@ -51,7 +52,8 @@ class OAuthHandler(object):
             o[cls.KEYS.REFR_TOKEN]
             return o
         except (ValueError, KeyError) as e:
-            logger.critical('Invalid authentication token: Invalid JSON or missing key.')
+            logger.critical('Invalid authentication token: Invalid JSON or missing key.'
+                            'Token:\n%s' % oauth)
             raise RequestError(RequestError.CODE.INVALID_TOKEN, e.__str__())
 
     def treat_auth_token(self, time: float):
