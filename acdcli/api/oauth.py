@@ -13,8 +13,12 @@ TOKEN_INFO_URL = 'https://api.amazon.com/auth/o2/tokeninfo'
 
 
 def create_handler(path: str):
+    from .common import RequestError
+
     try:
         return LocalOAuthHandler(path)
+    except (KeyError, RequestError, KeyboardInterrupt, EOFError, SystemExit):
+        raise
     except:
         pass
     return AppspotOAuthHandler(path)
@@ -34,9 +38,11 @@ class OAuthHandler(object):
         self.path = path
         self.oauth_data = {}
         self.oauth_data_path = os.path.join(path, self.OAUTH_DATA_FILE)
-
-        self.exp_time = lambda: self.oauth_data[self.KEYS.EXP_TIME]
         self.init_time = time.time()
+
+    @property
+    def exp_time(self):
+        return self.oauth_data[self.KEYS.EXP_TIME]
 
     @classmethod
     def validate(cls, oauth: str) -> dict:
@@ -69,7 +75,12 @@ class OAuthHandler(object):
 
         with open(self.oauth_data_path) as oa:
             o = oa.read()
-        self.oauth_data = self.validate(o)
+        try:
+            self.oauth_data = self.validate(o)
+        except:
+            logger.critical('Local OAuth data file "%s" is invalid. '
+                            'Please fix or delete it.' % self.oauth_data_path)
+            raise
         if self.KEYS.EXP_TIME not in self.oauth_data:
             self.treat_auth_token(self.init_time)
             self.write_oauth_data()
@@ -78,9 +89,9 @@ class OAuthHandler(object):
 
     def get_auth_token(self, reload=True) -> str:
         """Get current access token, refreshes if necessary"""
-        if time.time() > self.exp_time():
+        if time.time() > self.exp_time:
             logger.info('Token expired at %s.'
-                        % datetime.datetime.fromtimestamp(self.exp_time()).isoformat(' '))
+                        % datetime.datetime.fromtimestamp(self.exp_time).isoformat(' '))
 
             # if multiple instances are running, check for updated file
             if reload:
@@ -88,7 +99,7 @@ class OAuthHandler(object):
                     o = oa.read()
                 oauth_data = self.validate(o)
 
-            if time.time() > self.exp_time():
+            if time.time() > self.exp_time:
                 self.refresh_auth_token()
             else:
                 logger.info('Externally updated token found in oauth file.')
@@ -159,7 +170,7 @@ class AppspotOAuthHandler(OAuthHandler):
         ref = {self.KEYS.REFR_TOKEN: self.oauth_data[self.KEYS.REFR_TOKEN]}
         t = time.time()
 
-        from .common import RequestError
+        from .common import RequestError, ConnectionError
 
         try:
             response = requests.post(self.APPSPOT_URL, data=ref)
@@ -229,7 +240,7 @@ class LocalOAuthHandler(OAuthHandler):
 
         if self.client_id() == '' or self.client_secret() == '':
             logger.critical('Client ID or client secret empty or key absent.')
-            raise Exception
+            raise KeyError
 
     def check_oauth_file_exists(self):
         """:raises Exception"""

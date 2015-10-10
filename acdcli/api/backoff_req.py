@@ -21,6 +21,9 @@ class BackOffRequest(object):
     """
 
     def __init__(self, auth_callback):
+        """:arg auth_callback: function that returns necessary authentication information
+        as a dictionary
+        """
         self.auth_callback = auth_callback
 
         # __session = None
@@ -64,8 +67,13 @@ class BackOffRequest(object):
         #     self.__session = requests.session()
         self._wait()
 
-        with self.__lock:
-            headers = self.auth_callback()
+        try:
+            with self.__lock:
+                headers = self.auth_callback()
+        except:
+            self._failed()
+            raise
+
         if 'headers' in kwargs:
             headers = dict(headers, **(kwargs['headers']))
             del kwargs['headers']
