@@ -78,7 +78,8 @@ resuming a transfer.
 Retry
 -----
 
-Upload, download and overwrite allow retries by specifying the argument ``-r MAX_RETRIES``
+Failed upload, download and overwrite actions allow retries on error
+by specifying the ``--max-retries|-r`` argument, e.g. ``acd_cli <ACTION> -r MAX_RETRIES``.
 
 Exclusion
 ---------
@@ -95,9 +96,3 @@ Server-side deduplication prevents completely uploaded files from being saved as
 file with the same MD5 checksum already exists.
 acd\_cli can prevent uploading duplicates by checking local files' sizes and MD5s.
 Empty files are never regarded duplicates.
-
-Logging
--------
-
-When uploading/downloading large amounts of files, it is advisable to save the log messages to a file.
-This can be done by using the verbose argument and appending ``2> >(tee acd.log >&2)`` to the command.

@@ -4,13 +4,15 @@ import os
 import json
 import argparse
 import logging
+import logging.handlers
 import signal
-from datetime import datetime, timedelta
 import time
 import re
 import appdirs
+import colorama
 from functools import partial
 from collections import namedtuple
+from datetime import datetime, timedelta
 
 from pkgutil import walk_packages
 from pkg_resources import iter_entry_points
@@ -38,6 +40,8 @@ _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
 
+colorama.init()
+
 # noinspection PyBroadException
 # monkey patch the user agent
 try:
@@ -52,19 +56,6 @@ try:
         requests.utils.default_user_agent = new_dau
 except:
     pass
-
-
-# monkey patch for suppressing overlong http.client's HTTPConnection send debug prints
-def ellipses_print(*args, **kwargs):
-    for a in args:
-        if len(a) > 2000:
-            print('[...]', **kwargs)
-            return
-
-    print(*args, **kwargs)
-
-import http.client as cl
-cl.print = ellipses_print
 
 
 # path settings
@@ -85,6 +76,8 @@ if not os.path.isdir(CACHE_PATH):
 # consts
 
 MIN_AUTOSYNC_INTERVAL = 60
+MAX_LOG_SIZE = 10 * 2 ** 20
+MAX_LOG_FILES = 5
 
 # return values
 
@@ -314,7 +307,7 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, fo
 
 @retry_on(STD_RETRY_RETVALS)
 def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
-                pg_handler: progress.FileProgress=None) -> RetryRetVal:
+                pg_handler: progress.FileProgress = None) -> RetryRetVal:
     short_nm = os.path.basename(path)
 
     if dedup and cache.file_size_exists(os.path.getsize(path)):
@@ -341,8 +334,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         hasher = hashing.IncrementalHasher()
         try:
             r = acd_client.upload_file(path, parent_id,
-                                    read_callbacks=[hasher.update, pg_handler.update],
-                                    deduplication=dedup)
+                                       read_callbacks=[hasher.update, pg_handler.update],
+                                       deduplication=dedup)
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 if not dedup:
@@ -394,12 +387,12 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 @retry_on(STD_RETRY_RETVALS)
 def overwrite(node_id, local_file, dedup=False,
-              pg_handler: progress.FileProgress=None) -> RetryRetVal:
+              pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
         r = acd_client.overwrite_file(node_id, local_file,
-                                   read_callbacks=[hasher.update, pg_handler.update],
-                                   deduplication=dedup)
+                                      read_callbacks=[hasher.update, pg_handler.update],
+                                      deduplication=dedup)
         cache.insert_node(r)
         node = cache.get_node(r['id'])
         md5 = node.md5
@@ -412,12 +405,12 @@ def overwrite(node_id, local_file, dedup=False,
 
 @retry_on([])
 def upload_stream(stream, file_name, parent_id, dedup=False,
-                  pg_handler: progress.FileProgress=None) -> RetryRetVal:
+                  pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
         r = acd_client.upload_stream(stream, file_name, parent_id,
-                                  read_callbacks=[hasher.update, pg_handler.update],
-                                  deduplication=dedup)
+                                     read_callbacks=[hasher.update, pg_handler.update],
+                                     deduplication=dedup)
         cache.insert_node(r)
         node = cache.get_node(r['id'])
         return compare_hashes(node.md5, hasher.get_result(), 'stream')
@@ -487,7 +480,7 @@ def traverse_dl_folder(node_id: str, local_path: str, exclude: list, jobs: list)
 
 @retry_on(STD_RETRY_RETVALS)
 def download_file(node_id: str, local_path: str,
-                  pg_handler: progress.FileProgress=None) -> RetryRetVal:
+                  pg_handler: progress.FileProgress = None) -> RetryRetVal:
     node = cache.get_node(node_id)
     name, md5, size = node.name, node.md5, node.size
     # db.Session.remove()  # otherwise, sqlalchemy will complain if thread crashes
@@ -497,7 +490,7 @@ def download_file(node_id: str, local_path: str,
     hasher = hashing.IncrementalHasher()
     try:
         acd_client.download_file(node_id, name, local_path, length=size,
-                              write_callbacks=[hasher.update, pg_handler.update])
+                                 write_callbacks=[hasher.update, pg_handler.update])
     except RequestError as e:
         logger.error('Downloading "%s" failed. %s' % (name, str(e)))
         return UL_DL_FAILED
@@ -647,7 +640,7 @@ def upload_action(args: argparse.Namespace) -> int:
 
 @no_autores_trash_action
 def upload_stream_action(args: argparse.Namespace) -> int:
-    if not cache. get_node(args.parent):
+    if not cache.get_node(args.parent):
         logger.critical('Invalid upload folder')
         return INVALID_ARG_RETVAL
 
@@ -900,10 +893,10 @@ def mount_action(args: argparse.Namespace):
 
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
-                                      nlinks=args.nlinks, autosync=asp),
-                      ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
-                      nonempty=args.nonempty, modules=args.modules,
-                      allow_root=args.allow_root, allow_other=args.allow_other)
+                                          nlinks=args.nlinks, autosync=asp),
+                          ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
+                          nonempty=args.nonempty, modules=args.modules,
+                          allow_root=args.allow_root, allow_other=args.allow_other)
 
 
 @offline_action
@@ -918,7 +911,7 @@ def unmount_action(args: argparse.Namespace):
 #
 
 
-def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: bool=True):
+def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: bool = True):
     """In-place replaces certain attributes in Namespace by resolved node ID.
     :param attrs: list of attributes that may be given in absolute path form
     :param incl_trash: whether to resolve trashed files
@@ -942,31 +935,67 @@ def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: 
 
 
 def set_log_level(args: argparse.Namespace):
-    format_ = '%(asctime)s.%(msecs).03d [%(levelname)s] [%(name)s] - %(message)s\x1b[K'
+    fmt = '%(asctime)s.%(msecs).03d [%(levelname)s] [%(name)s] - %(message)s'
+    ansi_fmt = fmt + '\x1b[K'  # clear right
     time_fmt = '%y-%m-%d %H:%M:%S'
 
-    if not args.verbose and not args.debug:
-        logging.basicConfig(level=logging.WARNING, format=format_, datefmt=time_fmt)
+    dumbfmtter = logging.Formatter(fmt=fmt, datefmt=time_fmt)
+    ansifmtter = logging.Formatter(fmt=ansi_fmt, datefmt=time_fmt)
+
+    # stderr handler
+    sh = logging.StreamHandler()
+    tty = hasattr(sys.__stderr__, 'isatty') and sys.__stderr__.isatty()
+    sh.setFormatter(ansifmtter if tty else dumbfmtter)
+
+    # debug log files in cache path
+    rfh = logging.handlers.RotatingFileHandler(os.path.join(CACHE_PATH, _app_name + '.log'),
+                                               maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_FILES)
+    rfh.setFormatter(dumbfmtter)
+    rfh.setLevel(logging.DEBUG)
+
+    verbose = False
+    lvl = logging.WARNING
 
     if args.verbose:
-        logging.basicConfig(level=logging.INFO, format=format_, datefmt=time_fmt)
+        lvl = logging.INFO
         if args.verbose > 1:
-            logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
-            logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
+            verbose = True
     elif args.debug:
-        logging.basicConfig(level=logging.DEBUG, format=format_, datefmt=time_fmt)
+        lvl = logging.DEBUG
+        if args.debug > 1:
+            verbose = True
 
-        # these debug messages (prints) will not show up in log file
+    sh.setLevel(lvl)
+
+    if verbose:
+        logging.getLogger('sqlalchemy.engine').setLevel(lvl)
+        logging.getLogger('sqlalchemy.orm').setLevel(lvl)
+    if args.debug:
         import http.client
-
         http.client.HTTPConnection.debuglevel = 1
 
-        if args.debug > 1:
-            logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-            logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
+        # monkey patch for suppressing overlong http.client's HTTPConnection send debug prints
+        # TODO: use logger instead of print
+        def ellipses_print(*args, **kwargs):
+            for a in args:
+                if len(a) > 2000:
+                    print('[...]', file=sys.stderr, **kwargs)
+                    return
+
+            print(*args, file=sys.stderr, **kwargs)
+
+        http.client.print = ellipses_print
+
+    root_logger = logging.getLogger()
+    root_logger.addHandler(sh)
+    if args.log:
+        root_logger.addHandler(rfh)
+        root_logger.setLevel(logging.DEBUG)
+    else:
+        root_logger.setLevel(lvl)
 
 
-def set_encoding(force_utf: bool=False):
+def set_encoding(force_utf: bool = False):
     """Sets the default encoding to UTF-8 if none is set.
     :param force_utf: force UTF-8 output
     """
@@ -984,7 +1013,7 @@ def set_encoding(force_utf: bool=False):
 
 
 def check_cache():
-    """Checks for existence of root node and cache age."""
+    """Checks for existence of root node and logs cache age."""
 
     if not cache.get_root_node():
         logger.critical('Root node not found. Please sync.')
@@ -1021,7 +1050,8 @@ class Argument(object):
 
 def get_parser() -> tuple:
     max_ret = Argument('--max-retries', '-r', action='store', type=int, default=0,
-                       help='set the maximum number of retries [default: 0]')
+                       help='set the maximum number of retries '
+                            '[default: 0, maximum: %i]' % QueuedLoader.MAX_RETRIES)
 
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
@@ -1030,15 +1060,16 @@ def get_parser() -> tuple:
                'e.g. "/folder/file", or via ID \n'
                '  * If you need to enter a node ID that contains a leading dash (minus) sign, '
                'precede it by two dashes and a space, e.g. \'-- -xfH...\'\n'
-               '  * actions marked with [+] have optional arguments'
-               '')
+               '  * actions marked with [+] have optional arguments')
     log_group = opt_parser.add_mutually_exclusive_group()
     log_group.add_argument('-v', '--verbose', action='count',
                            help='prints some info messages to stderr; '
-                                 'use "-vv" to also get sqlalchemy info')
+                                'use "-vv" to also get sqlalchemy info')
     log_group.add_argument('-d', '--debug', action='count',
                            help='prints info and debug to stderr; '
-                                 'use "-dd" to also get sqlalchemy debug messages')
+                                'use "-dd" to also get sqlalchemy debug messages')
+    opt_parser.add_argument('-nl', '--no-log', action='store_false', dest='log',
+                            help='do not save a log of debug messages')
     opt_parser.add_argument('-c', '--color', default=format.ColorMode['never'],
                             choices=format.ColorMode.keys(),
                             help='"never" [default] turns coloring off, '
@@ -1067,7 +1098,7 @@ def get_parser() -> tuple:
     old_sync_sp.set_defaults(func=old_sync_action)
 
     clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'],
-                                     help='clear node cache [offline operation]\n\n')
+                                     help='delete node cache file [offline operation]\n\n')
     clear_sp.set_defaults(func=clear_action)
 
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
@@ -1318,6 +1349,7 @@ def main():
 
     # call appropriate sub-parser action
     if args.func:
+        logger.debug(args)
         sys.exit(args.func(args))
 
 

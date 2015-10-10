@@ -27,8 +27,9 @@ Distribution-specific packages
 ------------------------------
 
 There are two packages for Arch Linux in the AUR,
-`acd_cli-git <https://aur4.archlinux.org/packages/acd_cli-git/>`_ and
-`acd_cli <https://aur.archlinux.org/packages/acd_cli/>`_.
+`acd_cli-git <https://aur4.archlinux.org/packages/acd_cli-git/>`_, which is linked to the
+master branch of the GitHub repository, and
+`acd_cli <https://aur.archlinux.org/packages/acd_cli/>`_, which is linked to the PyPI release.
 
 You can use the `Makefile <../assets/Makefile>`_ to build Debian (``make deb``)
 or RedHat packages (``make rpm``). It will also build the required requests-toolbelt package.
@@ -42,6 +43,7 @@ Python Packages
 ~~~~~~~~~~~~~~~
 
 - `appdirs <https://github.com/ActiveState/appdirs>`_
+- `colorama <https://github.com/tartley/colorama>`_
 - `dateutils <https://github.com/paxan/python-dateutil>`_ (recommended)
 - `requests <https://github.com/kennethreitz/requests>`_ >= 2.1.0
 - `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_ (recommended)
@@ -52,7 +54,7 @@ workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
 
 If you want to the dependencies using your distribution's packaging system and
 are using a distro based on Debian 'jessie', the necessary packages are
-``python3-appdirs python3-dateutil python3-requests python3-sqlalchemy``.
+``python3-appdirs python3-colorama python3-dateutil python3-requests python3-sqlalchemy``.
 
 FUSE
 ~~~~

@@ -1,4 +1,4 @@
-|Donate| |Gitter| |PyVersion| |Status| |License| |Build| |PyPiVersion| |PyPiDownloadsMonth|
+|Donate| |Gitter| |PyVersion| |Status| |License| |Build| |PyPiVersion|
 
 acd\_cli
 ========
@@ -44,7 +44,7 @@ The easiest way is to directly install from PyPI.
    pip3 install --upgrade --pre acdcli
 
 
-The most up-to-date way is to directly install from github.
+The most up-to-date way is to directly install the master branch from GitHub.
 ::
 
    pip3 install --upgrade git+https://github.com/yadayada/acd_cli.git
@@ -137,6 +137,8 @@ Trashed nodes' paths might not be able to be resolved correctly; use their ID in
 
 There are more detailed instructions for `file transfer actions <docs/transfer.rst>`_ and
 `find actions <docs/find.rst>`_.
+
+Logs will automatically be saved into the cache directory.
 
 Mounting
 ~~~~~~~~
@@ -246,6 +248,7 @@ Recent Changes
 
     * general improvements for FUSE
     * FUSE write support added
+    * added automatic logging
 
 0.3.0
 ~~~~~
@@ -294,10 +297,6 @@ Recent Changes
 
 .. |License| image:: https://img.shields.io/badge/license-GPLv2+-blue.svg
    :alt:
-
-.. |PyPiDownloadsMonth| image:: https://img.shields.io/pypi/dm/acdcli.svg
-   :alt:
-   :target: https://pypi.python.org/pypi/acdcli
 
 .. |Build| image:: https://img.shields.io/travis/yadayada/acd_cli.svg
    :alt:
