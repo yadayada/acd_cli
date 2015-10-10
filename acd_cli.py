@@ -127,27 +127,32 @@ class CacheConsts(object):
 
 def sync_node_list(full=False):
     global cache
-    cp = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
-
-    try:
-        nodes, purged, ncp, full = acd_client.get_changes(checkpoint=cp, include_purged=not not cp)
-    except RequestError as e:
-        logger.critical('Sync failed.')
-        print(e)
-        return ERROR_RETVAL
+    cp_ = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
     if full:
         cache.drop_all()
         cache = db.NodeCache(CACHE_PATH)
-    else:
-        cache.remove_purged(purged)
 
-    if len(nodes) > 0:
-        cache.insert_nodes(nodes, partial=not full)
-    cache.KeyValueStorage.update({CacheConsts.LAST_SYNC_KEY: time.time()})
+    try:
+        for changeset in acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_)):
+            if changeset.reset and not full:
+                cache.drop_all()
+                cache = db.NodeCache(CACHE_PATH)
+                full = True
+            else:
+                cache.remove_purged(changeset.purged_nodes)
 
-    if len(nodes) > 0 or len(purged) > 0:
-        cache.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: ncp})
+            if len(changeset.nodes) > 0:
+                cache.insert_nodes(changeset.nodes, partial=not full)
+            cache.KeyValueStorage.update({CacheConsts.LAST_SYNC_KEY: time.time()})
+
+            if len(changeset.nodes) > 0 or len(changeset.purged_nodes) > 0:
+                cache.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: changeset.checkpoint})
+
+    except RequestError as e:
+        logger.critical('Sync failed.')
+        print(e)
+        return ERROR_RETVAL
 
 
 def old_sync():
@@ -1090,8 +1095,11 @@ def get_parser() -> tuple:
     vers_sp.set_defaults(func=print_version_action)
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
-                                    help='[+] refresh node list cache; necessary for many actions')
-    sync_sp.add_argument('--full', '-f', action='store_true', help='force a full sync')
+                                    help='[+] refresh node list cache; fetches complete node list'
+                                         'if cache is empty or incremental changes '
+                                         'if cache is non-empty')
+    sync_sp.add_argument('--full', '-f', action='store_true',
+                         help='perform a full sync even if the node list is not empty')
     sync_sp.set_defaults(func=sync_action)
 
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)

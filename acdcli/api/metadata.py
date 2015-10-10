@@ -32,9 +32,9 @@ class MetadataMixin(object):
     def get_trashed_files(self) -> list:
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
-    def get_changes(self, checkpoint='', include_purged=False) -> ChangeSet:
-        """ https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
-        :returns ChangeSet: list of nodes, list of purged nodes, last checkpoint, reset flag
+    def get_changes(self, checkpoint='', include_purged=False):
+        """ Generates a ChangeSets for each checkpoint in changes response
+        https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
         """
 
         logger.info('Getting changes with checkpoint "%s".' % checkpoint)
@@ -54,9 +54,6 @@ class MetadataMixin(object):
         {"checkpoint": str, "reset": false, "nodes": []}
         {"end": true}
         """
-        reset = False
-        nodes = []
-        purged_nodes = []
 
         end = False
         pages = -1
@@ -66,7 +63,11 @@ class MetadataMixin(object):
             if not line:
                 continue
 
+            reset = False
             pages += 1
+
+            nodes = []
+            purged_nodes = []
 
             try:
                 o = json.loads(line.decode('utf-8'))
@@ -95,16 +96,17 @@ class MetadataMixin(object):
                     purged_nodes.append(node['id'])
                 else:
                     nodes.append(node)
+
             checkpoint = o['checkpoint']
+            logger.debug('Checkpoint: %s' % checkpoint)
+
+            yield ChangeSet(nodes, purged_nodes, checkpoint, reset)
 
         r.close()
 
-        logger.info('%i pages, %i nodes, %i purged nodes in changes.'
-                    % (pages, len(nodes), len(purged_nodes)))
+        logger.info('%i pages in changes.' % pages)
         if not end:
             logger.warning('End of change request not reached.')
-
-        return ChangeSet(nodes, purged_nodes, checkpoint, reset)
 
     def get_metadata(self, node_id: str, assets=False) -> dict:
         params = {'tempLink': 'true', 'asset': 'ALL' if assets else 'NONE'}
@@ -181,7 +183,7 @@ class MetadataMixin(object):
         return self.update_metadata(node_id, properties)
 
     def get_owner_id(self):
-        """Provisional function for retrieving the security profile's name, a.k.a owner id."""
+        """Provisional function for retrieving the security profile's name, a.k.a. owner id."""
         node = self.create_file('acd_cli_get_owner_id')
         self.move_to_trash(node['id'])
         return node['createdBy']
@@ -209,7 +211,7 @@ class MetadataMixin(object):
 
     def delete_property(self, node_id: str, owner_id: str, key: str):
         ok_codes = [http.NO_CONTENT]
-        r = self.BOReq.delete(self.metadata_url + 'nodes/' + node_id
-                              + '/properties/' + owner_id + '/' + key, acc_codes=ok_codes)
+        r = self.BOReq.delete(self.metadata_url + 'nodes/' + node_id +
+                              '/properties/' + owner_id + '/' + key, acc_codes=ok_codes)
         if r.status_code not in ok_codes:
             raise RequestError(r.status_code, r.text)

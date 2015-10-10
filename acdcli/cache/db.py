@@ -52,24 +52,24 @@ class NodeCache(QueryMixin, SyncMixin):
         listen(self.engine, 'begin',
                lambda conn: conn.connection.create_function('REGEXP', 2, _regex_match))
 
-        uninitialized = not os.path.exists(db_path)
-        if not uninitialized:
+        initialized = os.path.exists(db_path)
+        if initialized:
             try:
-                uninitialized = not self.engine.has_table(schema.Metadate.__tablename__) and \
-                                not self.engine.has_table(schema.Node.__tablename__) and \
-                                not self.engine.has_table(schema.File.__tablename__) and \
-                                not self.engine.has_table(schema.Folder.__tablename__)
+                initialized = self.engine.has_table(schema.Metadate.__tablename__) and \
+                              self.engine.has_table(schema.Node.__tablename__) and \
+                              self.engine.has_table(schema.File.__tablename__) and \
+                              self.engine.has_table(schema.Folder.__tablename__)
             except DatabaseError as e:
                 logger.critical('Error opening database: %s' % str(e))
                 raise e
 
         self.integrity_check(check)
 
-        if uninitialized:
+        if not initialized:
             r = self.engine.execute('PRAGMA user_version = %i;' % NodeCache._DB_SCHEMA_VER)
             r.close()
 
-        logger.info('Cache %sconsidered uninitialized.' % ('' if uninitialized else 'not '))
+        logger.info('Cache is %sinitialized.' % ('' if initialized else 'not '))
 
         schema._Base.metadata.create_all(self.engine)
         session_factory = sessionmaker(bind=self.engine)
@@ -77,7 +77,7 @@ class NodeCache(QueryMixin, SyncMixin):
 
         self.KeyValueStorage = schema._KeyValueStorage(self.Session)
 
-        if uninitialized:
+        if not initialized:
             return
 
         r = self.engine.execute('PRAGMA user_version;')

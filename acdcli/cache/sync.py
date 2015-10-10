@@ -20,8 +20,14 @@ from .schema import Node, File, Folder, Label, _parentage_table
 logger = logging.getLogger(__name__)
 
 
-def iter_slice(it, length=100):
-    return [_ for _ in islice(it, length)]
+# prevent sqlite3 from throwing too many arguments errors (#145)
+def gen_slice(list_, length=100):
+    it = iter(list_)
+    while True:
+        slice_ = [_ for _ in islice(it, length)]
+        if not slice_:
+            return
+        yield slice_
 
 
 class SyncMixin(object):
@@ -31,28 +37,18 @@ class SyncMixin(object):
         if not purged:
             return
 
-        it = iter(purged)
-        its = lambda: iter_slice(it)
+        for slice_ in gen_slice(purged):
+            with self.engine.connect() as conn:
+                with conn.begin():
+                    conn.execute(Node.__table__.delete().where(Node.id.in_(slice_)))
+                    conn.execute(File.__table__.delete().where(File.id.in_(slice_)))
+                    conn.execute(Folder.__table__.delete().where(Folder.id.in_(slice_)))
+                    conn.execute(_parentage_table.delete()
+                                 .where(_parentage_table.columns.parent.in_(slice_)))
+                    conn.execute(_parentage_table.delete()
+                                 .where(_parentage_table.columns.child.in_(slice_)))
 
-        conn = self.engine.connect()
-        trans = conn.begin()
-
-        slice_ = its()
-        while slice_:
-            conn.execute(Node.__table__.delete().where(Node.id.in_(slice_)))
-            conn.execute(File.__table__.delete().where(File.id.in_(slice_)))
-            conn.execute(Folder.__table__.delete().where(Folder.id.in_(slice_)))
-            conn.execute(_parentage_table.delete()
-                         .where(_parentage_table.columns.parent.in_(slice_)))
-            conn.execute(_parentage_table.delete()
-                         .where(_parentage_table.columns.child.in_(slice_)))
-
-            conn.execute(Label.__table__.delete().where(Label.id.in_(slice_)))
-
-            slice_ = its()
-
-        trans.commit()
-        conn.close()
+                    conn.execute(Label.__table__.delete().where(Label.id.in_(slice_)))
 
         logger.info('Purged %i node(s).' % len(purged))
 
@@ -165,20 +161,16 @@ class SyncMixin(object):
         trans = conn.begin()
 
         if partial:
-            it = iter(nodes)
-            its = lambda: iter_slice(it)
+            for slice_ in gen_slice(nodes):
+                with self.engine.connect() as conn:
+                    with conn.begin():
+                        conn.execute('DELETE FROM parentage WHERE child IN (%s)' %
+                                     ', '.join([('"%s"' % n['id']) for n in slice_]))
 
-            slice_ = its()
-            while slice_:
-                conn.execute('DELETE FROM parentage WHERE child IN (%s)' %
-                             ', '.join([('"%s"' % n['id']) for n in slice_]))
-                slice_ = its()
-
-        for n in nodes:
-            for p in n['parents']:
-                conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, n['id'])
-
-        trans.commit()
-        conn.close()
+        with self.engine.connect() as conn:
+            with conn.begin():
+                for n in nodes:
+                    for p in n['parents']:
+                        conn.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', p, n['id'])
 
         logger.info('Parented %d node(s).' % len(nodes))

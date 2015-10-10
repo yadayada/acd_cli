@@ -17,10 +17,17 @@ Adding Issues
 +++++++++++++
 
 Before adding an issue, check that you are using the latest master commit and there is no
-existing issue that fits your problem. Try to reproduce the issue on another machine or ideally on
-another operating system, if possible.
+existing issue that fits your problem (including closed and unresolved issues).
+Try to reproduce the issue on another machine or ideally on another operating system, if possible.
 
-Please provide as much possibly relevant information as you can.
+Please provide as much possibly relevant information as you can. This should at least contain:
+
+- your operating system and Python version, e.g. as determined by
+  code:`python3 -c 'import platform as p; print(p.python_version()); print(p.platform())'`
+- the command/s you used
+- what happened
+- what you think should have happened instead (and maybe give a reason)
+
 You might find the ``--verbose`` and, to a lesser extent, ``--debug`` options helpful.
 
 Use `code block markup <https://guides.github.com/features/mastering-markdown/>`_ for console
@@ -32,11 +39,11 @@ asked in the `chat <https://gitter.im/yadayada/acd_cli>`_.
 Code
 ----
 
-There are no real programming guidelines as of yet. Please use type hints like specified in PEP 0484
-where appropriate and limit line length to 100 characters.
+There are no real programming guidelines as of yet. Please use function annotations for typing
+like specified in PEP 3107 where appropriate and limit line length to 100 characters.
 
-It is a generally a good idea to announce that you are working on an issue by explicitly stating
-this on the issue tracker.
+It is a generally a good idea to announce that you are working on an issue by explicitly announcing
+it.
 
 Please squash your commits before making a pull request.
 
