@@ -92,28 +92,33 @@ class APITestCase(unittest.TestCase):
                                     '"nodes": [ {"kind": "FILE", "status": "TRASH"} ], '
                                     '"statusCode": 200}\n'
                                     '{"end": true}')
-        nodes, purged_nodes, checkpoint, reset = self.acd.get_changes()
-        self.assertEqual(len(nodes), 1)
-        self.assertEqual(len(purged_nodes), 0)
-        self.assertEqual(checkpoint, 'foo')
-        self.assertTrue(reset)
+        changesets = [c for c in self.acd.get_changes()]
+        self.assertEqual(len(changesets), 1)
+        changeset = changesets[0]
+        self.assertEqual(len(changeset.nodes), 1)
+        self.assertEqual(len(changeset.purged_nodes), 0)
+        self.assertEqual(changeset.checkpoint, 'foo')
+        self.assertTrue(changeset.reset)
 
     @httpretty.activate
     def testChangesMissingEnd(self):
         httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": "foo", "reset": true, "nodes": [], '
                                     '"statusCode": 200}\n')
-        nodes, purged_nodes, checkpoint, reset = self.acd.get_changes()
-        self.assertEqual(len(nodes), 0)
-        self.assertEqual(len(purged_nodes), 0)
-        self.assertEqual(checkpoint, 'foo')
-        self.assertTrue(reset)
+        changesets = [c for c in self.acd.get_changes()]
+        self.assertEqual(len(changesets), 1)
+        changeset = changesets[0]
+        self.assertEqual(len(changeset.nodes), 0)
+        self.assertEqual(len(changeset.purged_nodes), 0)
+        self.assertEqual(changeset.checkpoint, 'foo')
+        self.assertTrue(changeset.reset)
 
     @httpretty.activate
     def testChangesCorruptJSON(self):
         httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": }')
-        self.assertRaises(RequestError, self.acd.get_changes)
+        with self.assertRaises(RequestError):
+            [cs for cs in self.acd.get_changes()]
 
     #
     # oauth
