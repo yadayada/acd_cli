@@ -23,7 +23,7 @@ MAX_CHUNKS_PER_FILE = 15
 CHUNK_TIMEOUT = 5
 
 WRITE_TIMEOUT = 60
-WRITE_BUFFER_SZ = 2 ** 10
+WRITE_BUFFER_SZ = 2 ** 5
 
 
 class FuseOSError(FuseError):
@@ -158,7 +158,7 @@ class WriteProxy(object):
         def __init__(self):
             self.q = Queue(maxsize=WRITE_BUFFER_SZ)
             self.offset = 0
-            self.error = False # read error
+            self.error = False # r/w error
             self.closed = False
             self.done = Event() # read done
 
@@ -173,6 +173,12 @@ class WriteProxy(object):
             self.offset += len(data)
 
         def read(self, ln=0):
+            """Returns as much byte data from queue as possible.
+            Returns empty bytestring if queue is empty and file was closed.
+            """
+            if self.error:
+                raise IOError(errno.EIO, errno.errorcode[errno.EIO])
+
             if self.closed and self.q.empty():
                 return b''
 
@@ -184,8 +190,25 @@ class WriteProxy(object):
 
             return b''.join(b)
 
+        def flush(self):
+            """Waits until the queue is emptied.
+            :raises FuseOSError
+            """
+            while True:
+                if self.error:
+                    raise FuseOSError(errno.EREMOTEIO)
+                if self.q.empty():
+                    return
+                sleep(1)
+
         def close(self):
+            """Sets the closed flag to signal 'EOF' to the read function.
+            Then, waits until the queue is empty.
+            :raises FuseOSError
+            """
             self.closed = True
+            # prevent read deadlock
+            self.q.put(b'')
 
             # wait until read is complete
             while True:
@@ -197,19 +220,24 @@ class WriteProxy(object):
     def write_n_sync(self, stream: WriteStream, node_id: str):
         try:
             r = self.acd_client.overwrite_stream(stream, node_id)
-        except RequestError as e:
+        except (RequestError, IOError) as e:
             stream.error = True
             logger.error('Error writing node "%s". %s' % (node_id, str(e)))
         else:
-            stream.done.set()
             self.cache.insert_node(r)
+            stream.done.set()
 
     def write(self, node_id, fh, offset, bytes_):
+        """Gets WriteStream from defaultdict. Creates overwrite thread if offset is 0,
+        tries to continue otherwise.
+        :raises FuseOSError: wrong offset or writing failed
+        """
         f = self.files[fh]
 
         if f.offset == offset:
             f.write(bytes_)
         else:
+            f.error = True  # necessary?
             logger.error('Wrong offset for writing to fh %s.' % fh)
             raise FuseOSError(errno.EFAULT)
 
@@ -218,16 +246,25 @@ class WriteProxy(object):
             t.daemon = True
             t.start()
 
-    def release(self, fh):
+    def flush(self, fh):
         f = self.files.get(fh)
         if f:
-            f.close()
-            del self.files[fh]
+            f.flush()
+
+    def release(self, fh):
+        """:raises FuseOSError"""
+        f = self.files.get(fh)
+        if f:
+            try:
+                f.close()
+            except:
+                raise
+            finally:
+                del self.files[fh]
 
 
 class LoggingMixIn(object):
     """Modified pyfuse LoggingMixIn that does not log read or written bytes."""
-    log = logging.getLogger('fuse.log')
 
     def __call__(self, op, path, *args):
         targs = None
@@ -238,7 +275,7 @@ class LoggingMixIn(object):
         elif op == 'chmod':
             targs = (oct(args[0]),) + args[1:]
 
-        self.log.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
+        logger.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
 
         ret = '[Unhandled Exception]'
         try:
@@ -250,11 +287,16 @@ class LoggingMixIn(object):
         finally:
             if op == 'read':
                 ret = ''
-            self.log.debug('<- %s %s', op, repr(ret))
+            logger.debug('<- %s %s', op, repr(ret))
 
 
 class ACDFuse(LoggingMixIn, Operations):
+    """FUSE filesystem operations class for Amazon Cloud Drive
+    See http://fuse.sourceforge.net/doxygen/structfuse__operations.html
+    """
+
     class XATTRS(object):
+        """Generic extended node attributes"""
         ID = 'acd.id'
         DESCR = 'acd.description'
 
@@ -264,6 +306,7 @@ class ACDFuse(LoggingMixIn, Operations):
                     if not callable(getattr(cls, x))]
 
     class FXATTRS(XATTRS):
+        """Extended file attributes"""
         MD5 = 'acd.md5'
 
     def __init__(self, **kwargs):
@@ -338,6 +381,7 @@ class ACDFuse(LoggingMixIn, Operations):
         return self.rp.get(node.id, offset, length, node.size)
 
     def statfs(self, path):
+        """Filesystem stats"""
         bs = 512 * 1024
         return dict(f_bsize=bs,
                     f_frsize=bs,
@@ -448,6 +492,7 @@ class ACDFuse(LoggingMixIn, Operations):
             self.cache.insert_node(r)
 
     def open(self, path, flags):
+        # TODO: check flags
         self.fh += 1
         return self.fh
 
@@ -459,6 +504,9 @@ class ACDFuse(LoggingMixIn, Operations):
             node_id = ''
         self.wp.write(node_id, fh, offset, data)
         return len(data)
+
+    def flush(self, path, fh):
+        self.wp.flush(fh)
 
     def truncate(self, path, length, fh=None):
         """ Truncating to >0 is not supported by the ACD API.
@@ -495,25 +543,6 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def chown(self, path, uid, gid):
         pass
-
-
-class LoggingMixIn:
-    """Modified pyfuse LoggingMixIn that does not log read and written bytes"""
-    log = logging.getLogger('acd_fuse')
-
-    def __call__(self, op, path, *args):
-        self.log.debug('-> %s %s %s', op, path,
-                       repr(args) if op != 'write' else repr((len(args[0]),) + args[1:]))
-
-        ret = '[Unhandled Exception]'
-        try:
-            ret = getattr(self, op)(path, *args)
-            return ret
-        except OSError as e:
-            ret = str(e)
-            raise
-        finally:
-            self.log.debug('<- %s %s', op, repr(ret) if op != 'read' else '')
 
 
 def mount(path: str, args: dict, **kwargs):
