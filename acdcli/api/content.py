@@ -258,7 +258,7 @@ class ContentMixin(object):
         f.close()
         if length > 0 and pos < length:
             raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
-                               '[acd_cli] download incomplete.')
+                               '[acd_api] download incomplete.')
 
         if os.path.isfile(dl_path):
             logger.info('Deleting existing file "%s".' % dl_path)
@@ -287,7 +287,7 @@ class ContentMixin(object):
 
             if retries >= CHUNK_MAX_RETRY:
                 raise RequestError(RequestError.CODE.FAILED_SUBREQUEST,
-                                   '[acd_cli] Downloading chunk failed multiple times.')
+                                   '[acd_api] Downloading chunk failed multiple times.')
             r = self.BOReq.get(self.content_url + 'nodes/' + node_id + '/content', stream=True,
                                acc_codes=ok_codes,
                                headers={'Range': 'bytes=%d-%d' % (chunk_start, chunk_end)})
@@ -335,8 +335,10 @@ class ContentMixin(object):
 
         return r
 
-    def download_chunk(self, node_id: str, offset: int, length: int, **kwargs):
-        """:param length: the length of the download chunk"""
+    def download_chunk(self, node_id: str, offset: int, length: int, **kwargs) -> bytearray:
+        """Load a file chunk into memory.
+        :param length: the length of the download chunk
+        """
         r = self.response_chunk(node_id, offset, length, **kwargs)
         if not r:
             return

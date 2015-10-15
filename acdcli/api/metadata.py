@@ -2,7 +2,7 @@
 
 import json
 import logging
-import http.client as http
+import http.client
 from collections import namedtuple
 
 from .common import *
@@ -32,7 +32,7 @@ class MetadataMixin(object):
     def get_trashed_files(self) -> list:
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
-    def get_changes(self, checkpoint='', include_purged=False):
+    def get_changes(self, checkpoint='', include_purged=False) -> 'Generator[ChangeSet]':
         """ Generates a ChangeSets for each checkpoint in changes response
         https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
         """
@@ -48,6 +48,22 @@ class MetadataMixin(object):
         if r.status_code not in OK_CODES:
             r.close()
             raise RequestError(r.status_code, r.text)
+
+        try:
+            for cs in self._iter_changes_lines(r):
+                yield cs
+        except (http.client.IncompleteRead, requests.exceptions.ChunkedEncodingError) as e:
+            logger.info(str(e))
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
+                               '[acd_api] reading changes terminated prematurely.')
+        except:
+            raise
+        finally:
+            r.close()
+
+    @staticmethod
+    def _iter_changes_lines(r: requests.Response) -> 'Generator[ChangeSet]':
+        """Generate a ChangeSet per line in changes response"""
 
         """ return format should be:
         {"checkpoint": str, "reset": bool, "nodes": []}
@@ -73,7 +89,7 @@ class MetadataMixin(object):
                 o = json.loads(line.decode('utf-8'))
             except ValueError:
                 raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
-                                   '[acd_cli] Invalid JSON in change set, page %i.' % pages)
+                                   '[acd_api] Invalid JSON in change set, page %i.' % pages)
 
             try:
                 if o['end']:
@@ -89,7 +105,7 @@ class MetadataMixin(object):
             # could this actually happen?
             if o['statusCode'] not in OK_CODES:
                 raise RequestError(RequestError.CODE.FAILED_SUBREQUEST,
-                                   '[acd_cli] Partial failure in change request.')
+                                   '[acd_api] Partial failure in change request.')
 
             for node in o['nodes']:
                 if node['status'] == 'PURGED':
@@ -102,9 +118,7 @@ class MetadataMixin(object):
 
             yield ChangeSet(nodes, purged_nodes, checkpoint, reset)
 
-        r.close()
-
-        logger.info('%i pages in changes.' % pages)
+        logger.info('%i page(s) in changes.' % pages)
         if not end:
             logger.warning('End of change request not reached.')
 
@@ -201,7 +215,7 @@ class MetadataMixin(object):
         """Adds or overwrites property. Maximum number of keys per owner is 10.
         :param value: string of length <= 500
         """
-        ok_codes = [http.CREATED]
+        ok_codes = [requests.codes.CREATED]
         r = self.BOReq.put(self.metadata_url + 'nodes/' + node_id +
                            '/properties/' + owner_id + '/' + key,
                            data=json.dumps({'value': value}), acc_codes=ok_codes)
@@ -210,7 +224,7 @@ class MetadataMixin(object):
         return r.json()
 
     def delete_property(self, node_id: str, owner_id: str, key: str):
-        ok_codes = [http.NO_CONTENT]
+        ok_codes = [requests.codes.NO_CONTENT]
         r = self.BOReq.delete(self.metadata_url + 'nodes/' + node_id +
                               '/properties/' + owner_id + '/' + key, acc_codes=ok_codes)
         if r.status_code not in ok_codes:

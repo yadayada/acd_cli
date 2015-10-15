@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pkgutil import walk_packages
 from pkg_resources import iter_entry_points
 
+import acdcli
 from acdcli.api import client
 from acdcli.api.common import RequestError, is_valid_id
 from acdcli.cache import db, format
@@ -35,7 +36,6 @@ for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plug
 for plug_mod in iter_entry_points(group='acdcli.plugins', name=None):
     __import__(plug_mod.module_name)
 
-__version__ = '0.3.0a6'
 _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
@@ -51,7 +51,7 @@ try:
         requests.utils.old_dau = requests.utils.default_user_agent
 
         def new_dau():
-            return _app_name + '/' + __version__ + ' ' + requests.utils.old_dau()
+            return _app_name + '/' + acdcli.__version__ + ' ' + requests.utils.old_dau()
 
         requests.utils.default_user_agent = new_dau
 except:
@@ -125,7 +125,7 @@ class CacheConsts(object):
     MAX_AGE = 30
 
 
-def sync_node_list(full=False):
+def sync_node_list(full=False) -> 'Union[int, None]':
     global cache
     cp_ = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
@@ -150,12 +150,15 @@ def sync_node_list(full=False):
                 cache.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: changeset.checkpoint})
 
     except RequestError as e:
-        logger.critical('Sync failed.')
         print(e)
+        if e.CODE == RequestError.CODE.INCOMPLETE_RESULT:
+            logger.warning('Sync incomplete.')
+        else:
+            logger.critical('Sync failed.')
         return ERROR_RETVAL
 
 
-def old_sync():
+def old_sync() -> 'Union[int, None]':
     global cache
     cache.drop_all()
     cache = db.NodeCache(CACHE_PATH)
@@ -194,7 +197,7 @@ RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
 STD_RETRY_RETVALS = [UL_DL_FAILED]
 
 
-def retry_on(ret_vals: list):
+def retry_on(ret_vals: 'List[int]'):
     """Retry decorator that sets the wrapped function's progress handler argument according to its
     return value and wraps the return value in RetryRetVal object.
     :param ret_vals: list of retry values on which execution should be repeated"""
@@ -204,7 +207,7 @@ def retry_on(ret_vals: list):
             ret_val = ERROR_RETVAL
             try:
                 ret_val = f(*args, **kwargs)
-            except Exception:
+            except:
                 import traceback
                 logger.error(traceback.format_exc())
             h = kwargs.get('pg_handler')
@@ -537,14 +540,16 @@ def no_autores_trash_action(func):
 def sync_action(args: argparse.Namespace):
     print('Syncing...')
     r = sync_node_list(full=args.full)
-    print('Done.')
+    if not r:
+        print('Done.')
     return r
 
 
 def old_sync_action(args: argparse.Namespace):
     print('Syncing...')
     r = old_sync()
-    print('Done.')
+    if not r:
+        print('Done.')
     return r
 
 
@@ -575,7 +580,7 @@ def clear_action(args: argparse.Namespace):
 @nocache_action
 @offline_action
 def print_version_action(args: argparse.Namespace):
-    print(' '.join([_app_name, __version__]))
+    print('%s %s, api %s ' % (_app_name, acdcli.__version__, acdcli.api.__version__))
 
 
 @offline_action
@@ -1017,7 +1022,7 @@ def set_encoding(force_utf: bool = False):
     return utf_flag
 
 
-def check_cache():
+def check_cache() -> bool:
     """Checks for existence of root node and logs cache age."""
 
     if not cache.get_root_node():
@@ -1306,7 +1311,7 @@ def main():
 
     plugin_log = [str(plugins.Plugin)]
     for plugin in plugins.Plugin:
-        if plugin.check_version(__version__):
+        if plugin.check_version(acdcli.__version__):
             log = []
             plugin.attach(subparsers, log)
             plugin_log.extend(log)

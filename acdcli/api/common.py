@@ -17,6 +17,8 @@ OK_CODES = [requests.codes.OK]
 
 
 class RequestError(Exception):
+    """Catch-all exception class for various connection and ACD server errors."""
+
     class CODE(object):
         CONN_EXCEPTION = 1000
         FAILED_SUBREQUEST = 1002
@@ -31,7 +33,7 @@ class RequestError(Exception):
         if msg:
             self.msg = msg
         else:
-            self.msg = '[acd_cli] no body received.'
+            self.msg = '[acd_api] no body received.'
 
     def __str__(self):
         return 'RequestError: ' + str(self.status_code) + ', ' + self.msg
