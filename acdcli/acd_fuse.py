@@ -18,7 +18,6 @@ from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
 
 logger = logging.getLogger(__name__)
 
-FUSE_BS = 128 * 1024
 MAX_CHUNKS_PER_FILE = 15
 CHUNK_TIMEOUT = 5
 
@@ -33,7 +32,7 @@ class FuseOSError(FuseError):
 
     @staticmethod
     def convert(e: RequestError):
-        """:raises FUSEOSError"""
+        """:raises FuseOSError"""
 
         try:
             caller = sys._getframe().f_back.f_code.co_name + ': '

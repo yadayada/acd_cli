@@ -10,7 +10,7 @@ class TestPlugin(Plugin):
 
     @classmethod
     def attach(cls, subparsers: argparse.ArgumentParser, log: list, **kwargs):
-        """ Attaches this plugin to the argparse action subparser group
+        """ Attaches this plugin to the top-level argparse subparser group
         :param subparsers the action subparser group
         :param log a list to put initialization log messages in
          """

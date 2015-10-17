@@ -1,7 +1,7 @@
 Finding nodes
 =============
 
-The find actions will search for normal (active) nodes and trashed files and list them.
+The find actions will search for normal (active) and trashed nodes and list them.
 
 find
 ----
@@ -15,9 +15,11 @@ find-md5
 find-md5 will search for files that match the MD5 hash given. The location of a local file may be
 determined like so:
 ::
-    acdcli find-md5 `md5sum local/file | cut -d" " -f1`
+
+   acdcli find-md5 `md5sum local/file | cut -d" " -f1`
 
 find-regex
 ----------
 
-find-regex searches for the specified regex in nodes' names.
+find-regex searches for the specified `regex <https://docs.python.org/3.2/library/re.html>`_
+in nodes' names.

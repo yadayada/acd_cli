@@ -1,27 +1,37 @@
 TODO
 ----
 
-General
-~~~~~~~
+General / API
+~~~~~~~~~~~~~
 
-* favorite support (feature not yet announced officially)
+* switch to multiprocessing (?)
+* metalink support (?)
+
+API
+~~~
+
 * support of node labels
 * support for assets (?)
+* favorite support (feature not yet announced officially)
+* rip out the Appspot authentication handler
+
+CLI
+~~~
+
 * unify the find action
-* switch to multiprocessing
-* metalink support (?)
-* symlink behavior (#95)
+* check symlink behavior for different Python versions (#95)
 
 FUSE
 ~~~~
 
-* invalidate chunks of StreamedResponseCache
-* fix multi-threading
+* invalidate chunks of StreamedResponseCache (implement a time-out)
+* respect flags when opening files
+* implement flush
+* use a filesystem test suite
 
 File Transfer
 ~~~~~~~~~~~~~
 
-* autosplit large files (#32)
 * more sophisticated progress handler that supports offsets
 * copy local mtime on upload (#58)
 * add path exclusion by argument for download
@@ -44,5 +54,4 @@ Tests
 Documentation
 ~~~~~~~~~~~~~
 
-* add a main sphinx page
 * write how-to on packaging plugins (sample setup.py)
