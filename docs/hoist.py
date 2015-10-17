@@ -4,7 +4,7 @@ import re
 files = ('README.rst', 'CONTRIBUTING.rst')
 
 # replace GitHub external links by :doc: links
-replacements = ('`([^`]*?) <(docs/)?(.*?)\.rst>`_', ':doc:`\g<1> <\g<3>>`')
+replacements = (('`([^`]*?) <(docs/)?(.*?)\.rst>`_', ':doc:`\g<1> <\g<3>>`'),)
 
 
 def read(fname: str) -> str:
