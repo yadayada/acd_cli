@@ -13,17 +13,17 @@ Feature                 Working
 =====================  ===========
 Basic operations
 ----------------------------------
-List directory           ✅
-Read                     ✅
-Write                    ✅ [#]_
-Rename                   ✅
-Move                     ✅
-Trashing                 ✅
-OS-level trashing        ✅ [#]_
+List directory           ✓
+Read                     ✓
+Write                    ✓ [#]_
+Rename                   ✓
+Move                     ✓
+Trashing                 ✓
+OS-level trashing        ✓ [#]_
 View trash               ❌
 Misc
 ----------------------------------
-Automatic sync           ✅
+Automatic sync           ✓
 ctime/mtime update       ❌
 Custom permissions       ❌
 Hard links               partially [#]_

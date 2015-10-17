@@ -2,9 +2,9 @@ import os
 import re
 
 files = ('README.rst', 'CONTRIBUTING.rst')
-replacements = (('✅', '✓'),
-                # replace GitHub external links by :doc: links
-                ('`([^`]*?) <(docs/)?(.*?)\.rst>`_', ':doc:`\g<1> <\g<3>>`'))
+
+# replace GitHub external links by :doc: links
+replacements = ('`([^`]*?) <(docs/)?(.*?)\.rst>`_', ':doc:`\g<1> <\g<3>>`')
 
 
 def read(fname: str) -> str:

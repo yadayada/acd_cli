@@ -38,7 +38,8 @@ Quick Start
 -----------
 
 Have a look at the `known issues`_, then follow the `setup guide <docs/setup.rst>`_ and
-`authorize <docs/authorization.rst>`_. You may then use the program
+`authorize <docs/authorization.rst>`_. You may then use the program as described in the
+`usage guide <docs/usage.rst>`_.
 
 CLI Usage Example
 -----------------

@@ -1,4 +1,5 @@
 import os
+import re
 from setuptools import setup, find_packages
 from distutils.version import StrictVersion
 import acdcli
@@ -7,6 +8,10 @@ import acdcli
 def read(fname: str) -> str:
     return open(os.path.join(os.path.dirname(__file__), fname), encoding='utf-8').read()
 
+# replace GitHub external links
+repl = ('`([^`]*?) <(docs/)?(.*?)\.rst>`_',
+        '`\g<1> <https://acd-cli.readthedocs.org/en/latest/\g<3>.html>`_')
+
 version = acdcli.__version__
 StrictVersion(version)
 
@@ -14,7 +19,7 @@ setup(
     name='acdcli',
     version=version,
     description='a command line interface and FUSE filesystem for Amazon Cloud Drive',
-    long_description=read('README.rst').replace('✅', '✓'),
+    long_description=re.sub(repl[0], repl[1], read('README.rst')),
     license='GPLv2+',
     author='yadayada',
     author_email='acd_cli@mail.com',

@@ -2,7 +2,7 @@ Authorization
 -------------
 
 Before you can use the program, you will have to complete the OAuth procedure with Amazon.
-There is a fast and simple way and a safe way.
+There is a fast and simple way and a secure way.
 
 Simple (Appspot)
 ++++++++++++++++
