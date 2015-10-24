@@ -1,4 +1,4 @@
-"""fusepy filesystem"""
+"""fusepy filesystem module"""
 
 import sys
 import os
@@ -19,10 +19,16 @@ from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
 logger = logging.getLogger(__name__)
 
 MAX_CHUNKS_PER_FILE = 15
+"""maximal number of opened chunks per file"""
+
 CHUNK_TIMEOUT = 5
+"""timeout for reading from an opened chunk"""
 
 WRITE_TIMEOUT = 60
+"""timeout for writing into file buffer"""
+
 WRITE_BUFFER_SZ = 2 ** 5
+"""maximal number of chunks per file"""
 
 
 class FuseOSError(FuseError):
@@ -32,7 +38,7 @@ class FuseOSError(FuseError):
 
     @staticmethod
     def convert(e: RequestError):
-        """:raises FuseOSError"""
+        """:raises: FuseOSError"""
 
         try:
             caller = sys._getframe().f_back.f_code.co_name + ': '
@@ -56,24 +62,40 @@ class ReadProxy(object):
     def __init__(self, acd_client):
         self.acd_client = acd_client
         self.lock = Lock()
-        self.files = defaultdict(ReadProxy.File)
+        self.files = defaultdict(ReadProxy.ReadFile)
 
     class StreamChunk(object):
+        """StreamChunk represents a file node chunk as a streamed ranged HTTP response
+        which may or may not be partially read."""
+
         __slots__ = ('offset', 'r', 'end')
 
         def __init__(self, acd_client, id_, offset, length, **kwargs):
             self.offset = offset
-            self.r = acd_client.response_chunk(id_, offset, length, **kwargs)
-            self.end = offset + int(self.r.headers['content-length']) - 1
+            """the first byte position (fpos) available in the chunk"""
 
-        def has_byte_range(self, offset, length):
-            """chunk begins at offset and has at least length bytes remaining"""
+            self.r = acd_client.response_chunk(id_, offset, length, **kwargs)
+            """:type: requests.Response"""
+
+            self.end = offset + int(self.r.headers['content-length']) - 1
+            """the last byte position (fpos) contained in the chunk"""
+
+        def has_byte_range(self, offset, length) -> bool:
+            """Tests whether chunk begins at **offset** and has at least **length** bytes remaining.
+            """
             logger.debug('s: %d-%d; r: %d-%d'
                          % (self.offset, self.end, offset, offset + length - 1))
             if offset == self.offset and offset + length - 1 <= self.end:
                 return True
+            return False
 
-        def get(self, length):
+        def get(self, length) -> bytes:
+            """Gets *length* bytes beginning at current offset.
+
+            :param length: the number of bytes to get
+            :raises: Exception if less than *length* bytes were received \
+             but end of chunk was not reached"""
+
             b = next(self.r.iter_content(length))
             self.offset += len(b)
 
@@ -83,9 +105,13 @@ class ReadProxy(object):
             return b
 
         def close(self):
+            """Closes connection on the stream."""
             self.r.close()
 
-    class File(object):
+    class ReadFile(object):
+        """Represents a file opened for reading.
+        Encapsulates at most :attr:`MAX_CHUNKS_PER_FILE` open chunks."""
+
         __slots__ = ('chunks', 'access', 'lock')
 
         def __init__(self):
@@ -93,8 +119,8 @@ class ReadProxy(object):
             self.access = time()
             self.lock = Lock()
 
-        def get(self, acd_client, id_, offset, length, total):
-            self.access = time()
+        def get(self, acd_client, id_, offset, length, total) -> bytes:
+            """Gets a byte range from existing StreamChunks"""
 
             with self.lock:
                 i = self.chunks.__len__() - 1
@@ -151,17 +177,27 @@ class WriteProxy(object):
         self.files = defaultdict(WriteProxy.WriteStream)
 
     class WriteStream(object):
-        """A WriteStream is a binary file-like object that is backed by a Queue."""
+        """A WriteStream is a binary file-like object that is backed by a Queue.
+        It will remember its current offset."""
+
         __slots__ = ('q', 'offset', 'error', 'closed', 'done')
 
         def __init__(self):
             self.q = Queue(maxsize=WRITE_BUFFER_SZ)
+            """a queue that buffers written blocks"""
             self.offset = 0
-            self.error = False # r/w error
+            """the beginning fpos"""
+            self.error = False
+            """whether the read or write failed"""
             self.closed = False
-            self.done = Event() # read done
+            self.done = Event()
+            """done event is triggered when file is successfully read and transferred"""
 
-        def write(self, data):
+        def write(self, data: bytes):
+            """Writes data into queue.
+
+            :raises: FuseOSError on timeout"""
+
             if self.error:
                 raise FuseOSError(errno.EREMOTEIO)
             try:
@@ -171,10 +207,12 @@ class WriteProxy(object):
                 raise FuseOSError(errno.ETIMEDOUT)
             self.offset += len(data)
 
-        def read(self, ln=0):
+        def read(self, ln=0) -> bytes:
             """Returns as much byte data from queue as possible.
-            Returns empty bytestring if queue is empty and file was closed.
-            """
+            Returns empty bytestring (EOF) if queue is empty and file was closed.
+
+            :raises: IOError"""
+
             if self.error:
                 raise IOError(errno.EIO, errno.errorcode[errno.EIO])
 
@@ -191,8 +229,9 @@ class WriteProxy(object):
 
         def flush(self):
             """Waits until the queue is emptied.
-            :raises FuseOSError
-            """
+
+            :raises: FuseOSError"""
+
             while True:
                 if self.error:
                     raise FuseOSError(errno.EREMOTEIO)
@@ -202,9 +241,10 @@ class WriteProxy(object):
 
         def close(self):
             """Sets the closed flag to signal 'EOF' to the read function.
-            Then, waits until the queue is empty.
-            :raises FuseOSError
-            """
+            Then, waits until :attr:`done` event is triggered.
+
+            :raises: FuseOSError"""
+
             self.closed = True
             # prevent read deadlock
             self.q.put(b'')
@@ -217,6 +257,11 @@ class WriteProxy(object):
                     return
 
     def write_n_sync(self, stream: WriteStream, node_id: str):
+        """Try to overwrite file with id ``node_id`` with content from ``stream``.
+        Triggers the :attr:`WriteStream.done` event on success.
+
+        :param stream: a file-like object"""
+
         try:
             r = self.acd_client.overwrite_stream(stream, node_id)
         except (RequestError, IOError) as e:
@@ -229,8 +274,9 @@ class WriteProxy(object):
     def write(self, node_id, fh, offset, bytes_):
         """Gets WriteStream from defaultdict. Creates overwrite thread if offset is 0,
         tries to continue otherwise.
-        :raises FuseOSError: wrong offset or writing failed
-        """
+
+        :raises: FuseOSError: wrong offset or writing failed"""
+
         f = self.files[fh]
 
         if f.offset == offset:
@@ -238,7 +284,7 @@ class WriteProxy(object):
         else:
             f.error = True  # necessary?
             logger.error('Wrong offset for writing to fh %s.' % fh)
-            raise FuseOSError(errno.EFAULT)
+            raise FuseOSError(errno.ESPIPE)
 
         if offset == 0:
             t = Thread(target=self.write_n_sync, args=(f, node_id))
@@ -251,7 +297,7 @@ class WriteProxy(object):
             f.flush()
 
     def release(self, fh):
-        """:raises FuseOSError"""
+        """:raises: FuseOSError"""
         f = self.files.get(fh)
         if f:
             try:
@@ -263,7 +309,8 @@ class WriteProxy(object):
 
 
 class LoggingMixIn(object):
-    """Modified pyfuse LoggingMixIn that does not log read or written bytes."""
+    """Modified fusepy LoggingMixIn that does not log read or written bytes
+    and nicely formats non-decimal based arguments."""
 
     def __call__(self, op, path, *args):
         targs = None
@@ -285,12 +332,12 @@ class LoggingMixIn(object):
             raise
         finally:
             if op == 'read':
-                ret = ''
+                ret = len(ret)
             logger.debug('<- %s %s', op, repr(ret))
 
 
 class ACDFuse(LoggingMixIn, Operations):
-    """FUSE filesystem operations class for Amazon Cloud Drive
+    """FUSE filesystem operations class for Amazon Cloud Drive.
     See http://fuse.sourceforge.net/doxygen/structfuse__operations.html
     """
 
@@ -301,6 +348,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
         @classmethod
         def vars(cls):
+            """Returns list of manually added member variables."""
             return [getattr(cls, x) for x in set(dir(cls)) - set(dir(type('', (object,), {})))
                     if not callable(getattr(cls, x))]
 
@@ -309,30 +357,49 @@ class ACDFuse(LoggingMixIn, Operations):
         MD5 = 'acd.md5'
 
     def __init__(self, **kwargs):
+        """Calculates ACD usage and starts autosync process.
+
+        :param kwargs: cache (NodeCache), acd_client (ACDClient), autosync (partial)"""
+
         self.cache = kwargs['cache']
         self.acd_client = kwargs['acd_client']
         autosync = kwargs['autosync']
 
         self.rp = ReadProxy(self.acd_client)
+        """collection of files opened for reading"""
         self.wp = WriteProxy(self.acd_client, self.cache)
+        """collection of files opened for writing"""
         # self.pc = PathCache(self.cache)
 
         self.total, _ = self.acd_client.fs_sizes()
+        """total disk space"""
         self.free = self.total - self.cache.calculate_usage()
+        """manually determined free space (differs from available quota value)"""
         self.fh = 1
+        """next free file handle\n\n :type: int"""
         self.nlinks = kwargs.get('nlinks', False)
+        """whether to calculate the number of hardlinks for folders"""
 
         p = Process(target=autosync)
         p.start()
 
-    def readdir(self, path, fh):
+    def readdir(self, path, fh) -> 'List[str]':
+        """Lists the path's contents.
+
+        :raises: FuseOSError if path is not a node or path is not a folder"""
+
         node, _ = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
+        if not node.is_folder():
+            raise FuseOSError(errno.ENOTDIR)
 
         return [_ for _ in ['.', '..'] + [c.name for c in node.available_children()]]
 
-    def getattr(self, path, fh=None):
+    def getattr(self, path, fh=None) -> dict:
+        """Creates a stat-like attribute dict, see :manpage:`stat(2)`.
+        Calculates correct number of links for folders if :attr:`nlinks` is set."""
+
         node, _ = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
@@ -349,14 +416,18 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_nlink=node.nlinks if self.nlinks else 1,
                         st_size=node.size, **times)
 
-    def listxattr(self, path):
+    def listxattr(self, path) -> 'List[str]':
+        """Lists extended node attributes (names)."""
+
         node, _ = self.cache.resolve(path, trash=False)
         if node.is_file():
             return self.FXATTRS.vars()
         elif node.is_folder():
             return self.XATTRS.vars()
 
-    def getxattr(self, path, name, position=0):
+    def getxattr(self, path, name, position=0) -> bytes:
+        """Gets value of extended attribute ``name``."""
+
         node, _ = self.cache.resolve(path, trash=False)
 
         if name == self.XATTRS.ID:
@@ -368,7 +439,9 @@ class ACDFuse(LoggingMixIn, Operations):
 
         raise FuseOSError(errno.ENODATA)
 
-    def read(self, path, length, offset, fh):
+    def read(self, path, length, offset, fh) -> bytes:
+        """Read ```length`` bytes from ``path`` att ``offset``."""
+
         node, _ = self.cache.resolve(path, trash=False)
 
         if not node:
@@ -379,9 +452,10 @@ class ACDFuse(LoggingMixIn, Operations):
 
         return self.rp.get(node.id, offset, length, node.size)
 
-    def statfs(self, path):
-        """Filesystem stats"""
-        bs = 512 * 1024
+    def statfs(self, path) -> dict:
+        """Gets some filesystem statistics as specified in :manpage:`stat(2)`."""
+
+        bs = 512 * 1024  # no effect?
         return dict(f_bsize=bs,
                     f_frsize=bs,
                     f_blocks=self.total // bs,  # total no of blocks
@@ -391,6 +465,10 @@ class ACDFuse(LoggingMixIn, Operations):
                     )
 
     def mkdir(self, path, mode):
+        """Creates a directory at ``path`` (see :manpage:`mkdir(2)`).
+
+        :param mode: not used"""
+
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
         pid = self.cache.resolve_path(ppath)
@@ -424,12 +502,19 @@ class ACDFuse(LoggingMixIn, Operations):
             self.cache.insert_node(r)
 
     def rmdir(self, path):
+        """Moves a directory into ACD trash."""
         self._trash(path)
 
     def unlink(self, path):
+        """Moves a file into ACD trash."""
         self._trash(path)
 
-    def create(self, path, mode):
+    def create(self, path, mode) -> int:
+        """Creates an empty file at ``path``.
+
+        :param mode: not used
+        :returns int: file handle"""
+
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
         pid = self.cache.resolve_path(ppath, False)
@@ -446,6 +531,13 @@ class ACDFuse(LoggingMixIn, Operations):
         return self.fh
 
     def rename(self, old, new):
+        """Renames ``old`` into ``new`` (may also involve a move).
+        If ``new`` is an existing file, it is moved into the ACD trash.
+
+        :raises FuseOSError: ENOENT if ``old`` is not a node, \
+        EEXIST if ``new`` is an existing folder \
+        ENOTDIR if ``new``'s parent path does not exist"""
+
         if old == new:
             return
 
@@ -490,12 +582,24 @@ class ACDFuse(LoggingMixIn, Operations):
         else:
             self.cache.insert_node(r)
 
-    def open(self, path, flags):
+    def open(self, path, flags) -> int:
+        """Sloppily opens a file.
+
+        :param flags: flags defined as in :manpage:`open(2)`
+        :returns: file handle"""
+
+        if (flags & os.O_APPEND) == os.O_APPEND:
+            raise FuseOSError(errno.EFAULT)
+
         # TODO: check flags
         self.fh += 1
         return self.fh
 
-    def write(self, path, data, offset, fh):
+    def write(self, path, data, offset, fh) -> int:
+        """Invokes :attr:`wp`'s write function.
+
+        :returns: number of bytes written"""
+
         if offset == 0:
             n, p = self.cache.resolve(path, False)
             node_id = n.id
@@ -505,11 +609,15 @@ class ACDFuse(LoggingMixIn, Operations):
         return len(data)
 
     def flush(self, path, fh):
+        """Flushes ``fh`` in WriteProxy."""
         self.wp.flush(fh)
 
     def truncate(self, path, length, fh=None):
-        """ Truncating to >0 is not supported by the ACD API.
-        """
+        """Pseudo-truncates a file, i.e. clears content if ``length`` ==0 or does nothing
+        if ``length`` is equal to current file size.
+
+        :raises FuseOSError: if pseudo-truncation to length is not supported"""
+
         n, _ = self.cache.resolve(path)
         if length == 0:
             try:
@@ -523,13 +631,18 @@ class ACDFuse(LoggingMixIn, Operations):
                 raise FuseOSError(errno.ENOSYS)
 
     def release(self, path, fh):
+        """Releases an open ``path``."""
         node, _ = self.cache.resolve(path, trash=False)
         if node:
             self.rp.release(node.id)
             self.wp.release(fh)
 
     def utimens(self, path, times=None):
-        """:param times: """
+        """Not functional. Should set node atime and mtime to values as passed in ``times``
+        or current time (see :manpage:`utimesat(2)`).
+
+        :param times: [atime, mtime]"""
+
         if times:
             # atime = times[0]
             mtime = times[1]
@@ -538,13 +651,21 @@ class ACDFuse(LoggingMixIn, Operations):
             mtime = time()
 
     def chmod(self, path, mode):
+        """Not implemented."""
         pass
 
     def chown(self, path, uid, gid):
+        """Not implemented."""
         pass
 
 
-def mount(path: str, args: dict, **kwargs):
+def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
+    """Fusermounts Amazon Cloud Drive to specified mountpoint.
+
+    :raises: RuntimeError
+    :param args: args to pass on to ACDFuse init
+    :param kwargs: fuse mount options as described in :manpage:`fuse(8)`"""
+
     if not args['cache'].get_root_node():
         logger.critical('Root node not found. Aborting.')
         return 1
@@ -552,7 +673,7 @@ def mount(path: str, args: dict, **kwargs):
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path, entry_timeout=60, attr_timeout=60,
+    FUSE(ACDFuse(**args), path,
          auto_cache=True, sync_read=True,
          uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
@@ -560,8 +681,11 @@ def mount(path: str, args: dict, **kwargs):
          )
 
 
-def unmount(path=None, lazy=False):
-    """Unmounts a specific mountpoint if path given or all of the user's ACDFuse mounts."""
+def unmount(path=None, lazy=False) -> int:
+    """Unmounts a specific mountpoint if path given or all of the user's ACDFuse mounts.
+
+    :returns: 0 on success, 1 on error"""
+
     import re
     import subprocess
     from itertools import chain
