@@ -9,7 +9,6 @@ import signal
 import time
 import re
 import appdirs
-import colorama
 from functools import partial
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -40,7 +39,6 @@ _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
 
-colorama.init()
 
 # noinspection PyBroadException
 # monkey patch the user agent
@@ -177,6 +175,8 @@ def old_sync() -> 'Union[int, None]':
 
 
 def autosync(interval: int):
+    """Periodically syncs the node cache each *interval* seconds."""
+
     if not interval:
         return
 
@@ -200,9 +200,10 @@ STD_RETRY_RETVALS = [UL_DL_FAILED]
 def retry_on(ret_vals: 'List[int]'):
     """Retry decorator that sets the wrapped function's progress handler argument according to its
     return value and wraps the return value in RetryRetVal object.
+
     :param ret_vals: list of retry values on which execution should be repeated"""
 
-    def wrap(f):
+    def wrap(f: 'Callable'):
         def wrapped(*args, **kwargs) -> RetryRetVal:
             ret_val = ERROR_RETVAL
             try:
@@ -223,6 +224,7 @@ def retry_on(ret_vals: 'List[int]'):
 
 
 def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
+    """:returns: 0 on success, HASH_MISMATCH on failure"""
     if hash1 != hash2:
         logger.error('Hash mismatch between local and remote file for "%s".' % file_name)
         return HASH_MISMATCH
@@ -235,6 +237,7 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, forc
                        dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
     """Creates upload job if passed path is a file, delegates directory traversal otherwise.
     Detects soft links that link to an already queued directory.
+
     :param dirs: list of directories' inodes traversed so far
     :param exclude: list of file exclusion patterns
     :param exclude_paths: list of paths for file or directory exclusion"""
@@ -427,8 +430,10 @@ def upload_stream(stream, file_name, parent_id, dedup=False,
         return UL_DL_FAILED
 
 
-def create_dl_jobs(node_id: str, local_path: str, exclude: list, jobs: list) -> int:
+def create_dl_jobs(node_id: str, local_path: str,
+                   exclude: 'List[re._pattern_type]', jobs: list) -> int:
     """Populates passed jobs list with download partials."""
+
     local_path = local_path if local_path else ''
 
     node = cache.get_node(node_id)
@@ -460,7 +465,8 @@ def create_dl_jobs(node_id: str, local_path: str, exclude: list, jobs: list) -> 
     return 0
 
 
-def traverse_dl_folder(node_id: str, local_path: str, exclude: list, jobs: list) -> int:
+def traverse_dl_folder(node_id: str, local_path: str,
+                       exclude: 'List[re._pattern_type', jobs: list) -> int:
     """Duplicates remote folder structure."""
 
     if not local_path:
@@ -607,7 +613,7 @@ def quota_action(args: argparse.Namespace):
     pprint(r)
 
 
-def regex_helper(args: argparse.Namespace) -> list:
+def regex_helper(args: argparse.Namespace) -> 'List[re._pattern_type]':
     """Pre-compiles regexes from strings in args namespace."""
     excl_re = []
     for re_ in args.exclude_re:
@@ -893,7 +899,6 @@ def metadata_action(args: argparse.Namespace) -> int:
 
 
 @offline_action
-@nocache_action
 def dump_sql_action(args: argparse.Namespace):
     cache.dump_table_sql()
 
@@ -1023,7 +1028,9 @@ def set_encoding(force_utf: bool = False):
 
 
 def check_cache() -> bool:
-    """Checks for existence of root node and logs cache age."""
+    """Checks for existence of root node and logs cache age.
+
+    :returns: whether a root node was found"""
 
     if not cache.get_root_node():
         logger.critical('Root node not found. Please sync.')
@@ -1320,10 +1327,12 @@ def main():
 
     args = opt_parser.parse_args()
 
-    utf_flag = set_encoding(force_utf=args.utf)
     set_log_level(args)
-    if utf_flag:
-        logger.info('Stdout/stderr encoding changed to UTF-8.')
+    if set_encoding(force_utf=args.utf):
+        logger.info('Stdout/stderr encoding changed to UTF-8. ANSI escape codes may not work.')
+    else:
+        import colorama
+        colorama.init()
 
     check_py_version()
 
@@ -1346,7 +1355,7 @@ def main():
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
-        if args.func not in [sync_action, old_sync_action]:
+        if args.func not in [sync_action, old_sync_action, dump_sql_action]:
             if not check_cache():
                 sys.exit(INIT_FAILED_RETVAL)
 
