@@ -1,0 +1,18 @@
+# $HOME/.config/systemd/user/amazon-cloud-drive.service
+#
+# Usage:
+# * Setup acd_cli normally and create $HOME/Cloud
+# * Copy file to:   $HOME/.config/systemd/user/amazon-cloud-drive.serivce
+# * Reload systemd: systemctl --user daemon-reload
+# * Start service:  systemctl --user start amazon-cloud-drive.serivce
+[Unit]
+Description=User Amazon Cloud Drive FUSE Mount
+Documentation=https://github.com/yadayada/acd_cli
+
+[Service]
+AssertPathIsDirectory=%h/Cloud
+ExecStart=/usr/bin/acd_cli -v mount --foreground %h/Cloud
+Restart=on-abort
+
+[Install]
+WantedBy=default.target
