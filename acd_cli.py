@@ -12,6 +12,7 @@ import appdirs
 from functools import partial
 from collections import namedtuple
 from datetime import datetime, timedelta
+from multiprocessing import Event
 
 from pkgutil import walk_packages
 from pkg_resources import iter_entry_points
@@ -174,14 +175,17 @@ def old_sync() -> 'Union[int, None]':
     cache.KeyValueStorage['sync_date'] = time.time()
 
 
-def autosync(interval: int):
-    """Periodically syncs the node cache each *interval* seconds."""
+def autosync(interval: int, stop: Event=None):
+    """Periodically syncs the node cache each *interval* seconds.
+    The *stop* Event may be triggered to end syncing."""
 
     if not interval:
         return
 
     interval = max(MIN_AUTOSYNC_INTERVAL, interval)
     while True:
+        if stop.is_set():
+            break
         try:
             sync_node_list(full=False)
         except:
@@ -513,7 +517,7 @@ def download_file(node_id: str, local_path: str,
 
 
 #
-# Subparser actions. Return value [typeof(None), int] will be used as sys exit status.
+# Subparser actions. Return value Union[None, int] will be used as sys exit status.
 #
 
 # decorators
@@ -904,7 +908,7 @@ def dump_sql_action(args: argparse.Namespace):
 
 
 def mount_action(args: argparse.Namespace):
-    asp = partial(autosync, args.interval)
+    asp = partial(autosync, args.interval, stop=Event())
 
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,

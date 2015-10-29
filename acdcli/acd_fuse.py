@@ -145,6 +145,7 @@ class ReadProxy(object):
                 FuseOSError.convert(e)
 
         def clear(self):
+            """Closes chunks and clears chunk deque."""
             with self.lock:
                 for chunk in self.chunks:
                     try:
@@ -338,8 +339,7 @@ class LoggingMixIn(object):
 
 class ACDFuse(LoggingMixIn, Operations):
     """FUSE filesystem operations class for Amazon Cloud Drive.
-    See http://fuse.sourceforge.net/doxygen/structfuse__operations.html
-    """
+    See `<http://fuse.sourceforge.net/doxygen/structfuse__operations.html>`_."""
 
     class XATTRS(object):
         """Generic extended node attributes"""
@@ -380,8 +380,14 @@ class ACDFuse(LoggingMixIn, Operations):
         self.nlinks = kwargs.get('nlinks', False)
         """whether to calculate the number of hardlinks for folders"""
 
+        self.destroyed = autosync.keywords['stop']
+        """:type: multiprocessing.Event"""
+
         p = Process(target=autosync)
         p.start()
+
+    def destroy(self, path):
+        self.destroyed.set()
 
     def readdir(self, path, fh) -> 'List[str]':
         """Lists the path's contents.
