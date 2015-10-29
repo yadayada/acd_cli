@@ -999,8 +999,9 @@ def set_log_level(args: argparse.Namespace):
 
 def set_encoding(force_utf: bool = False):
     """Sets the default encoding to UTF-8 if none is set.
-    :param force_utf: force UTF-8 output
-    """
+
+    :param force_utf: force UTF-8 output"""
+
     enc = str.lower(sys.stdout.encoding)
     utf_flag = False
 
@@ -1010,6 +1011,12 @@ def set_encoding(force_utf: bool = False):
         sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
         sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
         utf_flag = True
+    else:
+        def unicode_hook(type_, value, traceback):
+            sys.__excepthook__(type_, value, traceback)
+            if type_ == UnicodeEncodeError:
+                logger.error('Please set your locale or use the "--utf" flag.')
+        sys.excepthook = unicode_hook
 
     return utf_flag
 
