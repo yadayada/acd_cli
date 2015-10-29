@@ -13,8 +13,8 @@ ChangeSet = namedtuple('Changes', ['nodes', 'purged_nodes', 'checkpoint', 'reset
 
 
 class MetadataMixin(object):
-    # additional parameters are: tempLink='true'
     def get_node_list(self, **params) -> list:
+        """:param params: may include tempLink='True'"""
         return self.BOReq.paginated_get(self.metadata_url + 'nodes', params)
 
     def get_file_list(self) -> list:
@@ -33,9 +33,8 @@ class MetadataMixin(object):
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
     def get_changes(self, checkpoint='', include_purged=False) -> 'Generator[ChangeSet]':
-        """ Generates a ChangeSets for each checkpoint in changes response
-        https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes
-        """
+        """ Generates a ChangeSet for each checkpoint in changes response. See
+        `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_."""
 
         logger.info('Getting changes with checkpoint "%s".' % checkpoint)
 
@@ -63,13 +62,12 @@ class MetadataMixin(object):
 
     @staticmethod
     def _iter_changes_lines(r: requests.Response) -> 'Generator[ChangeSet]':
-        """Generate a ChangeSet per line in changes response"""
+        """Generates a ChangeSet per line in changes response
 
-        """ return format should be:
+        the expected return format should be:
         {"checkpoint": str, "reset": bool, "nodes": []}
         {"checkpoint": str, "reset": false, "nodes": []}
-        {"end": true}
-        """
+        {"end": true}"""
 
         end = False
         pages = -1
@@ -122,8 +120,10 @@ class MetadataMixin(object):
         if not end:
             logger.warning('End of change request not reached.')
 
-    def get_metadata(self, node_id: str, assets=False) -> dict:
-        params = {'tempLink': 'true', 'asset': 'ALL' if assets else 'NONE'}
+    def get_metadata(self, node_id: str, assets=False, temp_link=True) -> dict:
+        """Gets a node's metadata."""
+        params = {'tempLink': 'true' if temp_link else 'false',
+                  'asset': 'ALL' if assets else 'NONE'}
         r = self.BOReq.get(self.metadata_url + 'nodes/' + node_id, params=params)
         if r.status_code not in OK_CODES:
             raise RequestError(r.status_code, r.text)
@@ -138,8 +138,11 @@ class MetadataMixin(object):
             raise RequestError(r.status_code, r.text)
         return r.json()
 
-    def get_root_id(self) -> dict:
-        """:returns the topmost folder id"""
+    def get_root_id(self) -> str:
+        """Gets the ID of the root node
+
+        :returns: the topmost folder id"""
+
         params = {'filters': 'isRoot:true'}
         r = self.BOReq.get(self.metadata_url + 'nodes', params=params)
 
@@ -156,7 +159,10 @@ class MetadataMixin(object):
         return l
 
     def add_child(self, parent_id: str, child_id: str) -> dict:
-        """:returns updated child node dict"""
+        """Adds node with ID *child_id* to folder with ID *parent_id*.
+
+        :returns: updated child node dict"""
+
         r = self.BOReq.put(self.metadata_url + 'nodes/' + parent_id + '/children/' + child_id)
         if r.status_code not in OK_CODES:
             logger.error('Adding child failed.')
@@ -164,7 +170,7 @@ class MetadataMixin(object):
         return r.json()
 
     def remove_child(self, parent_id: str, child_id: str) -> dict:
-        """:returns updated child node dict"""
+        """:returns: updated child node dict"""
         r = self.BOReq.delete(
             self.metadata_url + 'nodes/' + parent_id + "/children/" + child_id)
         # contrary to response code stated in API doc (202 ACCEPTED)
@@ -174,9 +180,11 @@ class MetadataMixin(object):
         return r.json()
 
     def move_node_from(self, node_id: str, old_parent_id: str, new_parent_id: str) -> dict:
-        """Moves node with given ID from old parent to new parent. Not tested with multi-parent nodes.
-        :returns dict: changed node dict
-        """
+        """Moves node with given ID from old parent to new parent.
+        Not tested with multi-parent nodes.
+
+        :returns: changed node dict"""
+
         data = {'fromParent': old_parent_id, 'childId': node_id}
         r = self.BOReq.post(self.metadata_url + 'nodes/' + new_parent_id + '/children',
                             data=json.dumps(data))
@@ -204,17 +212,22 @@ class MetadataMixin(object):
 
     def list_properties(self, node_id: str, owner_id: str) -> dict:
         """This will always return an empty dict if the accessor is not the owner.
-        :param owner_id: owner ID (return status 404 if empty)
-        """
+        :param owner_id: owner ID (return status 404 if empty)"""
+
         r = self.BOReq.get(self.metadata_url + 'nodes/' + node_id + '/properties/' + owner_id)
         if r.status_code not in OK_CODES:
             raise RequestError(r.status_code, r.text)
         return r.json()['data']
 
     def add_property(self, node_id: str, owner_id: str, key: str, value: str) -> dict:
-        """Adds or overwrites property. Maximum number of keys per owner is 10.
+        """Adds or overwrites *key* property with *content*. Maximum number of keys per owner is 10.
+
         :param value: string of length <= 500
-        """
+        :raises: RequestError: 404, <UnknownOperationException/> if owner is empty
+                 RequestError: 400, {...} if maximum of allowed properties is reached
+        :returns dict: {'key': '<KEY>', 'location': '<NODE_ADDRESS>/properties/<OWNER_ID/<KEY>',
+        'value': '<VALUE>'}"""
+
         ok_codes = [requests.codes.CREATED]
         r = self.BOReq.put(self.metadata_url + 'nodes/' + node_id +
                            '/properties/' + owner_id + '/' + key,
@@ -224,8 +237,19 @@ class MetadataMixin(object):
         return r.json()
 
     def delete_property(self, node_id: str, owner_id: str, key: str):
+        """Deletes *key* property from node with ID *node_id*."""
         ok_codes = [requests.codes.NO_CONTENT]
         r = self.BOReq.delete(self.metadata_url + 'nodes/' + node_id +
                               '/properties/' + owner_id + '/' + key, acc_codes=ok_codes)
         if r.status_code not in ok_codes:
             raise RequestError(r.status_code, r.text)
+
+    def delete_properties(self, node_id: str, owner_id: str):
+        """Deletes all of the owner's properties. Uses multiple requests."""
+        ok_codes = [requests.codes.NO_CONTENT]
+        prop_dict = self.list_properties(node_id, owner_id)
+        for key in prop_dict:
+            r = self.BOReq.delete('%s/nodes/%s/properties/%s/%s'
+                                  % (self.metadata_url, node_id, owner_id, key), acc_codes=ok_codes)
+            if r.status_code not in ok_codes:
+                raise RequestError(r.status_code, r.text)

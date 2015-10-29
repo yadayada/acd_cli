@@ -18,9 +18,12 @@ EXP_TIME_KEY = 'exp_time'
 
 AMZ_ENDPOINT_REQ_URL = 'https://drive.amazonaws.com/drive/v1/account/endpoint'
 ENDPOINT_VAL_TIME = 259200
+"""number of seconds for endpoint validity (3 days)"""
 
 
 class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
+    """Provides a client to the Amazon Cloud Drive RESTful interface."""
+
     _ENDPOINT_DATA_FILE = 'endpoint_data'
 
     def __init__(self, path=''):
@@ -33,13 +36,16 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
         self._endpoint_data = {}
         self._load_endpoints()
 
-        self.BOReq = BackOffRequest(self.handler.get_auth_header)
+        self.BOReq = BackOffRequest(self.handler)
 
     @property
     def _endpoint_data_path(self):
         return os.path.join(self.cache_path, ACDClient._ENDPOINT_DATA_FILE)
 
-    def _load_endpoints(self) -> bool:
+    def _load_endpoints(self):
+        """Tries to load endpoints from file and calls
+        :meth:`_get_endpoints` on failure or if they are outdated."""
+
         if not os.path.isfile(self._endpoint_data_path):
             self._endpoint_data = self._get_endpoints()
         else:
@@ -49,10 +55,13 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
                 logger.info('Endpoint data expired.')
                 self._endpoint_data = self._get_endpoints()
 
-        return True
-
     def _get_endpoints(self) -> dict:
-        r = requests.get(AMZ_ENDPOINT_REQ_URL, headers=self.handler.get_auth_header())
+        """Retrieves Amazon endpoints and saves them on success.
+
+        :raises: ValueError if requests returned invalid JSON
+        :raises: KeyError if endpoint data does not include expected keys"""
+
+        r = requests.get(AMZ_ENDPOINT_REQ_URL, auth=self.handler)
         if r.status_code not in OK_CODES:
             logger.critical('Error getting endpoint data. Response: %s' % r.text)
             raise Exception

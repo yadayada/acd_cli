@@ -1,14 +1,25 @@
-__version__ = '0.8.7'
-
 """
 *******
 ACD API
 *******
 
+Usage
+=====
+::
+
+    from api import client
+    acd_client = client.ACDClient()
+    root = acd_client.get_root_id()
+    children = acd_client.list_children(root)
+    for child in children:
+        print(child['name'])
+    # ...
+
 Node JSON Format
 ================
 
 This is the usual node JSON format for a file::
+
     {
            'contentProperties': {'contentType': 'text/plain',
                                  'extension': 'txt',
@@ -36,6 +47,23 @@ The ``modifiedDate`` and ``version`` keys get updated each time the content or m
 
 A folder's JSON looks similar, but it lacks the ``contentProperties`` dictionary.
 
-CAUTION: ACD allows hard links for folders!
+.. CAUTION::
+   ACD allows hard links for folders!
 
 """
+
+__version__ = '0.8.8'
+
+# monkey patch the user agent
+try:
+    import requests.utils
+
+    if 'old_dau' not in dir(requests.utils):
+        requests.utils.old_dau = requests.utils.default_user_agent
+
+        def new_dau():
+            return __package__ + '/' + __version__ + ' ' + requests.utils.old_dau()
+
+        requests.utils.default_user_agent = new_dau
+except:
+    pass

@@ -9,21 +9,22 @@ from .common import *
 logger = logging.getLogger(__name__)
 
 CONN_TIMEOUT = 30
+"""timeout for establishing a connection"""
 IDLE_TIMEOUT = 60
+"""read timeout"""
 REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.0' else IDLE_TIMEOUT
+"""http://docs.python-requests.org/en/latest/user/advanced/#timeouts"""
 
 
 class BackOffRequest(object):
     """Wrapper for requests that implements timed back-off algorithm
     https://developer.amazon.com/public/apis/experience/cloud-drive/content/best-practices
     Caution: this catches all connection errors and may stall for a long time.
-    It is necessary to init this module before use.
-    """
+    It is necessary to init this module before use."""
 
-    def __init__(self, auth_callback):
-        """:arg auth_callback: function that returns necessary authentication information
-        as a dictionary
-        """
+    def __init__(self, auth_callback: 'requests.auth.AuthBase'):
+        """:arg auth_callback: callable object that attaches auth info to a request"""
+
         self.auth_callback = auth_callback
 
         # __session = None
@@ -62,20 +63,20 @@ class BackOffRequest(object):
             sleep(duration)
 
     @catch_conn_exception
-    def _request(self, type_, url: str, acc_codes: list, **kwargs) -> requests.Response:
+    def _request(self, type_: str, url: str, acc_codes: 'List[int]', **kwargs) -> requests.Response:
+        """Performs a HTTP request
+
+        :param type_: the type of HTTP request to perform
+        :param acc_codes: list of HTTP status codes that indicate a successful request
+        :param kwargs: may include additional header: dict and timeout: int"""
+
         # if not self.__session:
         #     self.__session = requests.session()
         self._wait()
 
-        try:
-            with self.__lock:
-                headers = self.auth_callback()
-        except:
-            self._failed()
-            raise
-
+        headers = {}
         if 'headers' in kwargs:
-            headers = dict(headers, **(kwargs['headers']))
+            headers = dict(**(kwargs['headers']))
             del kwargs['headers']
 
         last_url = getattr(self.__thr_local, 'last_req_url', None)
@@ -95,7 +96,8 @@ class BackOffRequest(object):
             timeout = REQUESTS_TIMEOUT
 
         try:
-            r = requests.request(type_, url, headers=headers, timeout=timeout, **kwargs)
+            r = requests.request(type_, url, auth=self.auth_callback,
+                                 headers=headers, timeout=timeout, **kwargs)
         except:
             self._failed()
             raise
@@ -120,7 +122,7 @@ class BackOffRequest(object):
     def delete(self, url, acc_codes=OK_CODES, **kwargs) -> requests.Response:
         return self._request('DELETE', url, acc_codes, **kwargs)
 
-    def paginated_get(self, url: str, params: dict = None) -> list:
+    def paginated_get(self, url: str, params: dict = None) -> 'List[dict]':
         """Gets node list in segments of 200."""
         if params is None:
             params = {}

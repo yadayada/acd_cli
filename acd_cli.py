@@ -40,23 +40,6 @@ _app_name = 'acd_cli'
 
 logger = logging.getLogger(_app_name)
 
-
-# noinspection PyBroadException
-# monkey patch the user agent
-try:
-    import requests.utils
-
-    if 'old_dau' not in dir(requests.utils):
-        requests.utils.old_dau = requests.utils.default_user_agent
-
-        def new_dau():
-            return _app_name + '/' + acdcli.__version__ + ' ' + requests.utils.old_dau()
-
-        requests.utils.default_user_agent = new_dau
-except:
-    pass
-
-
 # path settings
 
 cp = os.environ.get('ACD_CLI_CACHE_PATH')
