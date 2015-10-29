@@ -46,7 +46,7 @@ The command to mount the (root of the) cloud drive to the empty directory ``path
 A cloud drive folder may be mounted similarly, by
 ::
 
-    acd_cli mount --modules="subdir=/folder" path/to/mountpoint
+    acd_cli mount --modules="subdir,subdir=/folder" path/to/mountpoint
 
 Unmounting is usually achieved by the following command
 ::

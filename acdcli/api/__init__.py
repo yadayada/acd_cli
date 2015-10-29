@@ -62,7 +62,7 @@ try:
         requests.utils.old_dau = requests.utils.default_user_agent
 
         def new_dau():
-            return __package__ + '/' + __version__ + ' ' + requests.utils.old_dau()
+            return __name__ + '/' + __version__ + ' ' + requests.utils.old_dau()
 
         requests.utils.default_user_agent = new_dau
 except:

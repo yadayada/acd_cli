@@ -122,7 +122,7 @@ class NodeCache(QueryMixin, SyncMixin):
         logger.info('Dropped all tables.')
 
     def _migrate(self, schema: int):
-        """ Migrates database to highest schema.
+        """Migrates database to highest schema.
 
         :param int schema: current (cache file) schema version to upgrade from"""
 

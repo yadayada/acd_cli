@@ -31,9 +31,13 @@ def gen_slice(list_, length=100):
 
 
 class SyncMixin(object):
+    """Sync mixin to the :class:`NodeCache <acdcli.cache.db.NodeCache>`"""
+
     def remove_purged(self, purged: list):
         """Removes purged nodes from database
+
         :param purged: list of purged node IDs"""
+
         if not purged:
             return
 
@@ -79,8 +83,9 @@ class SyncMixin(object):
 
     def insert_folders(self, folders: list):
         """ Inserts list of folders into cache. Sets 'update' column to current date.
-        :param folders: list of raw dict-type folders
-        """
+
+        :param folders: list of raw dict-type folders"""
+
         if not folders:
             return
 

@@ -1,7 +1,7 @@
 .. acd_cli documentation master file
 
-acd_cli documentation
-=====================
+acd\_cli documentation
+======================
 
 Version |version|
 
@@ -18,8 +18,8 @@ Contents:
    FUSE
    CONTRIBUTING
    contributors
-   TODO
    history
+   dev
 
 ..
     Indices and tables
@@ -28,6 +28,9 @@ Contents:
     * :ref:`genindex`
     * :ref:`modindex`
     * :ref:`search`
+
+Overview
+--------
 
 .. include:: README.rst
     :start-line: 3

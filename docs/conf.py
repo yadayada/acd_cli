@@ -15,7 +15,8 @@
 
 import sys
 import os
-import shlex
+import shutil
+import subprocess
 
 # custom imports
 dir_ = os.path.dirname(__file__)
@@ -46,6 +47,7 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
+    'sphinx_paramlinks'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -303,3 +305,24 @@ texinfo_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'https://docs.python.org/': None}
+
+# autodoc
+AUTODOC_DIR = 'apidoc'
+
+try:
+    shutil.rmtree(AUTODOC_DIR)
+except FileNotFoundError:
+    pass
+subprocess.call(['sphinx-apidoc', '-P', '-o', AUTODOC_DIR, '../acdcli'])
+
+
+# Ensure that the __init__ method gets documented.
+def skip(app, what, name, obj, skip, options):
+    if name == "__init__":
+        return False
+    return skip
+
+
+def setup(app):
+    app.connect("autodoc-skip-member", skip)
+

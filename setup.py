@@ -23,7 +23,7 @@ setup(
     license='GPLv2+',
     author='yadayada',
     author_email='acd_cli@mail.com',
-    keywords='amazon cloud drive clouddrive FUSE',
+    keywords=['amazon cloud drive', 'clouddrive', 'FUSE'],
     url='https://github.com/yadayada/acd_cli',
     download_url='https://github.com/yadayada/acd_cli/tarball/' + version,
     zip_safe=False,
@@ -37,6 +37,7 @@ setup(
     install_requires=['appdirs', 'colorama', 'python_dateutil', 'requests>=2.1.0',
                       'requests_toolbelt', 'sqlalchemy'],
     tests_require=['httpretty', 'mock'],
+    extras_require={'docs': ['sphinx_paramlinks']},
     classifiers=[
         'Environment :: Console',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)',

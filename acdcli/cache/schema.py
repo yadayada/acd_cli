@@ -12,7 +12,7 @@ _parentage_table = Table('parentage', _Base.metadata,
 
 
 class Metadate(_Base):
-    """added in v1"""
+    """Some kind of metadate (added in v1)."""
     __tablename__ = 'metadata'
 
     key = Column(String(64), primary_key=True)
@@ -24,7 +24,7 @@ class Metadate(_Base):
 
 
 class Label(_Base):
-    """added in v1"""
+    """A node label (added in v1)."""
     __tablename__ = 'labels'
 
     id = Column(String(50), ForeignKey('nodes.id'), primary_key=True)
@@ -33,6 +33,8 @@ class Label(_Base):
 
 # TODO: cycle safety for full_path()
 class Node(_Base):
+    """The base node type."""
+
     __tablename__ = 'nodes'
 
     # apparently 22 chars; max length is 22 for folders according to API doc ?!
@@ -157,7 +159,6 @@ class Folder(Node):
         'polymorphic_identity': 'folder'
     }
 
-    # noinspection PyShadowingBuiltins
     def __init__(self, id: str, name: str, created: datetime, modified: datetime, status: Enum):
         self.id = id
         self.name = name
@@ -189,20 +190,21 @@ class Folder(Node):
             return '/'
         return self.parents[0].full_path() + self.simple_name()
 
-    def get_child(self, name: str) -> Node:
-        """ Gets non-trashed child by name. """
+    def get_child(self, name: str) -> 'Union[Node, None]':
+        """Gets non-trashed child by name. """
         for child in self.children:
             if child.name == name and child.status == 'AVAILABLE':
                 return child
         return
 
-    def available_children(self):
+    def available_children(self) -> 'Generator[Node]':
         for c in self.children:
             if c.is_available():
                 yield c
 
     @property
-    def nlinks(self):
+    def nlinks(self) -> int:
+        """Number of hard links ('.', '', and children)."""
         nlinks = 2
         for c in self.children:
             if c.is_folder() and c.is_available():

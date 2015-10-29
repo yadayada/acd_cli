@@ -1,5 +1,6 @@
 """
-Formatters for query bundle iterables
+Formatters for query Bundle iterables. Capable of ANSI-type coloring using colors defined in
+:envvar:`LS_COLORS`.
 """
 
 import os
@@ -19,17 +20,24 @@ ColorMode = dict(auto=0, always=1, never=2)
 
 
 def init(color=ColorMode['auto']):
+    """Disables pre-initialized coloring if never mode specified or stdout is a tty.
+
+    :param color: the color mode to use, defaults to auto"""
+
+    # TODO: fix tty detection
     if color == ColorMode['never'] \
             or not res \
             or (color == ColorMode['auto'] and not sys.__stdout__.isatty()):
-        global get_adfixes, color_path, color_status, nor_fmt
+        global get_adfixes, color_path, color_status, seq_tpl, nor_fmt
         get_adfixes = lambda _: ('', '')
         color_path = lambda x: x
         color_status = lambda x: x[0]
+        seq_tpl = '%s'
         nor_fmt = '%s'
 
 
 def color_file(name: str) -> str:
+    """Colorizes a file name according to its file ending."""
     parts = name.split('.')
     if len(parts) > 1:
         ext = parts.pop()
@@ -41,6 +49,7 @@ def color_file(name: str) -> str:
 
 
 def color_path(path: str) -> str:
+    """Colorizes a path string."""
     segments = path.split('/')
     path_segments = [dir_fmt % s for s in segments[:-1]]
     last_seg = segments[-1] if segments[-1:] else ''
@@ -49,6 +58,7 @@ def color_path(path: str) -> str:
 
 
 def color_status(status):
+    """Creates a colored one-character status abbreviation."""
     if status == 'AVAILABLE':
         return seq_tpl % '32' + status[0] + res  # green
     if status == 'TRASH':
@@ -65,6 +75,7 @@ def date_str(time_: datetime.datetime) -> str:
 
 
 def size_nlink_str(node):
+    """Creates a right-justified nlinks string with width of 7 characters."""
     from acdcli.utils.progress import file_size_str
 
     if node.is_file():
@@ -80,7 +91,8 @@ class ListFormatter(object):
 
 
 class LSFormatter(ListFormatter):
-    def __new__(cls, bunches, recursive=False, long=False):
+    """An ls-like formatter."""
+    def __new__(cls, bunches, recursive=False, long=False) -> 'Generator[str]':
         is_first = True
         for bunch in bunches:
             node = bunch.node
@@ -101,7 +113,7 @@ class LSFormatter(ListFormatter):
 
 
 class LongIDFormatter(ListFormatter):
-    def __new__(cls, bunches):
+    def __new__(cls, bunches) -> 'Generator[str]':
         for bunch in bunches:
             node = bunch.node
             if bunch.path is None:
@@ -115,7 +127,9 @@ class LongIDFormatter(ListFormatter):
 
 
 class TreeFormatter(ListFormatter):
-    def __new__(cls, bunches):
+    """A simple tree formatter that indicates parentship by indentation
+    (i.e. does not display graphical branches like :program:`tree`)."""
+    def __new__(cls, bunches) -> 'Generator[str]':
         for bunch in bunches:
             pre = ''
             if bunch.depth > 0:
@@ -124,12 +138,13 @@ class TreeFormatter(ListFormatter):
 
 
 class IDFormatter(ListFormatter):
-    def __new__(cls, bunches):
+    """"""
+    def __new__(cls, bunches) -> 'Generator[str]':
         for bunch in bunches:
             yield bunch.node.id
 
 
 class PathFormatter(ListFormatter):
-    def __new__(cls, bunches):
+    def __new__(cls, bunches) -> 'Generator[str]':
         for bunch in bunches:
             yield bunch.node.full_path()
