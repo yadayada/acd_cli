@@ -1,0 +1,5 @@
+# adds sphinx module for rtfd.org build process
+
+-e .
+
+sphinx_paramlinks
