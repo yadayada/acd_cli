@@ -257,6 +257,10 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, forc
         jobs.append(fo)
         return 0
 
+    else:
+        logger.warning('Skpping upload of "%s", possibly because it is broken symlink.' % short_nm)
+        return INVALID_ARG_RETVAL
+
 
 def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, force: bool,
                     dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
@@ -1195,7 +1199,8 @@ def get_parser() -> tuple:
                                         help='download a remote folder or file; '
                                              'will skip existing local files')
     download_sp.add_argument('node')
-    download_sp.add_argument('path', nargs='?', default=None, help='local download path [optional]')
+    download_sp.add_argument('path', nargs='?', default=None,
+                             help='local download directory [optional]')
     download_sp.set_defaults(func=download_action)
 
     cat_sp = subparsers.add_parser('cat', help='output a file to the standard output stream\n\n')
