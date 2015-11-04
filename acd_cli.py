@@ -833,7 +833,8 @@ def find_regex_action(args: argparse.Namespace) -> int:
 @offline_action
 def children_action(args: argparse.Namespace) -> int:
     nodes = cache.list_children(args.node, args.recursive, args.include_trash)
-    for entry in format.ListFormatter(nodes, recursive=args.recursive, long=args.long):
+    for entry in format.ListFormatter(nodes, recursive=args.recursive, long=args.long,
+                                      size_bytes=args.size_bytes):
         print(entry)
 
 
@@ -1128,6 +1129,7 @@ def get_parser() -> tuple:
     list_c_sp = subparsers.add_parser('children', aliases=['ls', 'dir'],
                                       help='[+] list folder\'s children [offline operation]\n\n')
     list_c_sp.add_argument('--long', '-l', action='store_true', help='long listing format')
+    list_c_sp.add_argument('--size-bytes', '-b', action='store_true', help='file sizes in bytes')
     list_c_sp.add_argument('--include-trash', '-t', action='store_true')
     list_c_sp.add_argument('--recursive', '-r', action='store_true')
     list_c_sp.add_argument('node', nargs='?', default='/',

@@ -74,14 +74,16 @@ def date_str(time_: datetime.datetime) -> str:
     return nor_fmt % ('{0:%b} %s %s'.format(time_) % (str(time_.day).rjust(2), last_seg))
 
 
-def size_nlink_str(node):
-    """Creates a right-justified nlinks string with width of 7 characters."""
+def size_nlink_str(node, size_bytes=False):
+    """Creates a right-justified size/nlinks string."""
     from acdcli.utils.progress import file_size_str
 
     if node.is_file():
-        return nor_fmt % file_size_str(node.size).rjust(7)
+        if not size_bytes:
+            return nor_fmt % file_size_str(node.size).rjust(7)
+        return nor_fmt % str(node.size).rjust(11)
     elif node.is_folder():
-        return nor_fmt % str(node.nlinks).rjust(7)
+        return nor_fmt % str(node.nlinks).rjust(7 if not size_bytes else 11)
     return ''
 
 
@@ -92,7 +94,7 @@ class ListFormatter(object):
 
 class LSFormatter(ListFormatter):
     """An ls-like formatter."""
-    def __new__(cls, bunches, recursive=False, long=False) -> 'Generator[str]':
+    def __new__(cls, bunches, recursive=False, long=False, size_bytes=False) -> 'Generator[str]':
         is_first = True
         for bunch in bunches:
             node = bunch.node
@@ -104,7 +106,7 @@ class LSFormatter(ListFormatter):
             yield '[{}] [{}] {}{}{}{}'.format(
                 nor_fmt % node.id,
                 color_status(node.status),
-                (size_nlink_str(node) + ' ') if long else '',
+                (size_nlink_str(node, size_bytes=size_bytes) + ' ') if long else '',
                 (date_str(node.modified) + ' ') if long else '',
                 color_path(bunch.path) if node.is_folder() and children else '',
                 color_path(node.simple_name())
