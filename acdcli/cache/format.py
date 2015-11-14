@@ -61,8 +61,9 @@ def color_status(status):
     """Creates a colored one-character status abbreviation."""
     if status == 'AVAILABLE':
         return seq_tpl % '32' + status[0] + res  # green
-    if status == 'TRASH':
+    elif status == 'TRASH':
         return seq_tpl % '31' + status[0] + res  # red
+    return status[0]
 
 
 def date_str(time_: datetime.datetime) -> str:
@@ -93,7 +94,7 @@ class ListFormatter(object):
 
 
 class LSFormatter(ListFormatter):
-    """An ls-like formatter."""
+    """A formatter similar to ls --long."""
     def __new__(cls, bunches, recursive=False, long=False, size_bytes=False) -> 'Generator[str]':
         is_first = True
         for bunch in bunches:

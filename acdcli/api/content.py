@@ -63,9 +63,9 @@ def _get_mimetype(file_name: str = '') -> str:
 
 def _multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None):
     """Generator for chunked multipart/form-data file upload from stream input.
+
     :param metadata: file info, leave empty for overwrite
-    :param stream: readable object
-    """
+    :param stream: readable object"""
 
     if metadata:
         yield str.encode('--%s\r\nContent-Disposition: form-data; '
@@ -172,7 +172,8 @@ class ContentMixin(object):
 
     def upload_stream(self, stream, file_name: str, parent: str = None,
                       read_callbacks=None, deduplication=False) -> dict:
-        """:param parent: parent node id, defaults to root node if None"""
+        """:param stream: readable object
+        :param parent: parent node id, defaults to root node if None"""
 
         params = {} if deduplication else {'suppress': 'deduplication'}
 
@@ -214,6 +215,10 @@ class ContentMixin(object):
         return r.json()
 
     def overwrite_stream(self, stream, node_id: str, read_callbacks: list = None) -> dict:
+        """Overwrite content of node with ID *node_id* with content of *stream*.
+
+        :param stream: readable object"""
+
         metadata = {}
         import uuid
         boundary = uuid.uuid4().hex

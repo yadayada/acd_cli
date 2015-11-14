@@ -78,6 +78,7 @@ CACHE_ASYNC = 256
 DUPLICATE = 512
 DUPLICATE_DIR = 1024
 NAME_COLLISION = 2048
+ERR_DEL_FILE = 4096
 
 
 def signal_handler(signal_, frame):
@@ -95,6 +96,7 @@ def pprint(d: dict):
 
 acd_client = None
 cache = None
+
 
 #
 # Glue functions (API, cache)
@@ -158,9 +160,10 @@ def old_sync() -> 'Union[int, None]':
     cache.KeyValueStorage['sync_date'] = time.time()
 
 
-def autosync(interval: int, stop: Event=None):
+def autosync(interval: int, stop: Event = None):
     """Periodically syncs the node cache each *interval* seconds.
-    The *stop* Event may be triggered to end syncing."""
+
+    :param stop: Event that may be triggered to end syncing."""
 
     if not interval:
         return
@@ -175,6 +178,7 @@ def autosync(interval: int, stop: Event=None):
             import traceback
             logger.error(traceback.format_exc())
         time.sleep(interval)
+
 
 #
 # File transfer
@@ -211,7 +215,6 @@ def retry_on(ret_vals: 'List[int]'):
 
 
 def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
-    """:returns: 0 on success, HASH_MISMATCH on failure"""
     if hash1 != hash2:
         logger.error('Hash mismatch between local and remote file for "%s".' % file_name)
         return HASH_MISMATCH
@@ -220,12 +223,25 @@ def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     return 0
 
 
+def remove_source_file(path: str) -> int:
+    try:
+        os.remove(path)
+    except OSError:
+        logger.error('Removing file "%s" failed.' % path)
+        return ERR_DEL_FILE
+
+    logger.debug('Deleted "%s".' % path)
+    return 0
+
+
 def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, force: bool,
-                       dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
+                       dedup: bool, rsf: bool, exclude: list, exclude_paths: list, jobs: list) \
+        -> int:
     """Creates upload job if passed path is a file, delegates directory traversal otherwise.
     Detects soft links that link to an already queued directory.
 
     :param dirs: list of directories' inodes traversed so far
+    :param rsf: remove source files
     :param exclude: list of file exclusion patterns
     :param exclude_paths: list of paths for file or directory exclusion"""
 
@@ -253,17 +269,17 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, forc
                 return 0
 
         prog = progress.FileProgress(os.path.getsize(path))
-        fo = partial(upload_file, path, parent_id, overwr, force, dedup, pg_handler=prog)
+        fo = partial(upload_file, path, parent_id, overwr, force, dedup, rsf, pg_handler=prog)
         jobs.append(fo)
         return 0
 
     else:
-        logger.warning('Skpping upload of "%s", possibly because it is broken symlink.' % short_nm)
+        logger.warning('Skipping upload of "%s", possibly because it is a broken symlink.' % path)
         return INVALID_ARG_RETVAL
 
 
 def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, force: bool,
-                    dedup: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
+                    dedup: bool, rsf: bool, exclude: list, exclude_paths: list, jobs: list) -> int:
     """Duplicates local directory structure."""
 
     if parent_id is None:
@@ -302,13 +318,13 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, fo
     for entry in entries:
         full_path = os.path.join(real_path, entry)
         ret_val |= create_upload_jobs(dirs, full_path, curr_node.id,
-                                      overwr, force, dedup, exclude, exclude_paths, jobs)
+                                      overwr, force, dedup, rsf, exclude, exclude_paths, jobs)
 
     return ret_val
 
 
 @retry_on(STD_RETRY_RETVALS)
-def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool,
+def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: bool, rsf: bool,
                 pg_handler: progress.FileProgress = None) -> RetryRetVal:
     short_nm = os.path.basename(path)
 
@@ -355,14 +371,20 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # TODO: wait; request parent folder's children
                 return UL_TIMEOUT
             else:
-                logger.error(
-                    'Uploading "%s" failed. %s.' % (short_nm, str(e)))
+                logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
         else:
             cache.insert_node(r)
-            file_id = r['id']
-            md5 = cache.get_node(file_id).md5
-            return compare_hashes(hasher.get_result(), md5, short_nm)
+            node = cache.get_node(r['id'])
+
+            match = compare_hashes(hasher.get_result(), node.md5)
+            if match != 0:
+                return match
+
+            if rsf:
+                return remove_source_file(path)
+
+            return 0
 
     # else: file exists
     if not overwr and not force:
@@ -380,7 +402,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
             or force:
-        return overwrite(file_id, path, dedup=dedup, pg_handler=pg_handler).ret_val
+        return overwrite(file_id, path, dedup=dedup, rsf=rsf, pg_handler=pg_handler).ret_val
     elif not force:
         logger.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()
@@ -388,37 +410,53 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 
 @retry_on(STD_RETRY_RETVALS)
-def overwrite(node_id, local_file, dedup=False,
+def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
               pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
         r = acd_client.overwrite_file(node_id, local_file,
                                       read_callbacks=[hasher.update, pg_handler.update],
                                       deduplication=dedup)
-        cache.insert_node(r)
-        node = cache.get_node(r['id'])
-        md5 = node.md5
-
-        return compare_hashes(md5, hasher.get_result(), local_file)
     except RequestError as e:
         logger.error('Error overwriting file. %s' % str(e))
         return UL_DL_FAILED
+    else:
+        cache.insert_node(r)
+        node = cache.get_node(r['id'])
+
+        match = compare_hashes(hasher.get_result(), node.md5)
+        if match != 0:
+            return match
+
+        if rsf:
+            return remove_source_file(local_file)
+
+        return 0
 
 
 @retry_on([])
-def upload_stream(stream, file_name, parent_id, dedup=False,
+def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
+
+    parent = cache.get_node(parent_id)
+    child = parent.get_child(file_name)
+
     try:
-        r = acd_client.upload_stream(stream, file_name, parent_id,
-                                     read_callbacks=[hasher.update, pg_handler.update],
-                                     deduplication=dedup)
-        cache.insert_node(r)
-        node = cache.get_node(r['id'])
-        return compare_hashes(node.md5, hasher.get_result(), 'stream')
+        if child and overwr:
+            r = acd_client.overwrite_stream(stream, child.id,
+                                            read_callbacks=[hasher.update, pg_handler.update])
+        else:
+            r = acd_client.upload_stream(stream, file_name, parent_id,
+                                         read_callbacks=[hasher.update, pg_handler.update],
+                                         deduplication=dedup)
     except RequestError as e:
         logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
+    else:
+        cache.insert_node(r)
+        node = cache.get_node(r['id'])
+        return compare_hashes(node.md5, hasher.get_result(), 'stream/' + file_name)
 
 
 def create_dl_jobs(node_id: str, local_path: str,
@@ -490,7 +528,7 @@ def download_file(node_id: str, local_path: str,
     name, md5, size = node.name, node.md5, node.size
     # db.Session.remove()  # otherwise, sqlalchemy will complain if thread crashes
 
-    logger.info('Downloading "%s"' % name)
+    logger.info('Downloading "%s".' % name)
 
     hasher = hashing.IncrementalHasher()
     try:
@@ -637,7 +675,8 @@ def upload_action(args: argparse.Namespace) -> int:
             continue
 
         ret_val |= create_upload_jobs([], path, args.parent, args.overwrite, args.force,
-                                      args.deduplicate, excl_re, args.exclude_path, jobs)
+                                      args.deduplicate, args.remove_source_files,
+                                      excl_re, args.exclude_path, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
@@ -654,7 +693,8 @@ def upload_stream_action(args: argparse.Namespace) -> int:
     prog = progress.FileProgress(0)
     ql = QueuedLoader(max_retries=0)
     job = partial(upload_stream,
-                  sys.stdin.buffer, args.name, args.parent, args.deduplicate, pg_handler=prog)
+                  sys.stdin.buffer, args.name, args.parent, args.overwrite, args.deduplicate,
+                  pg_handler=prog)
     ql.add_jobs([job])
 
     return ql.start()
@@ -732,7 +772,7 @@ def mkdir(parent, name: str) -> bool:
 
 
 def create_action(args: argparse.Namespace) -> int:
-    segments = [seg for seg in args.new_folder.split('/') if seg] # non-empty path segments
+    segments = [seg for seg in args.new_folder.split('/') if seg]  # non-empty path segments
 
     if not segments:
         return
@@ -1021,6 +1061,7 @@ def set_encoding(force_utf: bool = False):
             sys.__excepthook__(type_, value, traceback)
             if type_ == UnicodeEncodeError:
                 logger.error('Please set your locale or use the "--utf" flag.')
+
         sys.excepthook = unicode_hook
 
     return utf_flag
@@ -1178,6 +1219,8 @@ def get_parser() -> tuple:
     upload_sp.add_argument('--force', '-f', action='store_true', help='force overwrite')
     upload_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='exclude duplicate files from upload')
+    upload_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
+                           help='remove local files on successful upload')
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
@@ -1191,6 +1234,7 @@ def get_parser() -> tuple:
 
     stream_sp = subparsers.add_parser('stream', aliases=['st'],
                                       help='[+] upload the standard input stream to a file')
+    stream_sp.add_argument('--overwrite', '-o', action='store_true')
     stream_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='prevent duplicates from getting stored after upload')
     stream_sp.add_argument('name', help='the remote file name')

@@ -90,7 +90,7 @@ Logging
 For debugging purposes, the recommended command to run is
 ::
 
-    acd_cli -d mount -i0 -fg path/to/mountpoint
+    acd_cli -d -nl mount -i0 -fg path/to/mountpoint
 
 That command will disable the automatic refresh (i.e. sync) of the node cache (`-i0`) and disable
 detaching from the console.
