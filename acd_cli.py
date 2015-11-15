@@ -260,7 +260,7 @@ def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, forc
             return DUPLICATE_DIR
         dirs.append(ino)
         return traverse_ul_dir(dirs, path, parent_id, overwr, force, dedup,
-                               exclude, exclude_paths, jobs)
+                               rsf, exclude, exclude_paths, jobs)
     elif os.path.isfile(path):
         short_nm = os.path.basename(path)
         for reg in exclude:
@@ -377,7 +377,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             cache.insert_node(r)
             node = cache.get_node(r['id'])
 
-            match = compare_hashes(hasher.get_result(), node.md5)
+            match = compare_hashes(hasher.get_result(), node.md5, path)
             if match != 0:
                 return match
 
