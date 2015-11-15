@@ -17,6 +17,8 @@ Thanks to
 - `Lorentz83 <https://github.com/Lorentz83>`_ for creating
   `a bash completion script <https://gist.github.com/Lorentz83/cad24ca44b53e4a33626>`_
 
+- `kylemanna <https://github.com/kylemanna>`_ for adding a systemd service file
+
 Also thanks to
 
 - `fibersnet <https://github.com/fibersnet>`_ for pointing out a possible deadlock in ACDFuse.

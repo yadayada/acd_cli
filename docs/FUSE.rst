@@ -74,6 +74,28 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --read-only, -ro          disallow write operations (does not affect cache refresh)
 --single-threaded, -st    disallow multi-threaded FUSE operations
 
+Automatic remount
+~~~~~~~~~~~~~~~~~
+
+Linux users may use the systemd service file from the assets directory
+to have the clouddrive automatically remounted on login.
+Alternative ways are to add a crontab entry using the ``@reboot`` keyword or to add an
+fstab entry like so:
+::
+
+  acdmount    /mount/point    fuse    defaults    0   0
+
+
+For this to work, an executable shell script /usr/bin/acdmount must be created
+::
+  
+  #!/bin/bash
+
+  acd_cli mount $1
+
+Please make sure your network connection is up before these commands are executed
+or the mount will fail.
+
 Library Path
 ~~~~~~~~~~~~
 
