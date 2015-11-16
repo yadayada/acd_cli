@@ -424,7 +424,7 @@ def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
         cache.insert_node(r)
         node = cache.get_node(r['id'])
 
-        match = compare_hashes(hasher.get_result(), node.md5)
+        match = compare_hashes(hasher.get_result(), node.md5, os.path.basename(local_file))
         if match != 0:
             return match
 
