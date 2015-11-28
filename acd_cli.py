@@ -1363,7 +1363,6 @@ def get_parser() -> tuple:
 
 def main():
     opt_parser, subparsers = get_parser()
-    opt_parser.set_defaults(acd_client=lambda: acd_client, cache=lambda: cache)
 
     # plugins
 
@@ -1409,6 +1408,9 @@ def main():
         if args.func not in [sync_action, old_sync_action, dump_sql_action]:
             if not check_cache():
                 sys.exit(INIT_FAILED_RETVAL)
+
+    args.__setattr__('acd_client', acd_client)
+    args.__setattr__('cache', cache)
 
     format.init(args.color)
 

@@ -6,7 +6,7 @@ from . import *
 
 
 class TestPlugin(Plugin):
-    MIN_VERSION = '0.3.0a6'
+    MIN_VERSION = '0.3.1'
 
     @classmethod
     def attach(cls, subparsers: argparse.ArgumentParser, log: list, **kwargs):
@@ -27,7 +27,7 @@ class TestPlugin(Plugin):
         if not args.silent:
             print('This plugin works.')
 
-        # args.cache().do_something()
-        # args.acd_client().do_something()
+        # args.cache.do_something()
+        # args.acd_client.do_something()
 
         return 0
