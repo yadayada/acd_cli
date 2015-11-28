@@ -239,11 +239,10 @@ class ContentMixin(object):
 
         :param dirname: a valid local directory name, or cwd if None
         :param basename: a valid file name
-        :param kwargs:
-        length: the total length of the file
-        write_callbacks (list[function]): passed on to :func:`chunked_download`
-        resume (bool=True): whether to resume if partial file exists
-        """
+        :param kwargs: \
+         - length: the total length of the file
+         - write_callbacks (list[function]): passed on to :func:`chunked_download`
+         - resume (bool=True): whether to resume if partial file exists"""
 
         dl_path = basename
         if dirname:

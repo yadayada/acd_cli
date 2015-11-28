@@ -6,7 +6,6 @@ import stat
 import errno
 import logging
 from time import time, sleep
-from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from multiprocessing import Process
 from threading import Thread, Lock, Event
@@ -15,6 +14,7 @@ from queue import Queue, Full as QueueFull
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
 from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
+from acdcli.utils.time import *
 
 logger = logging.getLogger(__name__)
 
@@ -411,8 +411,8 @@ class ACDFuse(LoggingMixIn, Operations):
             raise FuseOSError(errno.ENOENT)
 
         times = dict(st_atime=time(),
-                     st_mtime=(node.modified - datetime(1970, 1, 1)) / timedelta(seconds=1),
-                     st_ctime=(node.created - datetime(1970, 1, 1)) / timedelta(seconds=1))
+                     st_mtime=datetime_to_timestamp(node.modified),
+                     st_ctime=datetime_to_timestamp(node.created))
 
         if node.is_folder():
             return dict(st_mode=stat.S_IFDIR | 0o0777,

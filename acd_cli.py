@@ -11,7 +11,6 @@ import re
 import appdirs
 from functools import partial
 from collections import namedtuple
-from datetime import datetime, timedelta
 from multiprocessing import Event
 
 from pkgutil import walk_packages
@@ -23,6 +22,7 @@ from acdcli.api.common import RequestError, is_valid_id
 from acdcli.cache import db, format
 from acdcli.utils import hashing, progress
 from acdcli.utils.threading import QueuedLoader
+from acdcli.utils.time import *
 
 # load local plugin modules (default ones, for developers)
 from acdcli import plugins
@@ -392,7 +392,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         pg_handler.done()
         return 0
 
-    rmod = (conflicting_node.modified - datetime(1970, 1, 1)) / timedelta(seconds=1)
+    rmod = datetime_to_timestamp(conflicting_node.modified)
     rmod = datetime.utcfromtimestamp(rmod)
     lmod = datetime.utcfromtimestamp(os.path.getmtime(path))
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
@@ -459,9 +459,10 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
         return compare_hashes(node.md5, hasher.get_result(), 'stream/' + file_name)
 
 
-def create_dl_jobs(node_id: str, local_path: str,
+def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
                    exclude: 'List[re._pattern_type]', jobs: list) -> int:
-    """Populates passed jobs list with download partials."""
+    """Appends download partials for folder/file node pointed to by *node_id*
+    to the **jobs** list."""
 
     local_path = local_path if local_path else ''
 
@@ -470,7 +471,7 @@ def create_dl_jobs(node_id: str, local_path: str,
         return 0
 
     if node.is_folder():
-        return traverse_dl_folder(node_id, local_path, exclude, jobs)
+        return traverse_dl_folder(node_id, local_path, preserve_mtime, exclude, jobs)
 
     loc_name = node.name
 
@@ -488,13 +489,13 @@ def create_dl_jobs(node_id: str, local_path: str,
         return 0
 
     prog = progress.FileProgress(node.size)
-    fo = partial(download_file, node_id, local_path, pg_handler=prog)
+    fo = partial(download_file, node_id, local_path, preserve_mtime, pg_handler=prog)
     jobs.append(fo)
 
     return 0
 
 
-def traverse_dl_folder(node_id: str, local_path: str,
+def traverse_dl_folder(node_id: str, local_path: str, preserve_mtime: bool,
                        exclude: 'List[re._pattern_type', jobs: list) -> int:
     """Duplicates remote folder structure."""
 
@@ -517,16 +518,15 @@ def traverse_dl_folder(node_id: str, local_path: str,
     ret_val = 0
     children = sorted(node.children)
     for child in children:
-        ret_val |= create_dl_jobs(child.id, curr_path, exclude, jobs)
+        ret_val |= create_dl_jobs(child.id, curr_path, preserve_mtime, exclude, jobs)
     return ret_val
 
 
 @retry_on(STD_RETRY_RETVALS)
-def download_file(node_id: str, local_path: str,
+def download_file(node_id: str, local_path: str, preserve_mtime: bool,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     node = cache.get_node(node_id)
     name, md5, size = node.name, node.md5, node.size
-    # db.Session.remove()  # otherwise, sqlalchemy will complain if thread crashes
 
     logger.info('Downloading "%s".' % name)
 
@@ -538,6 +538,10 @@ def download_file(node_id: str, local_path: str,
         logger.error('Downloading "%s" failed. %s' % (name, str(e)))
         return UL_DL_FAILED
     else:
+        if preserve_mtime:
+            mtime = datetime_to_timestamp(node.modified)
+            os.utime(os.path.join(local_path, name), (mtime, mtime))
+
         return compare_hashes(hasher.get_result(), md5, name)
 
 
@@ -718,7 +722,7 @@ def download_action(args: argparse.Namespace) -> int:
 
     jobs = []
     ret_val = 0
-    ret_val |= create_dl_jobs(args.node, args.path, excl_re, jobs)
+    ret_val |= create_dl_jobs(args.node, args.path, args.times, excl_re, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
@@ -1244,6 +1248,8 @@ def get_parser() -> tuple:
     download_sp = subparsers.add_parser('download', aliases=['dl'], parents=[re_dummy_sp],
                                         help='download a remote folder or file; '
                                              'will skip existing local files')
+    download_sp.add_argument('--times', '-t', action='store_true',
+                             help='preserve modification times')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None,
                              help='local download directory [optional]')
