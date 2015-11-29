@@ -340,6 +340,11 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     conflicting_node = cache.conflicting_node(short_nm, parent_id)
     file_id = None
     if conflicting_node:
+        if conflicting_node.name != short_nm:
+            logger.error('File name "%s" collides with remote node "%s".'
+                         % (short_nm, conflicting_node.name))
+            return NAME_COLLISION
+
         if conflicting_node.is_folder():
             logger.error('Name collision with existing folder '
                          'in the same location: "%s".' % short_nm)
@@ -750,16 +755,20 @@ def mkdir(parent, name: str) -> bool:
         logger.error('Cannot create directory "%s". Parent is not a folder.' % name)
         return False
 
-    c = parent.get_child(name)
-    if c:
-        if c.is_file():
-            logger.error('Cannot create directory "%s". File exists.' % name)
-            return False
-        else:
-            logger.warning('Folder "%s" already exists.' % name)
-            return True
-
     parent_id = parent.id
+    cn = cache.conflicting_node(name, parent_id)
+
+    if cn:
+        if cn.is_file():
+            logger.error('Cannot create directory "%s". A file of that name already exists.' % name)
+            return False
+
+        if cn.name != name:
+            logger.error('Folder name "%s" collides with remote folder "%s".' % (name, cn.name))
+            return False
+
+        logger.warning('Folder "%s" already exists.' % name)
+        return True
 
     try:
         r = acd_client.create_folder(name, parent_id)

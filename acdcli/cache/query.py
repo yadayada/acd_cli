@@ -26,11 +26,11 @@ class QueryMixin(object):
         return self.Session.query(schema.Node).filter_by(id=node_id).first()
 
     def conflicting_node(self, name: str, parent_id: str):
-        """Finds conflicting node in folder specified by parent_id."""
+        """Finds conflicting node in folder specified by *parent_id*."""
         p = self.get_node(parent_id)
         if p:
             for c in p.children:
-                if c.is_available() and c.name == name:
+                if c.is_available() and c.name.lower() == name.lower():
                     return c
 
     @lru_cache()

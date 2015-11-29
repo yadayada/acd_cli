@@ -95,7 +95,7 @@ file size mismatch             128
 cache outdated                 256
 remote duplicate               512
 duplicate inode               1024
-file/folder name collision    2048
+name collision                2048
 error deleting source file    4096
 ===========================  =======
 
