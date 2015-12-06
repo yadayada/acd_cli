@@ -692,34 +692,53 @@ def unmount(path=None, lazy=False) -> int:
 
     :returns: 0 on success, 1 on error"""
 
+    import platform
     import re
     import subprocess
-    from itertools import chain
 
-    options = ['-u']
+    system = platform.system().lower()
+
+    if system != 'darwin':
+        umount_cmd = ['fusermount', '-u']
+    else:
+        umount_cmd = ['umount']
     if lazy:
-        options.append('-z')
+        if system == 'linux':
+            umount_cmd.append('-l')
+        else:
+            logging.warning('Lazy unmounting is not supported on your platform.')
 
     fuse_st = ACDFuse.__name__
 
     if path:
         paths = [path]
     else:
+        if system not in ['linux', 'darwin']:
+            logger.critical('Automatic unmounting is not supported on your platform.')
+            return 1
+
         paths = []
         try:
-            mounts = subprocess.check_output(['mount', '-l', '-t', 'fuse.' + fuse_st])
+            if system == 'linux':
+                mounts = subprocess.check_output(['mount', '-t', 'fuse.' + fuse_st])
+            elif system == 'darwin':
+                mounts = subprocess.check_output(['mount'])
+
             mounts = mounts.decode('UTF-8').splitlines()
         except:
             logger.critical('Getting mountpoints failed.')
             return 1
 
         for mount in mounts:
-            if 'user_id=%i' % os.getuid() in mount:
-                paths.append(re.search(fuse_st + ' on (.*) type fuse.', mount).group(1))
+            if fuse_st in mount:
+                if (system == 'linux' and 'user_id=%i' % os.getuid() in mount) or \
+                (system == 'darwin' and 'mounted by %s' % os.getlogin() in mount):
+                    paths.append(re.search(fuse_st + ' on (.*?) ', mount).group(1))
 
     ret = 0
     for path in paths:
-        command = list(chain.from_iterable([['fusermount'], options, [path]]))
+        command = list(umount_cmd)
+        command.append(path)
         try:
             subprocess.check_call(command)
         except subprocess.CalledProcessError:
