@@ -1,202 +1,313 @@
-"""
-Collection of common database queries.
-"""
-
 import logging
-from functools import lru_cache
-from sqlalchemy import func
-
-from . import schema
+from datetime import datetime
+from .cursors import cursor
 
 logger = logging.getLogger(__name__)
 
 
-class Bunch:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+def datetime_from_string(dt: str) -> datetime:
+    try:
+        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S.%f+00:00')
+    except ValueError:
+        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S+00:00')
+    return dt
 
-    def __str__(self):
-        return str(self.__dict__)
+
+CHILDREN_SQL = """SELECT n.*, f.* FROM nodes n
+                  JOIN parentage p ON n.id = p.child
+                  LEFT OUTER JOIN files f ON n.id = f.id
+                  WHERE p.parent = (?)
+                  ORDER BY n.name"""
+
+CHILDRENS_NAMES_SQL = """SELECT n.name FROM nodes n
+                JOIN parentage p ON n.id = p.child
+                WHERE p.parent = (?) AND n.status == 'AVAILABLE'
+                ORDER BY n.name"""
+
+NUM_CHILDREN_SQL = """SELECT COUNT(n.id) FROM nodes n
+                    JOIN parentage p ON n.id = p.child
+                    WHERE p.parent = (?) AND n.status == 'AVAILABLE'"""
+
+NUM_PARENTS_SQL = """SELECT COUNT(n.id) FROM nodes n
+                    JOIN parentage p ON n.id = p.parent
+                    WHERE p.child = (?) AND n.status == 'AVAILABLE'"""
+
+NUM_NODES_SQL = 'SELECT COUNT(*) FROM nodes'
+NUM_FILES_SQL = 'SELECT COUNT(*) FROM files'
+NUM_FOLDERS_SQL = 'SELECT COUNT(*) FROM nodes WHERE type == "folder"'
+
+CHILD_OF_SQL = """SELECT n.*, f.* FROM nodes n
+                  JOIN parentage p ON n.id = p.child
+                  LEFT OUTER JOIN files f ON n.id = f.id
+                  WHERE n.name = (?) AND p.parent = (?)
+                  ORDER BY n.status"""
+
+NODE_BY_ID_SQL = """SELECT n.*, f.* FROM nodes n LEFT OUTER JOIN files f ON n.id = f.id
+                    WHERE n.id = (?)"""
+
+USAGE_SQL = 'SELECT SUM(size) FROM files'
+
+FIND_BY_NAME_SQL = """SELECT n.*, f.* FROM nodes n
+                      LEFT OUTER JOIN files f ON n.id = f.id
+                      WHERE n.name LIKE ?
+                      ORDER BY n.name"""
+
+FIND_BY_REGEX_SQL = """SELECT n.*, f.* FROM nodes n
+                      LEFT OUTER JOIN files f ON n.id = f.id
+                      WHERE n.name REGEXP ?
+                      ORDER BY n.name"""
+
+FIND_BY_MD5_SQL = """SELECT n.*, f.* FROM nodes n
+                      LEFT OUTER JOIN files f ON n.id = f.id
+                      WHERE f.md5 == (?)
+                      ORDER BY n.name"""
+
+FIND_FIRST_PARENT_SQL = """SELECT n.* FROM nodes n
+                        JOIN parentage p ON n.id = p.parent
+                        WHERE p.child = (?)
+                        ORDER BY n.status, n.id"""
+
+# TODO: exclude files in trashed folders?!
+FILE_SIZE_EXISTS_SQL = """SELECT COUNT(*) FROM files f
+                          JOIN nodes n ON n.id = f.id
+                          WHERE f.size == (?) AND n.status == 'AVAILABLE'"""
+
+
+class Node(object):
+    def __init__(self, row):
+        self.id = row['id']
+        self.type = row['type']
+        self.name = row['name']
+        self.description = row['description']
+        self.cre = row['created']
+        self.mod = row['modified']
+        self.updated = row['updated']
+        self.status = row['status']
+
+        try:
+            self.md5 = row['md5']
+        except IndexError:
+            self.md5 = None
+        try:
+            self.size = row['size']
+        except IndexError:
+            self.size = 0
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __repr__(self):
+        return 'Node(%r, %r)' % (self.id, self.name)
+
+    @property
+    def is_folder(self):
+        return self.type == 'folder'
+
+    @property
+    def is_file(self):
+        return self.type == 'file'
+
+    @property
+    def is_available(self):
+        return self.status == 'AVAILABLE'
+
+    @property
+    def is_trashed(self):
+        return self.status == 'TRASH'
+
+    @property
+    def created(self):
+        return datetime_from_string(self.cre)
+
+    @property
+    def modified(self):
+        return datetime_from_string(self.mod)
+
+    @property
+    def simple_name(self):
+        if self.is_file:
+            return self.name
+        return (self.name if self.name else '') + '/'
 
 
 class QueryMixin(object):
-    """Mixin to the :class:`NodeCache <NodeCache>`"""
+    def get_node(self, id) -> 'Union[Node|None]':
+        with cursor(self._conn) as c:
+            c.execute(NODE_BY_ID_SQL, [id])
+            r = c.fetchone()
+            if r:
+                return Node(r)
 
-    def get_node(self, node_id: str) -> schema.Node:
-        return self.Session.query(schema.Node).filter_by(id=node_id).first()
+    def get_root_node(self):
+        return self.get_node(self.root_id)
 
-    def conflicting_node(self, name: str, parent_id: str):
-        """Finds conflicting node in folder specified by *parent_id*."""
-        p = self.get_node(parent_id)
-        if p:
-            for c in p.children:
-                if c.is_available() and c.name.lower() == name.lower():
-                    return c
+    def get_conflicting_node(self, name: str, parent_id: str):
+        """Finds conflicting node in folder specified by *parent_id*, if one exists."""
+        folders, files = self.list_children(parent_id)
+        for n in folders + files:
+            if n.is_available and n.name.lower() == name.lower():
+                return n
 
-    @lru_cache()
-    def get_root_node(self) -> schema.Folder:
-        for f in self.Session.query(schema.Folder).filter_by(name=None):
-            if len(f.parents) == 0:
-                return f
+    def resolve(self, path: str, trash=False) -> 'Union[Node|None]':
+        segments = list(filter(bool, path.split('/')))
+        if not segments:
+            if not self.root_id:
+                return
+            with cursor(self._conn) as c:
+                c.execute(NODE_BY_ID_SQL, [self.root_id])
+                r = c.fetchone()
+                return Node(r)
 
-    def get_root_id(self) -> str:
-        root = self.get_root_node()
-        if root:
-            return root.id
+        parent = self.root_id
+        for i, segment in enumerate(segments):
+            with cursor(self._conn) as c:
+                c.execute(CHILD_OF_SQL, [segment, parent])
+                r = c.fetchone()
+                r2 = c.fetchone()
 
-    def get_node_count(self) -> int:
-        return self.Session.query(schema.Node).count()
+            if not r:
+                return
+            r = Node(r)
 
-    def get_file_count(self) -> int:
-        return self.Session.query(schema.File).count()
-
-    def calculate_usage(self) -> int:
-        """Calculates total ACD space used by summing all file sizes."""
-        u = self.Session.query(func.sum(schema.File.size)).scalar()
-        return u if u else 0
-
-    def file_size(self, id: str) -> int:
-        return self.Session.query(schema.File).filter_by(id=id).first().size
-
-    def tree(self, root_id: str=None, trash=False) -> 'Generator[Bunch]':
-        if root_id is None:
-            return self.walk_nodes(trash=trash)
-
-        folder = self.Session.query(schema.Folder).filter_by(id=root_id).first()
-        if not folder:
-            logger.error('Not a folder or not found: "%s".' % root_id)
-            return
-
-        return self.walk_nodes(folder, True, True, trash)
-
-    def list_children(self, folder_id: str, recursive=False, trash=False) -> 'Generator[Bunch]':
-        """Creates Bunches of folder's children
-
-        :param folder_id: valid folder's id"""
-
-        folder = self.Session.query(schema.Folder).filter_by(id=folder_id).first()
-        if not folder:
-            logger.warning('Not a folder or not found: "%s".' % folder_id)
-            return []
-
-        return self.walk_nodes(folder, False, recursive, trash)
-
-    # TODO: refashion this to return a tuple like os.walk
-    def walk_nodes(self, root: schema.Folder=None, add_root=True, recursive=True, trash=False,
-                   path='', depth=0) -> 'Generator[Bunch]':
-        """Generates Bunches of (non-)trashed nodes
-
-        :param root: start folder
-        :param add_root: whether to add the root node and prepend its path to its children
-        :param recursive: whether to traverse hierarchy
-        :param trash: whether to include trash
-        :param path: the path on which this method incarnation was reached
-        :returns: list of Bunches including node and path attributes"""
-
-        if not root:
-            root = self.get_root_node()
-            if not root:
+            if not r.is_available:
+                if not trash:
+                    return
+                if r2:
+                    logger.debug('None-unique trash name "%s" in %s.' %(segment, parent))
+                    return
+            if i + 1 == segments.__len__():
+                return r
+            if r.is_folder:
+                parent = r.id
+                continue
+            else:
                 return
 
-        if add_root:
-            yield Bunch(node=root, path=path, depth=depth)
-            path += root.simple_name()
+    def childrens_names(self, folder_id) -> 'List[str]':
+        with cursor(self._conn) as c:
+            c.execute(CHILDRENS_NAMES_SQL, [folder_id])
+            kids = []
+            row = c.fetchone()
+            while row:
+                kids.append(row['name'])
+                row = c.fetchone()
+            return kids
 
-        if not recursive:
-            children = sorted(root.children)
-        else:
-            children = sorted(root.children, key=lambda x: ('b' if x.is_folder() else 'a') + x.name)
+    def get_node_count(self) -> int:
+        with cursor(self._conn) as c:
+            c.execute(NUM_NODES_SQL)
+            r = c.fetchone()[0]
+        return r
 
-        for child in children:
-            if child.status == 'TRASH' and not trash:
-                continue
-            if isinstance(child, schema.Folder) and recursive:
-                for node in self.walk_nodes(child, True, recursive, trash, path, depth + 1):
-                    yield node
-            else:
-                yield Bunch(node=child, path=path, depth=depth + 1)
+    def get_folder_count(self) -> int:
+        with cursor(self._conn) as c:
+            c.execute(NUM_FOLDERS_SQL)
+            r = c.fetchone()[0]
+        return r
 
-    def list_trash(self, recursive=False) -> 'Generator[Bunch]':
-        trash_nodes = self.Session().query(schema.Node).filter(schema.Node.status == 'TRASH').all()
-        trash_nodes = sorted(trash_nodes)
+    def get_folder_count(self) -> int:
+        with cursor(self._conn) as c:
+            c.execute(NUM_FILES_SQL)
+            r = c.fetchone()[0]
+        return r
 
-        for node in trash_nodes:
-            yield Bunch(node=node, path=node.containing_folder())
-            if isinstance(node, schema.Folder) and recursive:
-                for child in self.walk_nodes(node, False, True, True, node.full_path()):
-                    yield child
+    def calculate_usage(self):
+        with cursor(self._conn) as c:
+            c.execute(USAGE_SQL)
+            r = c.fetchone()
+        if not r:
+            return 0
+        return r[0]
 
-    def find(self, name: str) -> 'Generator[Bunch]':
-        q = self.Session.query(schema.Node).filter(schema.Node.name.like('%' + name + '%'))
-        q = sorted(q, key=lambda x: x.full_path())
+    def num_children(self, folder_id) -> int:
+        with cursor(self._conn) as c:
+            c.execute(NUM_CHILDREN_SQL, [folder_id])
+            num = c.fetchone()[0]
+            return num
 
-        for node in q:
-            yield Bunch(node=node, path=node.containing_folder())
+    def num_parents(self, node_id) -> int:
+        with cursor(self._conn) as c:
+            c.execute(NUM_PARENTS_SQL, [node_id])
+            num = c.fetchone()[0]
+            return num
 
-    def find_md5(self, md5: str) -> 'Generator[Bunch]':
-        q = self.Session.query(schema.File).filter_by(md5=md5)
-        q = sorted(q, key=lambda x: x.full_path())
+    def get_child(self, folder_id, child_name) -> 'Union[Node|None]':
+        with cursor(self._conn) as c:
+            c.execute(CHILD_OF_SQL, [child_name, folder_id])
+            r = c.fetchone()
+        if r:
+            r = Node(r)
+            if r.is_available:
+                return r
 
-        for node in q:
-            yield Bunch(node=node, path=node.containing_folder())
+    def list_children(self, folder_id, trash=False) -> 'Tuple[List[Node], List[Node]]':
+        files = []
+        folders = []
 
-    def find_regex(self, regex: str) -> 'Generator[Bunch]':
-        q = self.Session.query(schema.Node).filter(schema.Node.name.op('REGEXP')(regex))
-        q = sorted(q, key=lambda x: x.full_path())
+        with cursor(self._conn) as c:
+            c.execute(CHILDREN_SQL, [folder_id])
+            node = c.fetchone()
+            while node:
+                node = Node(node)
+                if node.is_available or trash:
+                    if node.is_file:
+                        files.append(node)
+                    elif node.is_folder:
+                        folders.append(node)
+                node = c.fetchone()
 
-        for node in q:
-            yield Bunch(node=node, path=node.containing_folder())
+        return folders, files
 
-    def file_size_exists(self, size: int) -> bool:
-        """Returns whether cache contains one or more file(s) of given size."""
-        return self.Session.query(schema.File).filter_by(size=size).count()
+    def list_trashed_children(self, folder_id) -> 'Tuple[List[Node], List[Node]]':
+        folders, files = self.list_children(folder_id, True)
+        folders[:] = [f for f in folders if f.is_trashed]
+        files[:] = [f for f in folders if f.is_trashed]
+        return folders, files
 
-    def resolve_path(self, path: str, trash=True) -> 'Tuple[schema.Folder, schema.Node]':
-        """Resolves absolute path to node ID"""
-        node, _ = self.resolve(path, None, trash)
-        return node.id if node else None
+    def first_path(self, node_id: str) -> str:
+        if node_id == self.root_id:
+            return '/'
+        with cursor(self._conn) as c:
+            c.execute(FIND_FIRST_PARENT_SQL, (node_id,))
+            r = c.fetchone()
+        node = Node(r)
+        if node.id == self.root_id:
+            return node.simple_name
+        return self.first_path(node.id) + node.name + '/'
 
-    def resolve(self, path: str, root=None, trash=True) -> 'Tuple[schema.Folder, schema.Node]':
-        """Resolves absolute path to (node, parent) tuple if fully unique"""
-        if not path or (not root and '/' not in path):
-            return None, None
+    def find_by_name(self, name: str) -> 'List[Node]':
+        nodes = []
+        with cursor(self._conn) as c:
+            c.execute(FIND_BY_NAME_SQL, ['%' + name + '%'])
+            r = c.fetchone()
+            while r:
+                nodes.append(Node(r))
+                r = c.fetchone()
+        return nodes
 
-        segments = path.split('/')
-        if segments[0] == '' and not root:
-            root = self.get_root_node()
+    def find_by_md5(self, md5) -> 'List[Node]':
+        nodes = []
+        with cursor(self._conn) as c:
+            c.execute(FIND_BY_MD5_SQL, (md5,))
+            r = c.fetchone()
+            while r:
+                nodes.append(Node(r))
+                r = c.fetchone()
+        return nodes
 
-        if not root:
-            return None, None
+    def find_by_regex(self, regex) -> 'List[Node]':
+        nodes = []
+        with cursor(self._conn) as c:
+            c.execute(FIND_BY_REGEX_SQL, (regex,))
+            r = c.fetchone()
+            while r:
+                nodes.append(Node(r))
+                r = c.fetchone()
+        return nodes
 
-        if len(segments) == 1 or segments[1] == '':
-            return root, None
+    def file_size_exists(self, size) -> bool:
+        with cursor(self._conn) as c:
+            c.execute(FILE_SIZE_EXISTS_SQL, [size])
+            no = c.fetchone()[0]
 
-        segments = segments[1:]
-
-        # TODO
-        if root.is_file() or (not root.is_available() and not trash):
-            return None, None
-
-        children = []  # possibly non-unique trash children
-        for child in root.children:
-            if child.name == segments[0]:
-                if child.is_available():
-                    n, p = self.resolve('/'.join(segments), child, trash)
-                    return n, (p if p else root)
-                children.append(child)
-
-        if not trash:
-            return None, None
-        ids = []
-        for trash_child in children:
-            res, _ = self.resolve('/'.join(segments), trash_child)
-            if res:
-                ids.append(res)
-        if len(ids) == 1:
-            return ids[0], root
-        elif len(ids) == 0:
-            logger.debug('Could not resolve path "%s"' % path)
-        else:
-            logger.info('Could not resolve non fully unique (i.e. trash) path "%s"' % path)
-
-        return None, None
+        return bool(no)

@@ -369,8 +369,6 @@ class ACDFuse(LoggingMixIn, Operations):
         """collection of files opened for reading"""
         self.wp = WriteProxy(self.acd_client, self.cache)
         """collection of files opened for writing"""
-        # self.pc = PathCache(self.cache)
-
         self.total, _ = self.acd_client.fs_sizes()
         """total disk space"""
         self.free = self.total - self.cache.calculate_usage()
@@ -394,47 +392,52 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :raises: FuseOSError if path is not a node or path is not a folder"""
 
-        node, _ = self.cache.resolve(path, trash=False)
+        node = self.cache.resolve(path)
         if not node:
             raise FuseOSError(errno.ENOENT)
-        if not node.is_folder():
+        if not node.type == 'folder':
             raise FuseOSError(errno.ENOTDIR)
 
-        return [_ for _ in ['.', '..'] + [c.name for c in node.available_children()]]
+        return [_ for _ in ['.', '..'] + [c for c in self.cache.childrens_names(node.id)]]
 
     def getattr(self, path, fh=None) -> dict:
         """Creates a stat-like attribute dict, see :manpage:`stat(2)`.
         Calculates correct number of links for folders if :attr:`nlinks` is set."""
 
-        node, _ = self.cache.resolve(path, trash=False)
+        node = self.cache.resolve(path)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
         times = dict(st_atime=time(),
-                     st_mtime=datetime_to_timestamp(node.modified),
-                     st_ctime=datetime_to_timestamp(node.created))
+                     st_mtime=node.modified.timestamp(),
+                     st_ctime=node.created.timestamp())
 
-        if node.is_folder():
+        if node.is_folder:
             return dict(st_mode=stat.S_IFDIR | 0o0777,
-                        st_nlink=node.nlinks if self.nlinks else 1, **times)
-        if node.is_file():
+                        st_nlink=self.cache.num_children(node.id) if self.nlinks else 1,
+                        **times)
+        elif node.is_file:
             return dict(st_mode=stat.S_IFREG | 0o0666,
-                        st_nlink=node.nlinks if self.nlinks else 1,
-                        st_size=node.size, **times)
+                        st_nlink=self.cache.num_parents(node.id) if self.nlinks else 1,
+                        st_size=node.size,
+                        **times)
 
     def listxattr(self, path) -> 'List[str]':
         """Lists extended node attributes (names)."""
 
-        node, _ = self.cache.resolve(path, trash=False)
-        if node.is_file():
+        node = self.cache.resolve(path)
+        if node.is_file:
             return self.FXATTRS.vars()
-        elif node.is_folder():
+        elif node.is_folder:
             return self.XATTRS.vars()
 
     def getxattr(self, path, name, position=0) -> bytes:
         """Gets value of extended attribute ``name``."""
 
-        node, _ = self.cache.resolve(path, trash=False)
+        if name not in self.XATTRS.vars() and name not in self.FXATTRS.vars():
+            raise FuseOSError(errno.ENODATA)
+
+        node = self.cache.resolve(path)
 
         if name == self.XATTRS.ID:
             return bytes(node.id, encoding='utf-8')
@@ -448,7 +451,7 @@ class ACDFuse(LoggingMixIn, Operations):
     def read(self, path, length, offset, fh) -> bytes:
         """Read ```length`` bytes from ``path`` att ``offset``."""
 
-        node, _ = self.cache.resolve(path, trash=False)
+        node = self.cache.resolve(path, trash=False)
 
         if not node:
             raise FuseOSError(errno.ENOENT)
@@ -477,12 +480,12 @@ class ACDFuse(LoggingMixIn, Operations):
 
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
-        pid = self.cache.resolve_path(ppath)
-        if not pid:
+        p = self.cache.resolve(ppath)
+        if not p:
             raise FuseOSError(errno.ENOTDIR)
 
         try:
-            r = self.acd_client.create_folder(name, pid)
+            r = self.acd_client.create_folder(name, p.id)
         except RequestError as e:
             FuseOSError.convert(e)
         else:
@@ -490,12 +493,10 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def _trash(self, path):
         logger.debug('trash %s' % path)
-        node, parent = self.cache.resolve(path, False)
+        node = self.cache.resolve(path, False)
 
         if not node:  # or not parent:
             raise FuseOSError(errno.ENOENT)
-
-        logger.debug('%s %s' % (node, parent))
 
         try:
             # if len(node.parents) > 1:
@@ -523,12 +524,12 @@ class ACDFuse(LoggingMixIn, Operations):
 
         name = os.path.basename(path)
         ppath = os.path.dirname(path)
-        pid = self.cache.resolve_path(ppath, False)
-        if not pid:
+        p = self.cache.resolve(ppath, False)
+        if not p:
             raise FuseOSError(errno.ENOTDIR)
 
         try:
-            r = self.acd_client.create_file(name, pid)
+            r = self.acd_client.create_file(name, p.id)
             self.cache.insert_node(r)
         except RequestError as e:
             FuseOSError.convert(e)
@@ -547,30 +548,29 @@ class ACDFuse(LoggingMixIn, Operations):
         if old == new:
             return
 
-        id = self.cache.resolve_path(old, False)
-        if not id:
+        node = self.cache.resolve(old, False)
+        if not node:
             raise FuseOSError(errno.ENOENT)
 
         new_bn, new_dn = os.path.basename(new), os.path.dirname(new)
         old_bn, old_dn = os.path.basename(old), os.path.dirname(old)
 
-        existing_id = self.cache.resolve_path(new, False)
-        if existing_id:
-            en = self.cache.get_node(existing_id)
-            if en and en.is_file():
+        existing = self.cache.resolve(new, False)
+        if existing:
+            if existing.is_file:
                 self._trash(new)
             else:
                 raise FuseOSError(errno.EEXIST)
 
         if new_bn != old_bn:
-            self._rename(id, new_bn)
+            self._rename(node.id, new_bn)
 
         if new_dn != old_dn:
             # odir_id = self.cache.resolve_path(old_dn, False)
-            ndir_id = self.cache.resolve_path(new_dn, False)
-            if not ndir_id:
+            ndir = self.cache.resolve(new_dn, False)
+            if not ndir:
                 raise FuseOSError(errno.ENOTDIR)
-            self._move(id, ndir_id)
+            self._move(node.id, ndir.id)
 
     def _rename(self, id, name):
         try:
@@ -607,7 +607,7 @@ class ACDFuse(LoggingMixIn, Operations):
         :returns: number of bytes written"""
 
         if offset == 0:
-            n, p = self.cache.resolve(path, False)
+            n = self.cache.resolve(path, False)
             node_id = n.id
         else:
             node_id = ''
@@ -624,7 +624,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :raises FuseOSError: if pseudo-truncation to length is not supported"""
 
-        n, _ = self.cache.resolve(path)
+        n = self.cache.resolve(path)
         if length == 0:
             try:
                 r = self.acd_client.clear_file(n.id)
@@ -638,7 +638,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def release(self, path, fh):
         """Releases an open ``path``."""
-        node, _ = self.cache.resolve(path, trash=False)
+        node = self.cache.resolve(path, trash=False)
         if node:
             self.rp.release(node.id)
             self.wp.release(fh)
@@ -672,9 +672,6 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
     :param args: args to pass on to ACDFuse init
     :param kwargs: fuse mount options as described in :manpage:`fuse(8)`"""
 
-    if not args['cache'].get_root_node():
-        logger.critical('Root node not found. Aborting.')
-        return 1
     if not os.path.isdir(path):
         logger.critical('Mountpoint does not exist or already used.')
         return 1

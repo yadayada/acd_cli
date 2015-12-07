@@ -1,16 +1,32 @@
-import os
 import logging
+import os
 import re
-from sqlalchemy import *
-from sqlalchemy.orm import sessionmaker, scoped_session, relationship, backref
-from sqlalchemy.exc import DatabaseError
-from sqlalchemy.event import listen
+import sqlite3
+from threading import local
 
-from . import schema
+from .cursors import *
+from .format import FormatterMixin
 from .query import QueryMixin
+from .schema import SchemaMixin
 from .sync import SyncMixin
 
 logger = logging.getLogger(__name__)
+
+_ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder"'
+
+
+class IntegrityError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return repr(self.msg)
+
+
+def _create_conn(path: str) -> sqlite3.Connection:
+    c = sqlite3.connect(path, timeout=60)
+    c.row_factory = sqlite3.Row # allow dict-like access on rows with col name
+    return c
 
 
 def _regex_match(pattern: str, cell: str) -> bool:
@@ -19,143 +35,76 @@ def _regex_match(pattern: str, cell: str) -> bool:
     return re.match(pattern, cell, re.IGNORECASE) is not None
 
 
-class NodeCache(QueryMixin, SyncMixin):
-    _DB_SCHEMA_VER = 1
+class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
     _DB_FILENAME = 'nodes.db'
 
     IntegrityCheckType = dict(full=0, quick=1, none=2)
-    """types of start-up SQLite integrity checks"""
+    """types of SQLite integrity checks"""
 
     def __init__(self, path: str='', check=IntegrityCheckType['full']):
-        """Initializes the node cache file in the given path. Performs a migration to highest
-        version if database file exists.
+        self.db_path = os.path.join(path, self._DB_FILENAME)
+        self.tl = local()
 
-        :param path: path to store database file into, defaults to cwd
-        :param check: type of the integrity check to perform"""
-
-        logger.info('Initializing cache with path "%s".' % os.path.realpath(path))
-        db_path = os.path.join(path, NodeCache._DB_FILENAME)
-
-        # doesn't seem to work on Windows
-        from ctypes import util, CDLL
-
-        try:
-            lib = util.find_library('sqlite3')
-            if lib:
-                dll = CDLL(lib)
-                if dll and not dll.sqlite3_threadsafe():
-                    # http://www.sqlite.org/c3ref/threadsafe.html (added in 2007?)
-                    logger.warning('Your sqlite3 version was compiled without mutexes. '
-                                   'It is not thread-safe.')
-        except (OSError, AttributeError):
-            logger.info('Skipping sqlite thread-safety test.')
-
-        self.engine = create_engine('sqlite:///%s' % db_path,
-                                    connect_args={'check_same_thread': False})
-
-        # register the named function 'REGEXP' with SQLite
-        # https://docs.python.org/3.2/library/sqlite3.html#sqlite3.Connection.create_function
-        listen(self.engine, 'begin',
-               lambda conn: conn.connection.create_function('REGEXP', 2, _regex_match))
-
-        initialized = os.path.exists(db_path)
-        if initialized:
-            try:
-                initialized = self.engine.has_table(schema.Metadate.__tablename__) and \
-                              self.engine.has_table(schema.Node.__tablename__) and \
-                              self.engine.has_table(schema.File.__tablename__) and \
-                              self.engine.has_table(schema.Folder.__tablename__)
-            except DatabaseError as e:
-                logger.critical('Error opening database: %s' % str(e))
-                raise e
-
+        self.init()
         self.integrity_check(check)
 
-        if not initialized:
-            r = self.engine.execute('PRAGMA user_version = %i;' % NodeCache._DB_SCHEMA_VER)
-            r.close()
+        self._conn.create_function('REGEXP', _regex_match.__code__.co_argcount, _regex_match)
 
-        logger.info('Cache is %sinitialized.' % ('' if initialized else 'not '))
+        with cursor(self._conn) as c:
+            c.execute(_ROOT_ID_SQL)
+            row = c.fetchone()
+            if not row:
+                self.root_id = ''
+                return
+            first_id = row['id']
 
-        schema._Base.metadata.create_all(self.engine)
-        session_factory = sessionmaker(bind=self.engine)
-        self.Session = scoped_session(session_factory)
+            if c.fetchone():
+                raise IntegrityError('Could not uniquely identify root node.')
 
-        self.KeyValueStorage = schema._KeyValueStorage(self.Session)
+            self.root_id = first_id
 
-        if not initialized:
-            return
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        if not hasattr(self.tl, '_conn'):
+            self.tl._conn = _create_conn(self.db_path)
+        return self.tl._conn
 
-        r = self.engine.execute('PRAGMA user_version;')
-        ver = r.first()[0]
-        r.close()
+    def remove_db_file(self) -> bool:
+        """Removes database file."""
+        self._conn.close()
 
-        logger.info('DB schema version is %s.' % ver)
+        import os
+        import random
+        import string
+        tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
+        tmp_name = os.path.join(os.path.basename(self.db_path), tmp_name)
 
-        if NodeCache._DB_SCHEMA_VER > ver:
-            self._migrate(ver)
+        logger.info(tmp_name)
+
+        try:
+            os.rename(self.db_path, tmp_name)
+        except OSError:
+            logger.critical('Error renaming/removing database file "%s".' % self.db_path)
+            return False
+        else:
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                logger.info('Database file was moved, but not deleted.')
+        return True
 
     def integrity_check(self, type_: IntegrityCheckType):
         """Performs a `self-integrity check
         <https://www.sqlite.org/pragma.html#pragma_integrity_check>`_ on the database."""
 
-        if type_ == NodeCache.IntegrityCheckType['full']:
-            r = self.engine.execute('PRAGMA integrity_check;')
-        elif type_ == NodeCache.IntegrityCheckType['quick']:
-            r = self.engine.execute('PRAGMA quick_check;')
-        else:
-            return
-        if r.first()[0] != 'ok':
-            logger.warn('Sqlite database integrity check failed. '
-                        'You may need to clear the cache if you encounter any errors.')
-
-    def dump_table_sql(self):
-        """Dumps SQL statements for generation of tables in current schema to stdout."""
-        def dump(sql, *args, **kwargs):
-            print(sql.compile(dialect=self.engine.dialect))
-        engine = create_engine('sqlite://', strategy='mock', executor=dump)
-        schema._Base.metadata.create_all(engine, checkfirst=False)
-
-    def drop_all(self):
-        """Drops all tables from database."""
-        schema._Base.metadata.drop_all(self.engine)
-        logger.info('Dropped all tables.')
-
-    def _migrate(self, schema: int):
-        """Migrates database to highest schema.
-
-        :param int schema: current (cache file) schema version to upgrade from"""
-
-        conn = self.engine.connect()
-        trans = conn.begin()
-        try:
-            for update_ in self.migrations[schema:]:
-                logger.warning('Updating db schema from %i to %i.' % (schema, schema + 1))
-                update_(conn)
-                schema += 1
-            trans.commit()
-        except:
-            trans.rollback()
-            raise
-
-        conn.close()
-
-    @staticmethod
-    def _0_to_1(conn):
-        conn.execute('ALTER TABLE nodes ADD updated DATETIME;')
-        conn.execute('ALTER TABLE nodes ADD description VARCHAR(500);')
-        conn.execute('PRAGMA user_version = 1;')
-
-    migrations = [_0_to_1]
-    """list of all migrations from index -> index+1"""
-
-
-def remove_db_file(path: str) -> bool:
-    """Removes database file from passed *path*."""
-    db_path = os.path.join(path, NodeCache._DB_FILENAME)
-    try:
-        os.remove(db_path)
-    except OSError:
-        logger.critical('Error removing database file "%s".' % db_path)
-        return False
-    return True
+        with cursor(self._conn) as c:
+            if type_ == NodeCache.IntegrityCheckType['full']:
+                r = c.execute('PRAGMA integrity_check;')
+            elif type_ == NodeCache.IntegrityCheckType['quick']:
+                r = c.execute('PRAGMA quick_check;')
+            else:
+                return
+            r = c.fetchone()
+            if not r or r[0] != 'ok':
+                logger.warn('Sqlite database integrity check failed. '
+                            'You may need to clear the cache if you encounter any errors.')

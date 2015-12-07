@@ -7,6 +7,8 @@ import os
 import sys
 import datetime
 
+from .cursors import cursor
+
 colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
 colors = dict(c.split('=') for c in colors)
 # colors is now a mapping of 'type': 'color code' or '*.ext' : 'color code'
@@ -67,7 +69,7 @@ def color_status(status):
 
 
 def date_str(time_: datetime.datetime) -> str:
-    """Creates colored date string similar to ls -l."""
+    """Creates colored date string similar to the one in ls -l."""
     if time_.year == datetime.date.year:
         last_seg = str(time_.year).rjust(5)
     else:
@@ -75,79 +77,95 @@ def date_str(time_: datetime.datetime) -> str:
     return nor_fmt % ('{0:%b} %s %s'.format(time_) % (str(time_.day).rjust(2), last_seg))
 
 
-def size_nlink_str(node, size_bytes=False):
-    """Creates a right-justified size/nlinks string."""
-    from acdcli.utils.progress import file_size_str
+class FormatterMixin(object):
+    def size_nlink_str(self, node, size_bytes=False):
+        """Creates a right-justified size/nlinks string."""
+        from acdcli.utils.progress import file_size_str
 
-    if node.is_file():
-        if not size_bytes:
-            return nor_fmt % file_size_str(node.size).rjust(7)
-        return nor_fmt % str(node.size).rjust(11)
-    elif node.is_folder():
-        return nor_fmt % str(node.nlinks).rjust(7 if not size_bytes else 11)
-    return ''
+        if node.is_file:
+            if not size_bytes:
+                return nor_fmt % file_size_str(node.size).rjust(7)
+            return nor_fmt % str(node.size).rjust(11)
+        elif node.is_folder:
+            return nor_fmt % str(self.num_children(node.id)).rjust(7 if not size_bytes else 11)
+        return ''
 
+    def ls_format(self, folder_id, folder_path=None, recursive=False,
+                  trash_only=False, trashed_children=False,
+                  long=False, size_bytes=False) -> 'Generator[str]':
 
-class ListFormatter(object):
-    def __new__(cls, bunches, **kwargs):
-        return LSFormatter(bunches, **kwargs)
+        if folder_path is None:
+            folder_path = []
 
+        if trash_only:
+            folders, files = self.list_trashed_children(folder_id)
+        else:
+            folders, files = self.list_children(folder_id, trashed_children)
 
-class LSFormatter(ListFormatter):
-    """A formatter similar to ls --long."""
-    def __new__(cls, bunches, recursive=False, long=False, size_bytes=False) -> 'Generator[str]':
+        for file in files:
+            yield '[{}] [{}] {}{}{}'.format(
+                nor_fmt % file.id,
+                color_status(file.status),
+                (self.size_nlink_str(file, size_bytes=size_bytes) + ' ') if long else '',
+                (date_str(file.modified) + ' ') if long else '',
+                color_path(file.name)
+            )
+
+        if recursive and files and folders:
+            yield ''
+
         is_first = True
-        for bunch in bunches:
-            node = bunch.node
-            children = 0 if not node.is_folder() else node.children.count()
-            if bunch.path is None:
-                bunch.path = node.containing_folder()
-            if recursive and node.is_folder() and not is_first and children > 0:
+        for folder in folders:
+            children = self.num_children(folder.id)
+            if recursive and not is_first and children > 0:
                 yield ''
             yield '[{}] [{}] {}{}{}{}'.format(
-                nor_fmt % node.id,
-                color_status(node.status),
-                (size_nlink_str(node, size_bytes=size_bytes) + ' ') if long else '',
-                (date_str(node.modified) + ' ') if long else '',
-                color_path(bunch.path) if node.is_folder() and children else '',
-                color_path(node.simple_name())
+                nor_fmt % folder.id,
+                color_status(folder.status),
+                (self.size_nlink_str(folder, size_bytes=size_bytes) + ' ') if long else '',
+                (date_str(folder.modified) + ' ') if long else '',
+                color_path('/'.join(folder_path) + '/') if folder_path else '',
+                color_path(folder.name + '/')
             )
             is_first = False
 
+            if recursive:
+                for n in self.ls_format(folder.id,
+                                        [f for f in folder_path] + [folder.name],
+                                        recursive, False, trashed_children, long, size_bytes):
+                    yield n
 
-class LongIDFormatter(ListFormatter):
-    def __new__(cls, bunches) -> 'Generator[str]':
-        for bunch in bunches:
-            node = bunch.node
-            if bunch.path is None:
-                bunch.path = node.containing_folder()
+
+    def tree_format(self, node, path, trash=False, depth=0) -> 'Generator[str]':
+        """A simple tree formatter that indicates parentship by indentation
+        (i.e. does not display graphical branches like :program:`tree`)."""
+
+        indent = ' ' * 4 * depth
+        yield indent + color_path(node.simple_name)
+
+        indent += ' ' * 4
+        folders, files = self.list_children(node.id, trash)
+        for folder in folders:
+            for line in self.tree_format(folder, '', trash, depth + 1):
+                yield line
+        for file in files:
+            yield indent + color_path(file.simple_name)
+
+    @staticmethod
+    def id_format(nodes) -> 'Generator[str]':
+        for node in nodes:
+            yield node.id
+
+    def long_id_format(self, nodes) -> 'Generator[str]':
+        for node in nodes:
+            path = self.first_path(node.id)
             yield '[{}] [{}] {}{}'.format(
                 nor_fmt % node.id,
                 color_status(node.status),
-                color_path(bunch.path),
-                color_path(node.simple_name())
+                color_path(path),
+                color_path(node.simple_name)
             )
 
-
-class TreeFormatter(ListFormatter):
-    """A simple tree formatter that indicates parentship by indentation
-    (i.e. does not display graphical branches like :program:`tree`)."""
-    def __new__(cls, bunches) -> 'Generator[str]':
-        for bunch in bunches:
-            pre = ''
-            if bunch.depth > 0:
-                pre = ' ' * 4 * bunch.depth
-            yield pre + color_path(bunch.node.simple_name())
-
-
-class IDFormatter(ListFormatter):
-    """"""
-    def __new__(cls, bunches) -> 'Generator[str]':
-        for bunch in bunches:
-            yield bunch.node.id
-
-
-class PathFormatter(ListFormatter):
-    def __new__(cls, bunches) -> 'Generator[str]':
-        for bunch in bunches:
-            yield bunch.node.full_path()
+    def path_format(self, nodes):
+        for node in nodes:
+            yield self.first_path(node.id) + node.name
