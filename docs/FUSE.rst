@@ -53,8 +53,9 @@ Unmounting is usually achieved by the following command
 
     fusermount -u path/to/mountpoint
 
-If the mount is busy, the ``--lazy`` (``-z``) flag can be used.
-There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts.
+If the mount is busy, Linux users can use the ``--lazy`` (``-z``) flag.
+There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts on
+Linux and Mac OS.
 
 Mount options
 ~~~~~~~~~~~~~

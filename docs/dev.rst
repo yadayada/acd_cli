@@ -1,5 +1,5 @@
-Developement
-============
+Development
+===========
 
 Contents:
 
