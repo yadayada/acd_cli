@@ -1,15 +1,21 @@
 Frequently Asked Questions
 ==========================
 
-Why did I get an UnicodeEncodeError?
+Why Did I Get an UnicodeEncodeError?
 ------------------------------------
 
 If you encounter Unicode problems, check that your locale is set correctly.
 Alternatively, you may use the ``--utf`` argument to force acd\_cli to use UTF-8 output encoding
-regardless of your console's current encoding. T
+regardless of your console's current encoding.
 
 Windows users may import the provided reg file (assets/win_codepage.reg),
 tested with Windows 8.1, to set the command line interface encoding to cp65001.
+
+What Is acd\_cli's Installation Path?
+-------------------------------------
+
+On unixoid operating systems the acd\_cli script may be located by running ``which acd_cli``
+or, if that does not yield a result, by executing ``pip3 show -f acdcli``.
 
 Where Does acd\_cli Store its Cache and Settings?
 -------------------------------------------------

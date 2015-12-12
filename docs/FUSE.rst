@@ -85,6 +85,12 @@ If you want or need to override the standard libfuse path, you may set the envir
 
 This is particularly helpful if the libfuse library is properly installed, but not found.
 
+Deleting Nodes
+~~~~~~~~~~~~~~
+
+"Deleting" directories or files from the file system will only trash them in your cloud drive.
+Calling rmdir on a directory will always move it into the trash, even if it is not empty.
+
 Logging
 ~~~~~~~
 
