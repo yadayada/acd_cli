@@ -36,7 +36,7 @@ setup(
                   },
     install_requires=['appdirs', 'colorama', 'python_dateutil',
                       'requests>=2.1.0', 'requests_toolbelt'],
-    tests_require=['httpretty', 'mock'],
+    tests_require=['httpretty<0.8.11', 'mock'],
     extras_require={'docs': ['sphinx_paramlinks']},
     classifiers=[
         'Environment :: Console',

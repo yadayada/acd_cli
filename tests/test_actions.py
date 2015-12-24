@@ -114,11 +114,6 @@ class ActionTestCase(unittest.TestCase):
         self.cache.insert_nodes([gen_folder()])
         self.assertEqual(run_main(), None)
 
-    @patch('sys.stdout.write')
-    def testDumpSQL(self, print_):
-        sys.argv.append('dumpsql')
-        self.assertEqual(run_main(), None)
-
     # misc
 
     def testCheckCacheEmpty(self):
