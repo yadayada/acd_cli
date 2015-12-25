@@ -476,7 +476,7 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
         return 0
 
     if node.is_folder:
-        return traverse_dl_folder(node_id, local_path, preserve_mtime, exclude, jobs)
+        return traverse_dl_folder(node, local_path, preserve_mtime, exclude, jobs)
 
     loc_name = node.name
 
@@ -500,14 +500,12 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
     return 0
 
 
-def traverse_dl_folder(node_id: str, local_path: str, preserve_mtime: bool,
+def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool,
                        exclude: 'List[re._pattern_type', jobs: list) -> int:
     """Duplicates remote folder structure."""
 
     if not local_path:
         local_path = os.getcwd()
-
-    node = cache.get_node(node_id)
 
     if node.name is None:
         curr_path = os.path.join(local_path, 'acd')
@@ -521,9 +519,13 @@ def traverse_dl_folder(node_id: str, local_path: str, preserve_mtime: bool,
         return ERR_CR_FOLDER
 
     ret_val = 0
-    children = sorted(cache.list_children(node.id))
-    for child in children:
-        ret_val |= create_dl_jobs(child.id, curr_path, preserve_mtime, exclude, jobs)
+    folders, files = cache.list_children(node.id)
+    folders, files = sorted(folders), sorted(files)
+
+    for file in files:
+        ret_val |= create_dl_jobs(file.id, curr_path, preserve_mtime, exclude, jobs)
+    for folder in folders:
+        ret_val |= traverse_dl_folder(folder, curr_path, preserve_mtime, exclude, jobs)
     return ret_val
 
 

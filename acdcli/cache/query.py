@@ -93,6 +93,9 @@ class Node(object):
         except IndexError:
             self.size = 0
 
+    def __lt__(self, other):
+        return self.name < other.name
+
     def __hash__(self):
         return hash(self.id)
 
