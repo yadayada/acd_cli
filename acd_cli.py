@@ -445,7 +445,7 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
     hasher = hashing.IncrementalHasher()
 
     parent = cache.get_node(parent_id)
-    child = cache.get_child(file_name)
+    child = cache.get_child(parent_id, file_name)
 
     try:
         if child and overwr:
