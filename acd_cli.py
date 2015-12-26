@@ -948,7 +948,8 @@ def mount_action(args: argparse.Namespace):
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
                                           nlinks=args.nlinks, autosync=asp),
-                          ro=args.ro, foreground=args.foreground, nothreads=args.single_threaded,
+                          ro=args.read_only, foreground=args.foreground,
+                          nothreads=args.single_threaded,
                           nonempty=args.nonempty, modules=args.modules,
                           allow_root=args.allow_root, allow_other=args.allow_other)
 
@@ -1328,7 +1329,7 @@ def get_parser() -> tuple:
     meta_sp.set_defaults(func=metadata_action)
 
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
-    fuse_sp.add_argument('--ro', '-ro', action='store_true', help='mount read-only')
+    fuse_sp.add_argument('--read-only', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
     fuse_sp.add_argument('--single-threaded', '-st', action='store_true')
     # fuse_sp.add_argument('--multi-threaded', '-mt', action='store_false', dest='single_threaded')
