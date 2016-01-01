@@ -223,6 +223,15 @@ def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     return 0
 
 
+def compare_sizes(size1: int, size2: int, file_name: str) -> int:
+    if size1 != size2:
+        logger.error('Size mismatch between local and remote file for "%s".' % file_name)
+        return SIZE_MISMATCH
+
+    logger.debug('Local and remote sizes match for "%s".' % file_name)
+    return 0
+
+
 def remove_source_file(path: str) -> int:
     try:
         os.remove(path)
@@ -234,11 +243,12 @@ def remove_source_file(path: str) -> int:
     return 0
 
 
-def upload_complete(node: dict, path: str, hash_: str, rsf: bool) -> int:
+def upload_complete(node: dict, path: str, hash_: str, size_: int, rsf: bool) -> int:
     cache.insert_node(node)
     node = cache.get_node(node['id'])
 
-    match = compare_hashes(hash_, node.md5, path)
+    match = (compare_hashes(hash_, node.md5, path) |
+             compare_sizes(size_, node.size, path) if size_ is not None else 0)
     if match != 0:
         return match
 
@@ -248,7 +258,7 @@ def upload_complete(node: dict, path: str, hash_: str, rsf: bool) -> int:
     return 0
 
 
-def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
+def upload_timeout(parent_id: str, path: str, hash_: str, size_: int, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
         time.sleep(60)
@@ -256,20 +266,20 @@ def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
         l = acd_client.list_children(parent_id)
         for n in l:
             if os.path.basename(path) == n['name']:
-                return upload_complete(n, path, hash_, rsf)
+                return upload_complete(n, path, hash_, size_, rsf)
 
     logger.warning('Timeout while uploading "%s".' % path)
     return UL_TIMEOUT
 
 
-def overwrite_timeout(initial_node: dict, path: str, hash_: str, rsf: bool) -> int:
+def overwrite_timeout(initial_node: dict, path: str, hash_: str, size_: int, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
         time.sleep(60)
         minutes -= 1
         n = acd_client.get_metadata(initial_node['id'])
         if n['version'] > initial_node['version']:
-            return upload_complete(n, path, hash_, rsf)
+            return upload_complete(n, path, hash_, size_, rsf)
 
     logger.warning('Timeout while overwriting "%s".' % path)
     return UL_TIMEOUT
@@ -396,6 +406,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if not file_id:
         logger.info('Uploading %s' % path)
         hasher = hashing.IncrementalHasher()
+        local_size = os.path.getsize(path)
         try:
             r = acd_client.upload_file(path, parent_id,
                                        read_callbacks=[hasher.update, pg_handler.update],
@@ -413,12 +424,12 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                upload_timeout(parent_id, path, hasher.get_result(), rsf)
+                upload_timeout(parent_id, path, hasher.get_result(), local_size, rsf)
             else:
                 logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
         else:
-            return upload_complete(r, path, hasher.get_result(), rsf)
+            return upload_complete(r, path, hasher.get_result(), local_size, rsf)
 
     # else: file exists
     if not overwr and not force:
@@ -448,18 +459,19 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 def overwrite(parent_id: str, node_id: str, local_file: str, dedup=False, rsf=False,
               pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
+    local_size = os.path.getsize(local_file)
     try:
         r = acd_client.overwrite_file(node_id, local_file,
                                       read_callbacks=[hasher.update, pg_handler.update],
                                       deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return upload_timeout(parent_id, local_file, hasher.get_result(), rsf)
+            return upload_timeout(parent_id, local_file, hasher.get_result(), local_size, rsf)
 
         logger.error('Error overwriting file. %s' % str(e))
         return UL_DL_FAILED
     else:
-        return upload_complete(r, local_file, hasher.get_result(), rsf)
+        return upload_complete(r, local_file, hasher.get_result(), local_size, rsf)
 
 
 @retry_on([])
@@ -481,11 +493,11 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                                          deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return overwrite_timeout(initial_node, log_fname, hasher.get_result(), False)
+            return overwrite_timeout(initial_node, log_fname, hasher.get_result(), None, False)
         logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
     else:
-        return upload_complete(r, log_fname, hasher.get_result(), False)
+        return upload_complete(r, log_fname, hasher.get_result(), None, False)
 
 
 def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
