@@ -127,6 +127,7 @@ class SchemaMixin(object):
                 c.execute(drop)
         self._conn.commit()
         logger.info('Dropped all tables.')
+        return True
 
 
 class _KeyValueStorage(object):

@@ -218,9 +218,7 @@ class QueryMixin(object):
         with cursor(self._conn) as c:
             c.execute(USAGE_SQL)
             r = c.fetchone()
-        if not r:
-            return 0
-        return r[0]
+        return r[0] if r and r[0] else 0
 
     def num_children(self, folder_id) -> int:
         with cursor(self._conn) as c:
