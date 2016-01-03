@@ -139,6 +139,9 @@ class ReadProxy(object):
                 with self.lock:
                     chunk = ReadProxy.StreamChunk(acd_client, id_, offset,
                                                   CHUNK_SZ, timeout=CHUNK_TIMEOUT)
+                    if len(self.chunks) == MAX_CHUNKS_PER_FILE:
+                        self.chunks[0].close()
+
                     self.chunks.append(chunk)
                     return chunk.get(length)
             except RequestError as e:
