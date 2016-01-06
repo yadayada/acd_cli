@@ -635,7 +635,8 @@ def tree_action(args: argparse.Namespace):
         logger.critical('Invalid folder.')
         return INVALID_ARG_RETVAL
 
-    for line in cache.tree_format(node, args.node_path, args.include_trash):
+    for line in cache.tree_format(node, args.node_path, trash=args.include_trash,
+                                  dir_only=args.dir_only, max_depth=args.max_depth):
         print(line)
 
 
@@ -1175,6 +1176,8 @@ def get_parser() -> tuple:
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
                                     help='[+] print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
+    tree_sp.add_argument('--dir-only', '-d', action='store_true')
+    tree_sp.add_argument('--max-depth', '-L', type=int)
     tree_sp.add_argument('node', nargs='?', default='/', help='root folder for the tree')
     tree_sp.set_defaults(func=tree_action)
 
