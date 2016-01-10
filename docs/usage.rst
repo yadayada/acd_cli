@@ -57,6 +57,9 @@ Logs will automatically be saved into the cache directory.
 Global Flags/Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~
 
+..
+  not using reST's option list here because it does not support (?) --foo={bar1,bar2} type args
+
 ``--verbose`` (``-v``) and ``--debug`` (``-d``) will print additional messages to standard error.
 
 ``--no-log`` (``-nl``) will disable the automatic logging feature that saves log files to the
@@ -92,7 +95,8 @@ file size mismatch             128
 cache outdated                 256
 remote duplicate               512
 duplicate inode               1024
-file/folder name collision    2048
+name collision                2048
+error deleting source file    4096
 ===========================  =======
 
 If multiple errors occur, their values will be compounded by a binary OR operation.

@@ -56,6 +56,9 @@ class MultiProgress(object):
         self._print(total, current, len(self._progresses), complete)
 
     def _print(self, total_sz: int, current_sz: int, total_items: int, done: int):
+        """Prints a line that includes a progress bar, total and current transfer size,
+        total and done items, average speed, and ETA. Uses ANSI escape codes."""
+
         if not self._last_inv:
             self._last_inv = time.time()
 

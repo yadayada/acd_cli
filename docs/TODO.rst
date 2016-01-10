@@ -14,6 +14,7 @@ API
 * support for assets (?)
 * favorite support (feature not yet announced officially)
 * rip out the Appspot authentication handler
+* fix upload of 0-byte streams
 
 CLI
 ~~~
@@ -26,7 +27,6 @@ FUSE
 
 * invalidate chunks of StreamedResponseCache (implement a time-out)
 * respect flags when opening files
-* implement flush
 * use a filesystem test suite
 
 File Transfer
@@ -35,12 +35,11 @@ File Transfer
 * more sophisticated progress handler that supports offsets
 * copy local mtime on upload (#58)
 * add path exclusion by argument for download
-* piped overwrite
 
 User experience
 ~~~~~~~~~~~~~~~
 
-* shell completion for remote directories
+* shell completion for remote directories (#127)
 * even nicer help formatting
 * log coloring
 

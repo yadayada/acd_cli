@@ -36,7 +36,7 @@ class ActionTestCase(unittest.TestCase):
         self.cache = db.NodeCache(cache_path)
 
     def tearDown(self):
-        db.remove_db_file(cache_path)
+        self.cache.remove_db_file()
 
     # tests
 
@@ -112,11 +112,6 @@ class ActionTestCase(unittest.TestCase):
     def testInit(self):
         sys.argv.append('init')
         self.cache.insert_nodes([gen_folder()])
-        self.assertEqual(run_main(), None)
-
-    @patch('sys.stdout.write')
-    def testDumpSQL(self, print_):
-        sys.argv.append('dumpsql')
         self.assertEqual(run_main(), None)
 
     # misc

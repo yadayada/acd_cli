@@ -80,11 +80,6 @@ Known Issues
 It is not possible to upload files using Python 3.2.3, 3.3.0 and 3.3.1 due to a bug in
 the http.client module.
 
-If you encounter Unicode problems, check that your locale is set correctly or use the ``--utf``
-argument to force the script to use UTF-8 output encoding.
-Windows users may try to execute the provided reg file (assets/win_codepage.reg),
-tested with Windows 8.1, to set the command line interface encoding to cp65001.
-
 API Restrictions
 ~~~~~~~~~~~~~~~~
 
@@ -102,6 +97,13 @@ Have a look at the `contributing guidelines <CONTRIBUTING.rst>`_.
 
 Recent Changes
 --------------
+..
+  0.3.2
+  ~~~~~
+  * added ``--remove-source-files`` argument to upload action
+  * added ``--times``` argument to download action
+  * added streamed overwrite action
+  * fixed upload of directories containing broken symlinks
 
 0.3.1
 ~~~~~

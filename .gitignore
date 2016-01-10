@@ -1,11 +1,6 @@
 __pycache__/
 *.py[cod]
 
-conn_data
-endpoint_data
-nodes.db
-oauth_data
-
 *.egg-info/
 dist/
 .idea/

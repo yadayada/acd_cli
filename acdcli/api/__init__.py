@@ -47,6 +47,8 @@ The ``modifiedDate`` and ``version`` keys get updated each time the content or m
 
 A folder's JSON looks similar, but it lacks the ``contentProperties`` dictionary.
 
+``isShared`` is set to ``False`` even when a node is actually shared.
+
 .. CAUTION::
    ACD allows hard links for folders!
 

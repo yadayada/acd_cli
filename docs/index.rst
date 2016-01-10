@@ -18,6 +18,7 @@ Contents:
    FUSE
    CONTRIBUTING
    contributors
+   FAQ
    history
    dev
 

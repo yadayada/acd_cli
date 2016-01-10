@@ -9,11 +9,10 @@ class CacheTestCase(unittest.TestCase):
     path = os.path.join(os.path.dirname(__file__), 'dummy_files')
 
     def setUp(self):
-        db.remove_db_file(self.path)
         self.cache = db.NodeCache(self.path)
 
     def tearDown(self):
-        db.remove_db_file(self.path)
+        self.cache.remove_db_file()
 
     def testEmpty(self):
         self.assertEqual(self.cache.get_node_count(), 0)

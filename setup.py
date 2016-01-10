@@ -34,9 +34,9 @@ setup(
                   # 'acd_cli.plugins': ['stream = plugins.stream',
                   # 'template = plugins.template']
                   },
-    install_requires=['appdirs', 'colorama', 'python_dateutil', 'requests>=2.1.0',
-                      'requests_toolbelt', 'sqlalchemy'],
-    tests_require=['httpretty', 'mock'],
+    install_requires=['appdirs', 'colorama', 'python_dateutil',
+                      'requests>=2.1.0,!=2.9.0', 'requests_toolbelt'],
+    tests_require=['httpretty<0.8.11', 'mock'],
     extras_require={'docs': ['sphinx_paramlinks']},
     classifiers=[
         'Environment :: Console',

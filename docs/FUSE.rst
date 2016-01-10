@@ -53,8 +53,9 @@ Unmounting is usually achieved by the following command
 
     fusermount -u path/to/mountpoint
 
-If the mount is busy, the ``--lazy`` (``-z``) flag can be used.
-There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts.
+If the mount is busy, Linux users can use the ``--lazy`` (``-z``) flag.
+There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts on
+Linux and Mac OS.
 
 Mount options
 ~~~~~~~~~~~~~
@@ -73,6 +74,28 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --read-only, -ro          disallow write operations (does not affect cache refresh)
 --single-threaded, -st    disallow multi-threaded FUSE operations
 
+Automatic remount
+~~~~~~~~~~~~~~~~~
+
+Linux users may use the systemd service file from the assets directory
+to have the clouddrive automatically remounted on login.
+Alternative ways are to add a crontab entry using the ``@reboot`` keyword or to add an
+fstab entry like so:
+::
+
+  acdmount    /mount/point    fuse    defaults    0   0
+
+
+For this to work, an executable shell script /usr/bin/acdmount must be created
+::
+  
+  #!/bin/bash
+
+  acd_cli mount $1
+
+Please make sure your network connection is up before these commands are executed
+or the mount will fail.
+
 Library Path
 ~~~~~~~~~~~~
 
@@ -84,13 +107,19 @@ If you want or need to override the standard libfuse path, you may set the envir
 
 This is particularly helpful if the libfuse library is properly installed, but not found.
 
+Deleting Nodes
+~~~~~~~~~~~~~~
+
+"Deleting" directories or files from the file system will only trash them in your cloud drive.
+Calling rmdir on a directory will always move it into the trash, even if it is not empty.
+
 Logging
 ~~~~~~~
 
 For debugging purposes, the recommended command to run is
 ::
 
-    acd_cli -d mount -i0 -fg path/to/mountpoint
+    acd_cli -d -nl mount -i0 -fg path/to/mountpoint
 
 That command will disable the automatic refresh (i.e. sync) of the node cache (`-i0`) and disable
 detaching from the console.

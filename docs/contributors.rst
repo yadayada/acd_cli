@@ -3,7 +3,8 @@ Contributors
 
 Thanks to
 
-- `chrisidefix <https://github.com/chrisidefix>`_ for forcing me to create a package and use PyPI
+- `chrisidefix <https://github.com/chrisidefix>`_ for adding the find-md5 action and 
+  forcing me to create a proper package and use PyPI
 
 - `msh100 <https://github.com/msh100>`_ for adding proxy documentation and updating the oauth scope
 
@@ -15,6 +16,8 @@ Thanks to
 
 - `Lorentz83 <https://github.com/Lorentz83>`_ for creating
   `a bash completion script <https://gist.github.com/Lorentz83/cad24ca44b53e4a33626>`_
+
+- `kylemanna <https://github.com/kylemanna>`_ for adding a systemd service file
 
 Also thanks to
 

@@ -11,8 +11,8 @@ prior to the file transfers.
 Actions
 -------
 
-upload
-~~~~~~
+``upload``
+~~~~~~~~~~
 
 The upload action will upload files or recursively upload directories.
 Existing files will not be changed, normally.
@@ -27,9 +27,12 @@ a) the local file's modification time is higher or
 b) the local file's creation time is higher and the file size is different.
 The ``--force`` (``-f``) argument can be used to force overwrite.
 
+.. hint::
+  When uploading large files (>10GiB), a warning about a timeout may be displayed. You then need to
+  wait a few minutes, sync and manually check if the file was uploaded correctly.
 
-overwrite
-~~~~~~~~~
+``overwrite``
+~~~~~~~~~~~~~
 
 The upload action overwrites the content of a remote file with a local file.
 
@@ -38,8 +41,8 @@ Syntax:
 
     acdcli overwrite /local/path /remote/path
 
-download
-~~~~~~~~
+``download``
+~~~~~~~~~~~~
 
 The download action can download a single file or recursively download a directory.
 If a file already exists locally, it will not be overwritten.
@@ -51,8 +54,8 @@ Syntax:
 
 If the local path is omitted, the destination path will be the current working directory.
 
-stream
-~~~~~~
+``stream``
+~~~~~~~~~~
 
 This action will upload the standard input stream to a file.
 
@@ -61,8 +64,11 @@ Syntax:
 
     some_process | acdcli stream file_name /remote/path
 
-cat
-~~~
+If the ``--overwrite`` (``-o``) argument is specified, the remote file will be overwritten if
+it exists.
+
+``cat``
+~~~~~~~
 
 This action outputs the content of a file to standard output.
 
