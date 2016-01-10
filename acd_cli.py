@@ -251,12 +251,12 @@ def upload_complete(node: dict, path: str, hash_: str, rsf: bool) -> int:
 def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
+        time.sleep(60)
+        minutes -= 1
         l = acd_client.list_children(parent_id)
         for n in l:
             if os.path.basename(path) == n['name']:
                 return upload_complete(n, path, hash_, rsf)
-        time.sleep(60)
-        minutes -= 1
 
     logger.warning('Timeout while uploading "%s".' % path)
     return UL_TIMEOUT
@@ -265,6 +265,8 @@ def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
 def overwrite_timeout(initial_node: dict, path: str, hash_: str, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
+        time.sleep(60)
+        minutes -= 1
         n = acd_client.get_metadata(initial_node['id'])
         if n['version'] > initial_node['version']:
             return upload_complete(n, path, hash_, rsf)
