@@ -234,6 +234,45 @@ def remove_source_file(path: str) -> int:
     return 0
 
 
+def upload_complete(node: dict, path: str, hash_: str, rsf: bool) -> int:
+    cache.insert_node(node)
+    node = cache.get_node(node['id'])
+
+    match = compare_hashes(hash_, node.md5, path)
+    if match != 0:
+        return match
+
+    if rsf:
+        return remove_source_file(path)
+
+    return 0
+
+
+def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
+    minutes = 10
+    while minutes > 0:
+        l = acd_client.list_children(parent_id)
+        for n in l:
+            if os.path.basename(path) == n['name']:
+                return upload_complete(n, path, hash_, rsf)
+        time.sleep(60)
+        minutes -= 1
+
+    logger.warning('Timeout while uploading "%s".' % path)
+    return UL_TIMEOUT
+
+
+def overwrite_timeout(initial_node: dict, path: str, hash_: str, rsf: bool) -> int:
+    minutes = 10
+    while minutes > 0:
+        n = acd_client.get_metadata(initial_node['id'])
+        if n['version'] > initial_node['version']:
+            return upload_complete(n, path, hash_, rsf)
+
+    logger.warning('Timeout while overwriting "%s".' % path)
+    return UL_TIMEOUT
+
+
 def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, force: bool,
                        dedup: bool, rsf: bool, exclude: list, exclude_paths: list, jobs: list) \
         -> int:
@@ -372,24 +411,12 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                logger.warning('Timeout while uploading "%s".' % short_nm)
-                # TODO: wait; request parent folder's children
-                return UL_TIMEOUT
+                upload_timeout(parent_id, path, hasher.get_result(), rsf)
             else:
                 logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
         else:
-            cache.insert_node(r)
-            node = cache.get_node(r['id'])
-
-            match = compare_hashes(hasher.get_result(), node.md5, path)
-            if match != 0:
-                return match
-
-            if rsf:
-                return remove_source_file(path)
-
-            return 0
+            return upload_complete(r, path, hasher.get_result(), rsf)
 
     # else: file exists
     if not overwr and not force:
@@ -407,7 +434,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
             or force:
-        return overwrite(file_id, path, dedup=dedup, rsf=rsf, pg_handler=pg_handler).ret_val
+        return overwrite(parent_id, file_id, path, dedup=dedup, rsf=rsf,
+                         pg_handler=pg_handler).ret_val
     elif not force:
         logger.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()
@@ -415,7 +443,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 
 @retry_on(STD_RETRY_RETVALS)
-def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
+def overwrite(parent_id: str, node_id: str, local_file: str, dedup=False, rsf=False,
               pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     try:
@@ -423,29 +451,23 @@ def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
                                       read_callbacks=[hasher.update, pg_handler.update],
                                       deduplication=dedup)
     except RequestError as e:
+        if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
+            return upload_timeout(parent_id, local_file, hasher.get_result(), rsf)
+
         logger.error('Error overwriting file. %s' % str(e))
         return UL_DL_FAILED
     else:
-        cache.insert_node(r)
-        node = cache.get_node(r['id'])
-
-        match = compare_hashes(hasher.get_result(), node.md5, os.path.basename(local_file))
-        if match != 0:
-            return match
-
-        if rsf:
-            return remove_source_file(local_file)
-
-        return 0
+        return upload_complete(r, local_file, hasher.get_result(), rsf)
 
 
 @retry_on([])
 def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
-
-    parent = cache.get_node(parent_id)
     child = cache.get_child(parent_id, file_name)
+    log_fname = 'stream/' + file_name
+
+    initial_node = acd_client.get_metadata(child.id)
 
     try:
         if child and overwr:
@@ -456,12 +478,12 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                                          read_callbacks=[hasher.update, pg_handler.update],
                                          deduplication=dedup)
     except RequestError as e:
+        if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
+            return overwrite_timeout(initial_node, log_fname, hasher.get_result(), False)
         logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
     else:
-        cache.insert_node(r)
-        node = cache.get_node(r['id'])
-        return compare_hashes(node.md5, hasher.get_result(), 'stream/' + file_name)
+        return upload_complete(r, log_fname, hasher.get_result(), False)
 
 
 def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
