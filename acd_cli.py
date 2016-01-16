@@ -481,10 +481,13 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
     child = cache.get_child(parent_id, file_name)
     log_fname = 'stream/' + file_name
 
-    initial_node = acd_client.get_metadata(child.id)
+    if child and not overwr:
+        logger.warning('Skipping streamed upload because file "%s" exists.' % file_name)
+        return 0
 
     try:
-        if child and overwr:
+        if child:
+            initial_node = acd_client.get_metadata(child.id)
             r = acd_client.overwrite_stream(stream, child.id,
                                             read_callbacks=[hasher.update, pg_handler.update])
         else:
@@ -493,7 +496,10 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                                          deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return overwrite_timeout(initial_node, log_fname, hasher.get_result(), None, False)
+            if child:
+                return overwrite_timeout(initial_node, log_fname, hasher.get_result(), None, False)
+            else:
+                return upload_timeout(parent_id, log_fname, hasher.get_result(), None, False)
         logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
     else:
