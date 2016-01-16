@@ -311,6 +311,7 @@ class ContentMixin(object):
             logger.debug('Range %d-%d' % (chunk_start, chunk_end))
             # this should only happen at the end of unknown-length downloads
             if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
+                r.close()
                 logger.debug('Invalid byte range requested %d-%d' % (chunk_start, chunk_end))
                 break
             if r.status_code not in ok_codes:

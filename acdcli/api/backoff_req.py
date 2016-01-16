@@ -27,7 +27,7 @@ class BackOffRequest(object):
 
         self.auth_callback = auth_callback
 
-        # __session = None
+        self.__session = requests.session()
         self.__thr_local = local()
         self.__lock = Lock()
         self.__retries = 0
@@ -70,8 +70,6 @@ class BackOffRequest(object):
         :param acc_codes: list of HTTP status codes that indicate a successful request
         :param kwargs: may include additional header: dict and timeout: int"""
 
-        # if not self.__session:
-        #     self.__session = requests.session()
         self._wait()
 
         headers = {}
@@ -96,7 +94,7 @@ class BackOffRequest(object):
             timeout = REQUESTS_TIMEOUT
 
         try:
-            r = requests.request(type_, url, auth=self.auth_callback,
+            r = self.__session.request(type_, url, auth=self.auth_callback,
                                  headers=headers, timeout=timeout, **kwargs)
         except:
             self._failed()
