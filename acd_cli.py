@@ -993,6 +993,7 @@ def mount_action(args: argparse.Namespace):
                           ro=args.read_only, foreground=args.foreground,
                           nothreads=args.single_threaded,
                           nonempty=args.nonempty, modules=args.modules,
+                          umask=args.umask,gid=args.gid,uid=args.uid,
                           allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -1370,6 +1371,9 @@ def get_parser() -> tuple:
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
+    def_umask = os.umask(0)
+    os.umask(def_umask)
+
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--read-only', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
@@ -1381,6 +1385,12 @@ def get_parser() -> tuple:
                          help='allow access to root user')
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
                          help='allow access to other users')
+    fuse_sp.add_argument('--umask', action='store', default=def_umask,
+                         help='Override the permission bits (umask) set by the filesystem (octet)')
+    fuse_sp.add_argument('--uid', action='store', default=os.getuid(),
+                         help='Override the uid field set by the filesystem (numeric)')
+    fuse_sp.add_argument('--gid', action='store', default=os.getgid(),
+                         help='Override the gid field set by the filesystem (numeric)')
     fuse_sp.add_argument('--modules', action='store', default='',
                          help='add iconv or subdir modules')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
