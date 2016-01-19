@@ -1389,11 +1389,11 @@ def get_parser() -> tuple:
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
                          help='allow access to other users')
     fuse_sp.add_argument('--umask', action='store', default=def_umask,
-                         help='Override the permission bits (umask) set by the filesystem (octet)')
+                         help='override the permission bits (umask) set by the filesystem (octet)')
     fuse_sp.add_argument('--uid', action='store', default=os.getuid(),
-                         help='Override the uid field set by the filesystem (numeric)')
+                         help='override the uid field set by the filesystem (numeric)')
     fuse_sp.add_argument('--gid', action='store', default=os.getgid(),
-                         help='Override the gid field set by the filesystem (numeric)')
+                         help='override the gid field set by the filesystem (numeric)')
     fuse_sp.add_argument('--modules', action='store', default='',
                          help='add iconv or subdir modules')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
