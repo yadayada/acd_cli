@@ -68,11 +68,14 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --allow-other, -ao        allow all users to access the mountpoint (may need extra configuration)
 --allow-root, -ar         allow the root user to access the mountpoint (may need extra configuration)
 --foreground, -fg         do not detach process until filesystem is destroyed (blocks)
+--gid GID                 override the group ID (defaults to the user's gid)
 --interval INT, -i INT    set the node cache sync (refresh) interval to INT seconds
 --nlinks, -n              calculate the number of links for folders (slower)
 --nonempty, -ne           allow mounting to a non-empty mount point
 --read-only, -ro          disallow write operations (does not affect cache refresh)
 --single-threaded, -st    disallow multi-threaded FUSE operations
+--uid UID                 override the user ID (defaults to the user's uid)
+--umask UMASK             override the standard permission bits
 
 Automatic remount
 ~~~~~~~~~~~~~~~~~

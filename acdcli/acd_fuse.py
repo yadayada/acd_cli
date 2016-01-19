@@ -681,7 +681,6 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
 
     FUSE(ACDFuse(**args), path,
          auto_cache=True, sync_read=True,
-         uid=os.getuid(), gid=os.getgid(),
          subtype=ACDFuse.__name__,
          **kwargs
          )
