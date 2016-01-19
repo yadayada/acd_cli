@@ -136,20 +136,25 @@ class FormatterMixin(object):
                     yield n
 
 
-    def tree_format(self, node, path, trash=False, depth=0) -> 'Generator[str]':
+    def tree_format(self, node, path, trash=False, dir_only=False,
+                    depth=0, max_depth=None) -> 'Generator[str]':
         """A simple tree formatter that indicates parentship by indentation
         (i.e. does not display graphical branches like :program:`tree`)."""
 
         indent = ' ' * 4 * depth
         yield indent + color_path(node.simple_name)
+        if max_depth is not None and depth >= max_depth:
+            return
 
         indent += ' ' * 4
         folders, files = self.list_children(node.id, trash)
         for folder in folders:
-            for line in self.tree_format(folder, '', trash, depth + 1):
+            for line in self.tree_format(folder, '', trash, dir_only, depth + 1, max_depth):
                 yield line
-        for file in files:
-            yield indent + color_path(file.simple_name)
+
+        if not dir_only:
+            for file in files:
+                yield indent + color_path(file.simple_name)
 
     @staticmethod
     def id_format(nodes) -> 'Generator[str]':
