@@ -7,11 +7,7 @@ from collections import OrderedDict
 import logging
 from urllib.parse import quote_plus
 from requests import Response
-
-try:
-    from requests_toolbelt import MultipartEncoder
-except ImportError:
-    from acdcli.bundled.encoder import MultipartEncoder
+from requests_toolbelt import MultipartEncoder
 
 from .common import *
 

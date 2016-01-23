@@ -128,11 +128,11 @@ Under normal circumstances, it should not be necessary to install the dependenci
 - `colorama <https://github.com/tartley/colorama>`_
 - `dateutils <https://github.com/paxan/python-dateutil>`_ (recommended)
 - `requests <https://github.com/kennethreitz/requests>`_ >= 2.1.0
-- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_ (recommended)
+- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_
 - `sqlalchemy <https://bitbucket.org/zzzeek/sqlalchemy/>`_
 
 Recommended packages are not strictly necessary; but they will be preferred to
-workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
+workarounds (in the case of dateutils).
 
 If you want to the dependencies using your distribution's packaging system and
 are using a distro based on Debian 'jessie', the necessary packages are
