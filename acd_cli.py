@@ -424,7 +424,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                upload_timeout(parent_id, path, hasher.get_result(), local_size, rsf)
+                return upload_timeout(parent_id, path, hasher.get_result(), local_size, rsf)
             else:
                 logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
