@@ -104,6 +104,11 @@ environment.
 
     export HTTPS_PROXY="https://user:pass@1.2.3.4:8080/"
 
+You can also use HTTP proxies supporting CONNECT method:
+::
+
+    export HTTPS_PROXY="http://1.2.3.4:8888/"
+
 Locale
 ~~~~~~
 
