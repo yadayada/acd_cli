@@ -3,6 +3,7 @@
 import json
 import logging
 import http.client
+import tempfile
 from collections import namedtuple
 
 from .common import *
@@ -48,9 +49,11 @@ class MetadataMixin(object):
             r.close()
             raise RequestError(r.status_code, r.text)
 
+        tmp = tempfile.TemporaryFile('w+b')
         try:
-            for cs in self._iter_changes_lines(r):
-                yield cs
+            for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
+                if line:
+                    tmp.write(line + b'\n')
         except (http.client.IncompleteRead, requests.exceptions.ChunkedEncodingError) as e:
             logger.info(str(e))
             raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
@@ -59,9 +62,12 @@ class MetadataMixin(object):
             raise
         finally:
             r.close()
+            tmp.seek(0)
+            for cs in self._iter_changes_lines(tmp):
+                yield cs
 
     @staticmethod
-    def _iter_changes_lines(r: requests.Response) -> 'Generator[ChangeSet]':
+    def _iter_changes_lines(f) -> 'Generator[ChangeSet]':
         """Generates a ChangeSet per line in changes response
 
         the expected return format should be:
@@ -72,10 +78,10 @@ class MetadataMixin(object):
         end = False
         pages = -1
 
-        for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
-            # filter out keep-alive new lines
+        while True:
+            line = f.readline()
             if not line:
-                continue
+                break
 
             reset = False
             pages += 1
