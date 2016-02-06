@@ -3,18 +3,10 @@ Syncs Amazon Node API objects with SQLite database.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from itertools import islice
 from .cursors import mod_cursor
-
-try:
-    import dateutil.parser as iso_date
-except ImportError:
-    # noinspection PyPep8Naming
-    class iso_date(object):
-        @staticmethod
-        def parse(str_: str):
-            return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
+import dateutil.parser as iso_date
 
 logger = logging.getLogger(__name__)
 
