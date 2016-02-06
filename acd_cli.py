@@ -1394,9 +1394,9 @@ def get_parser() -> tuple:
         pass
     else:
         fuse_sp.add_argument('--uid', action='store', default=os.getuid(),
-                         help='override the uid field set by the filesystem (numeric)')
+                             help='override the uid field set by the filesystem (numeric)')
         fuse_sp.add_argument('--gid', action='store', default=os.getgid(),
-                         help='override the gid field set by the filesystem (numeric)')
+                             help='override the gid field set by the filesystem (numeric)')
     fuse_sp.add_argument('--modules', action='store', default='',
                          help='add iconv or subdir modules')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
