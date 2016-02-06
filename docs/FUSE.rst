@@ -57,6 +57,10 @@ If the mount is busy, Linux users can use the ``--lazy`` (``-z``) flag.
 There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts on
 Linux and Mac OS.
 
+.. NOTE::
+    Changes made to your cloud drive storage not using acd\_cli will no longer be synchronized
+    automatically. See the ``--interval`` option below to re-enable automatic synchronization.
+
 Mount options
 ~~~~~~~~~~~~~
 
