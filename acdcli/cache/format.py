@@ -90,6 +90,15 @@ class FormatterMixin(object):
             return nor_fmt % str(self.num_children(node.id)).rjust(7 if not size_bytes else 11)
         return ''
 
+    def file_entry(self, file, long=False, size_bytes=False) -> str:
+        return '[{}] [{}] {}{}{}'.format(
+            nor_fmt % file.id,
+            color_status(file.status),
+            (self.size_nlink_str(file, size_bytes=size_bytes) + ' ') if long else '',
+            (date_str(file.modified) + ' ') if long else '',
+            color_path(file.name)
+        )
+
     def ls_format(self, folder_id, folder_path=None, recursive=False,
                   trash_only=False, trashed_children=False,
                   long=False, size_bytes=False) -> 'Generator[str]':
@@ -102,17 +111,12 @@ class FormatterMixin(object):
         else:
             folders, files = self.list_children(folder_id, trashed_children)
 
-        for file in files:
-            yield '[{}] [{}] {}{}{}'.format(
-                nor_fmt % file.id,
-                color_status(file.status),
-                (self.size_nlink_str(file, size_bytes=size_bytes) + ' ') if long else '',
-                (date_str(file.modified) + ' ') if long else '',
-                color_path(file.name)
-            )
+        if recursive:
+            for file in files:
+                yield self.file_entry(file, long, size_bytes)
 
-        if recursive and files and folders:
-            yield ''
+            if files and folders:
+                yield ''
 
         is_first = True
         for folder in folders:
@@ -135,6 +139,9 @@ class FormatterMixin(object):
                                         recursive, False, trashed_children, long, size_bytes):
                     yield n
 
+        if not recursive:
+            for file in files:
+                yield self.file_entry(file, long, size_bytes)
 
     def tree_format(self, node, path, trash=False, dir_only=False,
                     depth=0, max_depth=None) -> 'Generator[str]':
