@@ -160,7 +160,7 @@ class ReadProxy(object):
     def get(self, id_, offset, length, total):
         with self.lock:
             f = self.files[id_]
-            return f.get(self.acd_client, id_, offset, length, total)
+        return f.get(self.acd_client, id_, offset, length, total)
 
     def invalidate(self):
         pass
