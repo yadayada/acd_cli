@@ -84,13 +84,15 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 Automatic remount
 ~~~~~~~~~~~~~~~~~
 
+Please make sure your network connection is up before you try to run the mount command.
+
 Linux users may use the systemd service file from the assets directory
 to have the clouddrive automatically remounted on login.
 Alternative ways are to add a crontab entry using the ``@reboot`` keyword or to add an
 fstab entry like so:
 ::
 
-  acdmount    /mount/point    fuse    defaults    0   0
+  acdmount    /mount/point    fuse    _netdev    0    0
 
 
 For this to work, an executable shell script /usr/bin/acdmount must be created
@@ -99,9 +101,6 @@ For this to work, an executable shell script /usr/bin/acdmount must be created
   #!/bin/bash
 
   acd_cli mount $1
-
-Please make sure your network connection is up before these commands are executed
-or the mount will fail.
 
 Library Path
 ~~~~~~~~~~~~
