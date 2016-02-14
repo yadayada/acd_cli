@@ -50,9 +50,9 @@ class ActionTestCase(unittest.TestCase):
         self.assertEqual(run_main(), None)
 
     def testClearCacheNonExist(self):
-        db.remove_db_file(cache_path)
+        self.cache.remove_db_file()
         sys.argv.append('cc')
-        self.assertEqual(run_main(), acd_cli.ERROR_RETVAL)
+        self.assertEqual(run_main(), None)
 
     # listing
 

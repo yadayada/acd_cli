@@ -76,10 +76,10 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
         import os
         import random
         import string
-        tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
-        tmp_name = os.path.join(os.path.basename(self.db_path), tmp_name)
+        import tempfile
 
-        logger.info(tmp_name)
+        tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
+        tmp_name = os.path.join(tempfile.gettempdir(), tmp_name)
 
         try:
             os.rename(self.db_path, tmp_name)

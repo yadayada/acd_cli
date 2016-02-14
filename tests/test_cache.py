@@ -12,6 +12,7 @@ class CacheTestCase(unittest.TestCase):
         self.cache = db.NodeCache(self.path)
 
     def tearDown(self):
+        self.cache.drop_all()
         self.cache.remove_db_file()
 
     def testEmpty(self):
@@ -30,7 +31,6 @@ class CacheTestCase(unittest.TestCase):
         file = gen_file([root])
         self.cache.insert_node(file)
         n = self.cache.get_node(file['id'])
-        self.assertEqual(len(n.parents), 1)
         self.assertEqual(self.cache.get_node_count(), 2)
 
     def testFileMovement(self):
@@ -40,18 +40,18 @@ class CacheTestCase(unittest.TestCase):
 
         file = gen_file([root])
         self.cache.insert_nodes([root, file])
-        n = self.cache.get_node(file['id'])
-        self.assertEqual(n.parents[0].id, root['id'])
+
+        _, rc = self.cache.list_children(root['id'], True)
+        self.assertIn(file['id'], [n.id for n in rc])
 
         file['parents'] = [folder['id']]
         self.cache.insert_nodes([folder, file])
 
-        self.cache.Session.expunge(n)
-        n = self.cache.get_node(file['id'])
-        self.assertEqual(n.parents[0].id, folder['id'])
+        _, rc = self.cache.list_children(root['id'], True)
+        _, fc = self.cache.list_children(folder['id'], True)
 
-        self.assertEqual(len(n.parents), 1)
-        self.assertEqual(self.cache.get_node_count(), 3)
+        self.assertIn(file['id'], [n.id for n in fc])
+        self.assertNotIn(file['id'], [n.id for n in rc])
 
     def testPurge(self):
         root = gen_folder()
@@ -59,7 +59,7 @@ class CacheTestCase(unittest.TestCase):
 
         self.cache.insert_nodes([root, file])
         self.assertEqual(self.cache.get_node_count(), 2)
-        self.assertIsInstance(self.cache.get_node(file['id']), schema.File)
+        self.assertTrue(self.cache.get_node(file['id']).is_file)
 
         self.cache.remove_purged([file['id']])
         self.assertIsNone(self.cache.get_node(file['id']))
@@ -68,19 +68,23 @@ class CacheTestCase(unittest.TestCase):
     def testMultiParentNode(self):
         root = gen_folder()
         folder = gen_folder([root])
+        folder['status'] = 'AVAILABLE'
+
         file = gen_file([root])
         file['parents'].append(folder['id'])
         self.assertEqual(len(file['parents']), 2)
 
         self.cache.insert_nodes([root, folder, file])
         self.assertEqual(self.cache.get_node_count(), 3)
-        self.assertEqual(self.cache.get_node(file['id']).parents.__len__(), 2)
+        self.assertEqual(self.cache.num_parents(file['id']), 2)
 
     def testListChildren(self):
-        folders, files = gen_bunch_of_nodes(25)
+        root = gen_folder()
+        folders = [gen_folder([root]) for _ in range(25)]
+        files = [gen_file([root]) for _ in range(25)]
         self.cache.insert_nodes(files + folders)
-        children = self.cache.list_children(folders[0]['id'], recursive=True, trash=True)
-        self.assertEqual(sum(1 for _ in children), len(files + folders) - 1)
+        fo, fi = self.cache.list_children(root['id'], trash=True)
+        self.assertEqual(len(fo) + len(fi), len(files + folders))
 
     def testCalculateUsageEmpty(self):
         self.assertEqual(self.cache.calculate_usage(), 0)
