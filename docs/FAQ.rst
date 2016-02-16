@@ -34,6 +34,12 @@ Can I Share or Delete Files/Folders?
 No. It is not possible to share or delete using the Cloud Drive API. Please do it manually
 using the `Web interface <https://www.amazon.com/clouddrive>`_.
 
+Why Does Python Crash When executing acd\_cli on Mac OS?
+--------------------------------------------------------
+
+There is an `issue with the _scproxy module <http://bugs.python.org/issue13829>`_.
+Please precede your usual commands by ``env no_proxy='*'`` to prevent it from causing crashes.
+
 How Do I Share Directories from ACDFuse with Samba?
 ---------------------------------------------------
 
