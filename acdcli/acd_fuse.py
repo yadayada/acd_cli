@@ -31,10 +31,29 @@ WRITE_BUFFER_SZ = 2 ** 5
 """maximal number of chunks per file"""
 
 
+try:
+    errno.ECOMM
+except:
+    errno.ECOMM = errno.ECONNABORTED
+try:
+    errno.EREMOTEIO
+except:
+    errno.EREMOTEIO = errno.EIO
+
+
 class FuseOSError(FuseError):
     def __init__(self, err_no: int):
         # logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
         super().__init__(err_no)
+
+    CODE = RequestError.CODE
+    codes = RequestError.codes
+    code_mapping = {CODE.CONN_EXCEPTION: FuseError(errno.ECOMM),
+                    codes.CONFLICT: FuseError(errno.EEXIST),
+                    codes.REQUESTED_RANGE_NOT_SATISFIABLE: FuseError(errno.EFAULT),
+                    codes.REQUEST_TIMEOUT: FuseError(errno.ETIMEDOUT),
+                    codes.GATEWAY_TIMEOUT: FuseError(errno.ETIMEDOUT)
+                    }
 
     @staticmethod
     def convert(e: RequestError):
@@ -46,14 +65,11 @@ class FuseOSError(FuseError):
             caller = ''
         logger.error(caller + e.__str__())
 
-        if e.status_code == e.CODE.CONN_EXCEPTION:
-            raise FuseOSError(errno.ECOMM)
-        elif e.status_code == e.codes.CONFLICT:
-            raise FuseOSError(errno.EEXIST)
-        elif e.status_code == e.codes.REQUESTED_RANGE_NOT_SATISFIABLE:
-            raise FuseOSError(errno.EFAULT)
-        else:
-            raise FuseOSError(errno.EREMOTEIO)
+        try:
+            exc = code_mapping[e.status_code]
+        except:
+            exc = FuseOSError(errno.EREMOTEIO)
+        raise exc
 
 
 class ReadProxy(object):
