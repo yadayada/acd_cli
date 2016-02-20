@@ -55,8 +55,16 @@ class SyncMixin(object):
                 continue
             kind = node['kind']
             if kind == 'FILE':
+                if not 'name' in node or not node['name']:
+                    logger.warning('Skipping file %s because its name is empty.' % node['id'])
+                    continue
                 files.append(node)
             elif kind == 'FOLDER':
+                if (not 'name' in node or not node['name']) \
+                and (not 'isRoot' in node or not node['isRoot']):
+                    logger.warning('Skipping non-root folder %s because its name is empty.'
+                                   % node['id'])
+                    continue
                 folders.append(node)
             elif kind != 'ASSET':
                 logger.warning('Cannot insert unknown node type "%s".' % kind)
