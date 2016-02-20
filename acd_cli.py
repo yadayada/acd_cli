@@ -113,18 +113,21 @@ def sync_node_list(full=False) -> 'Union[int, None]':
     global cache
     cp_ = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
-    if full:
-        cache.drop_all()
-        cache.init()
+    print('Getting changes', end='', flush=True)
 
     try:
-        for changeset in acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_)):
-            if changeset.reset and not full:
+        first = True
+        for changeset in acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_),
+                                                silent=False):
+            if changeset.reset or (full and first):
                 cache.drop_all()
                 cache.init()
                 full = True
             else:
                 cache.remove_purged(changeset.purged_nodes)
+
+            if first:
+                print('Inserting nodes', end='', flush=True)
 
             if len(changeset.nodes) > 0:
                 cache.insert_nodes(changeset.nodes, partial=not full)
@@ -133,6 +136,9 @@ def sync_node_list(full=False) -> 'Union[int, None]':
             if len(changeset.nodes) > 0 or len(changeset.purged_nodes) > 0:
                 cache.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: changeset.checkpoint})
 
+            print('.', end='', flush=True)
+            first = False
+
     except RequestError as e:
         print(e)
         if e.CODE == RequestError.CODE.INCOMPLETE_RESULT:
@@ -140,6 +146,9 @@ def sync_node_list(full=False) -> 'Union[int, None]':
         else:
             logger.critical('Sync failed.')
         return ERROR_RETVAL
+    finally:
+        if not first:
+            print()
 
 
 def old_sync() -> 'Union[int, None]':
@@ -213,6 +222,10 @@ def retry_on(ret_vals: 'List[int]'):
 
     return wrap
 
+#
+# things to do on successful transfer
+#
+
 
 def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     if hash1 != hash2:
@@ -283,6 +296,27 @@ def overwrite_timeout(initial_node: dict, path: str, hash_: str, size_: int, rsf
 
     logger.warning('Timeout while overwriting "%s".' % path)
     return UL_TIMEOUT
+
+
+def download_complete(node: 'Node', path: str, hash_: str, rsf: bool):
+    match = (compare_hashes(node.md5, hash_, node.name) |
+             compare_sizes(node.size, os.path.getsize(path), path))
+    if match != 0:
+        return match
+
+    if rsf:
+        try:
+            r = acd_client.move_to_trash(node.id)
+            cache.insert_node(r)
+        except RequestError as e:
+            print(e)
+            return ERROR_RETVAL
+
+    return 0
+
+#
+# Transfer job creation and actual transfer
+#
 
 
 def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, force: bool,
@@ -506,7 +540,7 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
         return upload_complete(r, log_fname, hasher.get_result(), None, False)
 
 
-def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
+def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool, rsf: bool,
                    exclude: 'List[re._pattern_type]', jobs: list) -> int:
     """Appends download partials for folder/file node pointed to by *node_id*
     to the **jobs** list."""
@@ -518,7 +552,7 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
         return 0
 
     if node.is_folder:
-        return traverse_dl_folder(node, local_path, preserve_mtime, exclude, jobs)
+        return traverse_dl_folder(node, local_path, preserve_mtime, rsf, exclude, jobs)
 
     loc_name = node.name
 
@@ -536,13 +570,13 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
         return 0
 
     prog = progress.FileProgress(node.size)
-    fo = partial(download_file, node_id, local_path, preserve_mtime, pg_handler=prog)
+    fo = partial(download_file, node_id, local_path, preserve_mtime, rsf, pg_handler=prog)
     jobs.append(fo)
 
     return 0
 
 
-def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool,
+def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool, rsf: bool,
                        exclude: 'List[re._pattern_type', jobs: list) -> int:
     """Duplicates remote folder structure."""
 
@@ -565,14 +599,14 @@ def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool,
     folders, files = sorted(folders), sorted(files)
 
     for file in files:
-        ret_val |= create_dl_jobs(file.id, curr_path, preserve_mtime, exclude, jobs)
+        ret_val |= create_dl_jobs(file.id, curr_path, preserve_mtime, rsf, exclude, jobs)
     for folder in folders:
-        ret_val |= traverse_dl_folder(folder, curr_path, preserve_mtime, exclude, jobs)
+        ret_val |= traverse_dl_folder(folder, curr_path, preserve_mtime, rsf, exclude, jobs)
     return ret_val
 
 
 @retry_on(STD_RETRY_RETVALS)
-def download_file(node_id: str, local_path: str, preserve_mtime: bool,
+def download_file(node_id: str, local_path: str, preserve_mtime: bool, rsf: bool,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     node = cache.get_node(node_id)
     name, md5, size = node.name, node.md5, node.size
@@ -591,7 +625,7 @@ def download_file(node_id: str, local_path: str, preserve_mtime: bool,
             mtime = datetime_to_timestamp(node.modified)
             os.utime(os.path.join(local_path, name), (mtime, mtime))
 
-        return compare_hashes(hasher.get_result(), md5, name)
+        return download_complete(node, os.path.join(local_path, name), hasher.get_result(), rsf)
 
 
 #
@@ -626,11 +660,7 @@ def no_autores_trash_action(func):
 # actual actions
 
 def sync_action(args: argparse.Namespace):
-    print('Syncing...')
-    r = sync_node_list(full=args.full)
-    if not r:
-        print('Done.')
-    return r
+    return sync_node_list(full=args.full)
 
 
 def old_sync_action(args: argparse.Namespace):
@@ -770,7 +800,8 @@ def download_action(args: argparse.Namespace) -> int:
 
     jobs = []
     ret_val = 0
-    ret_val |= create_dl_jobs(args.node, args.path, args.times, excl_re, jobs)
+    ret_val |= create_dl_jobs(args.node, args.path, args.times, args.remove_source_files,
+                              excl_re, jobs)
 
     ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
     ql.add_jobs(jobs)
@@ -1303,6 +1334,8 @@ def get_parser() -> tuple:
                                              'will skip existing local files')
     download_sp.add_argument('--times', '-t', action='store_true',
                              help='preserve modification times')
+    download_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
+                             help='remove remote files on successful download')
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None,
                              help='local download directory [optional]')

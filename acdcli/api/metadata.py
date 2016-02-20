@@ -33,7 +33,8 @@ class MetadataMixin(object):
     def get_trashed_files(self) -> list:
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
-    def get_changes(self, checkpoint='', include_purged=False) -> 'Generator[ChangeSet]':
+    def get_changes(self, checkpoint='', include_purged=False, silent=True) \
+        -> 'Generator[ChangeSet]':
         """ Generates a ChangeSet for each checkpoint in changes response. See
         `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_."""
 
@@ -54,6 +55,10 @@ class MetadataMixin(object):
             for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
                 if line:
                     tmp.write(line + b'\n')
+                    if not silent:
+                        print('.', end='', flush=True)
+            if not silent:
+                print()
         except (http.client.IncompleteRead, requests.exceptions.ChunkedEncodingError) as e:
             logger.info(str(e))
             raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
