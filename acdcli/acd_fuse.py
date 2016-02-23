@@ -699,7 +699,9 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
     if sys.platform == 'linux':
         opts['big_writes']=True
 
-    FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **opts, **kwargs)
+    kwargs.update(opts)
+
+    FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **kwargs)
 
 
 def unmount(path=None, lazy=False) -> int:
