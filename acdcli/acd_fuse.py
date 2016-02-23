@@ -695,12 +695,11 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path,
-         auto_cache=True, sync_read=True,
-         big_writes=True,
-         subtype=ACDFuse.__name__,
-         **kwargs
-         )
+    opts = dict(auto_cache=True, sync_read=True)
+    if sys.platform == 'linux':
+        opts['big_writes']=True
+
+    FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **opts, **kwargs)
 
 
 def unmount(path=None, lazy=False) -> int:
