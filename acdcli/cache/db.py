@@ -12,7 +12,7 @@ from .sync import SyncMixin
 
 logger = logging.getLogger(__name__)
 
-_ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder"'
+_ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder" ORDER BY created'
 
 
 class IntegrityError(Exception):
@@ -37,6 +37,7 @@ def _regex_match(pattern: str, cell: str) -> bool:
 
 class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
     _DB_FILENAME = 'nodes.db'
+    _TIMEOUT = 30000
 
     IntegrityCheckType = dict(full=0, quick=1, none=2)
     """types of SQLite integrity checks"""
@@ -63,11 +64,22 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
 
             self.root_id = first_id
 
+        self._execute_pragma('busy_timeout', self._TIMEOUT)
+        self._execute_pragma('journal_mode', 'wal')
+
     @property
     def _conn(self) -> sqlite3.Connection:
         if not hasattr(self.tl, '_conn'):
             self.tl._conn = _create_conn(self.db_path)
         return self.tl._conn
+
+    def _execute_pragma(self, key, value) -> str:
+        with cursor(self._conn) as c:
+            c.execute('PRAGMA %s=%s;' % (key, value))
+            r = c.fetchone()
+        if r:
+            logger.debug('Set %s to %s. Result: %s.' % (key, value, r[0]))
+            return r[0]
 
     def remove_db_file(self) -> bool:
         """Removes database file."""

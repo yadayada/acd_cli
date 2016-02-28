@@ -34,6 +34,12 @@ Can I Share or Delete Files/Folders?
 No. It is not possible to share or delete using the Cloud Drive API. Please do it manually
 using the `Web interface <https://www.amazon.com/clouddrive>`_.
 
+What Do I Do When I get an `sqlite3.OperationalError: database is locked` error?
+--------------------------------------------------------------------------------
+
+Please limit the number or running acd\_cli processes to one. For example, do not have an
+active FUSE mount while simultaneously uploading via command line.
+
 Why Does Python Crash When executing acd\_cli on Mac OS?
 --------------------------------------------------------
 
