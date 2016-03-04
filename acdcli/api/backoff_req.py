@@ -93,12 +93,20 @@ class BackOffRequest(object):
         else:
             timeout = REQUESTS_TIMEOUT
 
+        exc = False
         try:
             r = self.__session.request(type_, url, auth=self.auth_callback,
                                  headers=headers, timeout=timeout, **kwargs)
         except:
+            exc = True
             self._failed()
             raise
+        finally:
+            if (exc or r.status_code not in acc_codes) and 'x-amzn-RequestId' in r.headers:
+                logger.info('Failed x-amzn-RequestId: %s' % r.headers['x-amzn-RequestId'])
+            else:
+                if 'x-amzn-RequestId' in r.headers:
+                    logger.debug('x-amzn-RequestId: %s' % r.headers['x-amzn-RequestId'])
 
         self._succeeded() if r.status_code in acc_codes else self._failed()
         return r
