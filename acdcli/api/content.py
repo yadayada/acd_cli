@@ -81,6 +81,13 @@ def _multipart_stream(metadata: dict, stream, boundary: str, read_callbacks=None
     yield str.encode('\r\n--%s--\r\n' % boundary +
                      'multipart/form-data; boundary=%s' % boundary)
 
+def _stream_is_empty(stream) -> bool:
+    try:
+        return not stream.peek(1)
+    except AttributeError:
+        logger.debug('Stream does not support peeking, upload will fail if stream does '
+                     'not contain at least one byte.')
+        return False
 
 class ContentMixin(object):
     """Implements content portion of the ACD API."""
@@ -171,6 +178,9 @@ class ContentMixin(object):
         """:param stream: readable object
         :param parent: parent node id, defaults to root node if None"""
 
+        if _stream_is_empty(stream):
+            return self.create_file(file_name, parent)
+
         params = {} if deduplication else {'suppress': 'deduplication'}
 
         metadata = {'kind': 'FILE', 'name': file_name}
@@ -214,6 +224,9 @@ class ContentMixin(object):
         """Overwrite content of node with ID *node_id* with content of *stream*.
 
         :param stream: readable object"""
+
+        if _stream_is_empty(stream):
+            return self.clear_file(node_id)
 
         metadata = {}
         import uuid

@@ -104,6 +104,16 @@ class APILiveTestCase(unittest.TestCase):
 
         self.acd_client.move_to_trash(n['id'])
 
+    def test_upload_stream_empty(self):
+        empty_stream = io.BufferedReader(io.BytesIO())
+        fn = gen_rand_nm()
+
+        n = self.acd_client.upload_stream(empty_stream, fn, parent=None)
+        self.assertEqual(n['contentProperties']['md5'], 'd41d8cd98f00b204e9800998ecf8427e')
+        self.assertEqual(n['contentProperties']['size'], 0)
+
+        self.acd_client.move_to_trash(n['id'])
+
     def test_overwrite(self):
         f, sz = gen_temp_file()
         h = hashing.IncrementalHasher()
@@ -128,6 +138,11 @@ class APILiveTestCase(unittest.TestCase):
         n = self.acd_client.overwrite_stream(s, n['id'], [h.update])
         self.assertEqual(n['contentProperties']['md5'], h.get_result())
         self.assertEqual(n['contentProperties']['size'], sz)
+
+        empty_stream = io.BufferedReader(io.BytesIO())
+        n = self.acd_client.overwrite_stream(empty_stream, n['id'])
+        self.assertEqual(n['contentProperties']['md5'], 'd41d8cd98f00b204e9800998ecf8427e')
+        self.assertEqual(n['contentProperties']['size'], 0)
 
         self.acd_client.move_to_trash(n['id'])
 
