@@ -3,13 +3,13 @@
 acd\_cli
 ========
 
-**acd\_cli** provides a command line interface to Amazon Cloud Drive and allows mounting your
-cloud drive using FUSE for read and write access. It is currently in beta stage.
+**acd\_cli** provides a command line interface to Amazon Cloud Drive and allows Unix users
+to mount their cloud drive using FUSE for read and write access. It is currently in beta stage.
 
 Node Cache Features
 -------------------
 
-- caching of local node metadata in an SQLite database
+- local caching of node metadata in an SQLite database
 - addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
 - file search
 
