@@ -4,6 +4,8 @@ import random
 import logging
 from threading import Lock, local
 
+from requests.exceptions import RequestException
+
 from .common import *
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,8 @@ class BackOffRequest(object):
         try:
             r = self.__session.request(type_, url, auth=self.auth_callback,
                                  headers=headers, timeout=timeout, **kwargs)
-        except:
+        except RequestException as e:
+            r = e.request
             exc = True
             self._failed()
             raise
