@@ -99,4 +99,7 @@ name collision                2048
 error deleting source file    4096
 ===========================  =======
 
-If multiple errors occur, their values will be compounded by a binary OR operation.
+If multiple errors occur, their respective flag values will be compounded into the exit
+status value by a binary OR operation. Because exit status values may not be larger than 255,
+flags 256 and above cannot be returned via exit status. 
+A warning message will be displayed at the end of execution if those errors occured.

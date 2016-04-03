@@ -105,6 +105,7 @@ Recent Changes
   * added streamed overwrite action
   * fixed upload of directories containing broken symlinks
   * disabled FUSE autosync
+  * fixed exit status >=256
 
 0.3.1
 ~~~~~

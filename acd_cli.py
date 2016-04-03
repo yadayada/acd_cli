@@ -1521,7 +1521,15 @@ def main():
     # call appropriate sub-parser action
     if args.func:
         logger.debug(args)
-        sys.exit(args.func(args))
+
+        ret = args.func(args)
+        if not ret:
+            sys.exit()
+
+        trunc_ret = ret % 256
+        if trunc_ret != ret:
+            logger.warning('Return value error code: %i.' % ret)
+        sys.exit(trunc_ret if trunc_ret > 0 else ERROR_RETVAL)
 
 
 if __name__ == "__main__":

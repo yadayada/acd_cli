@@ -46,8 +46,8 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
         self.db_path = os.path.join(path, self._DB_FILENAME)
         self.tl = local()
 
-        self.init()
         self.integrity_check(check)
+        self.init()
 
         self._conn.create_function('REGEXP', _regex_match.__code__.co_argcount, _regex_match)
 
