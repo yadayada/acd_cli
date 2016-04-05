@@ -1,8 +1,9 @@
+import configparser
+import logging
 import os
-import time
 import json
 import requests
-import logging
+import time
 
 from . import oauth
 from .backoff_req import BackOffRequest
@@ -14,33 +15,56 @@ from .trash import TrashMixin
 
 logger = logging.getLogger(__name__)
 
-EXP_TIME_KEY = 'exp_time'
+_EXP_TIME_KEY = 'exp_time'
+_AMZ_ENDPOINT_REQ_URL = 'https://drive.amazonaws.com/drive/v1/account/endpoint'
 
-AMZ_ENDPOINT_REQ_URL = 'https://drive.amazonaws.com/drive/v1/account/endpoint'
-ENDPOINT_VAL_TIME = 259200
-"""number of seconds for endpoint validity (3 days)"""
+_SETTINGS_FILENAME = 'acd_client.ini'
+
+_def_conf = configparser.ConfigParser()
+_def_conf['endpoints'] = dict(filename='endpoint_data', validity_duration=259200)
+_def_conf['transfer'] = dict(fs_chunk_size=128 * 1024, dl_chunk_size=500 * 1024 ** 2,
+                             chunk_retries=1, connection_timeout=30, idle_timeout=60)
+
+
+def _get_conf(path='') -> configparser.ConfigParser:
+    conf = configparser.ConfigParser()
+    conf.read_dict(_def_conf)
+
+    conffn = os.path.join(path, _SETTINGS_FILENAME)
+    try:
+        with open(conffn) as cf:
+            conf.read_file(cf)
+    except OSError:
+        pass
+
+    return conf
 
 
 class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
     """Provides a client to the Amazon Cloud Drive RESTful interface."""
 
-    _ENDPOINT_DATA_FILE = 'endpoint_data'
 
-    def __init__(self, path=''):
+    def __init__(self, cache_path='', settings_path=''):
         """Initializes OAuth and endpoints."""
-        self.cache_path = path
-        logger.info('Initializing ACD with path "%s".' % path)
 
-        self.handler = oauth.create_handler(path)
+        self._conf = _get_conf(settings_path)
+
+        self.cache_path = cache_path
+        logger.info('Initializing ACD with path "%s".' % cache_path)
+
+        self.handler = oauth.create_handler(cache_path)
 
         self._endpoint_data = {}
         self._load_endpoints()
 
-        self.BOReq = BackOffRequest(self.handler)
+        requests_timeout = (self._conf.getint('transfer', 'connection_timeout'),
+                            self._conf.getint('transfer', 'idle_timeout'))
+
+        self.BOReq = BackOffRequest(self.handler, requests_timeout)
 
     @property
     def _endpoint_data_path(self):
-        return os.path.join(self.cache_path, ACDClient._ENDPOINT_DATA_FILE)
+        return os.path.join(self.cache_path, self._conf['endpoints']['filename'])
 
     def _load_endpoints(self):
         """Tries to load endpoints from file and calls
@@ -51,7 +75,7 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
         else:
             with open(self._endpoint_data_path) as ep:
                 self._endpoint_data = json.load(ep)
-            if time.time() > self._endpoint_data[EXP_TIME_KEY]:
+            if time.time() > self._endpoint_data[_EXP_TIME_KEY]:
                 logger.info('Endpoint data expired.')
                 self._endpoint_data = self._get_endpoints()
 
@@ -61,7 +85,7 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
         :raises: ValueError if requests returned invalid JSON
         :raises: KeyError if endpoint data does not include expected keys"""
 
-        r = requests.get(AMZ_ENDPOINT_REQ_URL, auth=self.handler)
+        r = requests.get(_AMZ_ENDPOINT_REQ_URL, auth=self.handler)
         if r.status_code not in OK_CODES:
             logger.critical('Error getting endpoint data. Response: %s' % r.text)
             raise Exception
@@ -72,7 +96,7 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
             logger.critical('Invalid JSON: "%s"' % r.text)
             raise e
 
-        e[EXP_TIME_KEY] = time.time() + ENDPOINT_VAL_TIME
+        e[_EXP_TIME_KEY] = time.time() + self._conf.getint('endpoints', 'validity_duration')
         self._endpoint_data = e
 
         try:

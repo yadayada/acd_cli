@@ -131,7 +131,8 @@ class OAuthHandler(AuthBase):
         os.fsync(f.fileno())
         f.close()
 
-        os.rename(self.oauth_data_path, rm_nm)
+        if os.path.isfile(self.oauth_data_path):
+            os.rename(self.oauth_data_path, rm_nm)
         os.rename(new_nm, self.oauth_data_path)
         try:
             os.remove(rm_nm)

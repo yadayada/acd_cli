@@ -10,13 +10,6 @@ from .common import *
 
 logger = logging.getLogger(__name__)
 
-CONN_TIMEOUT = 30
-"""timeout for establishing a connection"""
-IDLE_TIMEOUT = 60
-"""read timeout"""
-REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.0' else IDLE_TIMEOUT
-"""http://docs.python-requests.org/en/latest/user/advanced/#timeouts"""
-
 
 class BackOffRequest(object):
     """Wrapper for requests that implements timed back-off algorithm
@@ -24,10 +17,13 @@ class BackOffRequest(object):
     Caution: this catches all connection errors and may stall for a long time.
     It is necessary to init this module before use."""
 
-    def __init__(self, auth_callback: 'requests.auth.AuthBase'):
-        """:arg auth_callback: callable object that attaches auth info to a request"""
+    def __init__(self, auth_callback: 'requests.auth.AuthBase', timeout: 'Tuple[int, int]'):
+        """:arg auth_callback: callable object that attaches auth info to a request
+           :arg timeout: tuple of connection timeout and idle timeout \
+                         (http://docs.python-requests.org/en/latest/user/advanced/#timeouts)"""
 
         self.auth_callback = auth_callback
+        self.timeout = timeout if requests.__version__ >= '2.4.0' else timeout[1]
 
         self.__session = requests.session()
         self.__thr_local = local()
@@ -93,7 +89,7 @@ class BackOffRequest(object):
             timeout = kwargs['timeout']
             del kwargs['timeout']
         else:
-            timeout = REQUESTS_TIMEOUT
+            timeout = self.timeout
 
         exc = False
         try:

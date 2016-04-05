@@ -48,12 +48,19 @@ sp = os.environ.get('ACD_CLI_SETTINGS_PATH')
 CACHE_PATH = cp if cp else appdirs.user_cache_dir(_app_name)
 SETTINGS_PATH = sp if sp else appdirs.user_config_dir(_app_name)
 
-if not os.path.isdir(CACHE_PATH):
-    try:
-        os.makedirs(CACHE_PATH, mode=0o0700)  # private data
-    except OSError:
-        logger.critical('Error creating cache directory "%s"' % CACHE_PATH)
-        sys.exit(1)
+paths = {CACHE_PATH: True, SETTINGS_PATH: False}  # path:str : critical:bool
+
+for path in paths:
+    if not os.path.isdir(path):
+        try:
+            os.makedirs(path, mode=0o0700)  # private data
+        except OSError:
+            err_msg = 'Error creating directory "%s".'
+            if paths[path]:
+                logger.critical(err_msg % path)
+                sys.exit(1)
+            else:
+                logger.warning(err_msg % path)
 
 # consts
 
@@ -1021,7 +1028,8 @@ def mount_action(args: argparse.Namespace):
 
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
-                                          nlinks=args.nlinks, autosync=asp),
+                                          nlinks=args.nlinks, autosync=asp,
+                                          settings_path=SETTINGS_PATH),
                           ro=args.read_only, foreground=args.foreground,
                           nothreads=args.single_threaded,
                           nonempty=args.nonempty, modules=args.modules,
@@ -1488,14 +1496,14 @@ def main():
 
     if args.func not in offline_actions:
         try:
-            acd_client = client.ACDClient(CACHE_PATH)
+            acd_client = client.ACDClient(CACHE_PATH, SETTINGS_PATH)
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
 
     if args.func not in nocache_actions:
         try:
-            cache = db.NodeCache(CACHE_PATH, args.check)
+            cache = db.NodeCache(CACHE_PATH, SETTINGS_PATH, args.check)
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)

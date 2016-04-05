@@ -1,35 +1,23 @@
 """fusepy filesystem module"""
 
-import sys
-import os
-import stat
+import configparser
 import errno
 import logging
-from time import time, sleep
+import os
+import stat
+import sys
+
 from collections import deque, defaultdict
 from multiprocessing import Process
-from threading import Thread, Lock, Event
 from queue import Queue, Full as QueueFull
+from threading import Thread, Lock, Event
+from time import time, sleep
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
-from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
 from acdcli.utils.time import *
 
 logger = logging.getLogger(__name__)
-
-MAX_CHUNKS_PER_FILE = 15
-"""maximal number of opened chunks per file"""
-
-CHUNK_TIMEOUT = 5
-"""timeout for reading from an opened chunk"""
-
-WRITE_TIMEOUT = 60
-"""timeout for writing into file buffer"""
-
-WRITE_BUFFER_SZ = 2 ** 5
-"""maximal number of chunks per file"""
-
 
 try:
     errno.ECOMM
@@ -39,6 +27,26 @@ try:
     errno.EREMOTEIO
 except:
     errno.EREMOTEIO = errno.EIO
+
+_SETTINGS_FILENAME = 'fuse.ini'
+
+_def_conf = configparser.ConfigParser()
+_def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
+_def_conf['write'] = dict(buffer_size = 32, timeout=30)
+
+
+def get_conf(path='') -> configparser.ConfigParser:
+    conf = configparser.ConfigParser()
+    conf.read_dict(_def_conf)
+
+    conffn = os.path.join(path, _SETTINGS_FILENAME)
+    try:
+        with open(conffn) as cf:
+            conf.read_file(cf)
+    except OSError:
+        pass
+
+    return conf
 
 
 class FuseOSError(FuseError):
@@ -66,8 +74,8 @@ class FuseOSError(FuseError):
         logger.error(caller + e.__str__())
 
         try:
-            exc = code_mapping[e.status_code]
-        except:
+            exc = FuseOSError.code_mapping[e.status_code]
+        except AttributeError:
             exc = FuseOSError(errno.EREMOTEIO)
         raise exc
 
@@ -75,10 +83,10 @@ class FuseOSError(FuseError):
 class ReadProxy(object):
     """Dict of stream chunks for consecutive read access of files."""
 
-    def __init__(self, acd_client):
+    def __init__(self, acd_client, open_chunk_limit, timeout):
         self.acd_client = acd_client
         self.lock = Lock()
-        self.files = defaultdict(ReadProxy.ReadFile)
+        self.files = defaultdict(lambda: ReadProxy.ReadFile(open_chunk_limit, timeout))
 
     class StreamChunk(object):
         """StreamChunk represents a file node chunk as a streamed ranged HTTP response
@@ -128,12 +136,13 @@ class ReadProxy(object):
         """Represents a file opened for reading.
         Encapsulates at most :attr:`MAX_CHUNKS_PER_FILE` open chunks."""
 
-        __slots__ = ('chunks', 'access', 'lock')
+        __slots__ = ('chunks', 'access', 'lock', 'timeout')
 
-        def __init__(self):
-            self.chunks = deque(maxlen=MAX_CHUNKS_PER_FILE)
+        def __init__(self, open_chunk_limit, timeout):
+            self.chunks = deque(maxlen=open_chunk_limit)
             self.access = time()
             self.lock = Lock()
+            self.timeout = timeout
 
         def get(self, acd_client, id_, offset, length, total) -> bytes:
             """Gets a byte range from existing StreamChunks"""
@@ -154,8 +163,10 @@ class ReadProxy(object):
             try:
                 with self.lock:
                     chunk = ReadProxy.StreamChunk(acd_client, id_, offset,
-                                                  CHUNK_SZ, timeout=CHUNK_TIMEOUT)
-                    if len(self.chunks) == MAX_CHUNKS_PER_FILE:
+                                                  acd_client._conf.getint('transfer',
+                                                                          'dl_chunk_size'),
+                                                  timeout=self.timeout)
+                    if len(self.chunks) == self.chunks.maxlen:
                         self.chunks[0].close()
 
                     self.chunks.append(chunk)
@@ -191,19 +202,19 @@ class ReadProxy(object):
 class WriteProxy(object):
     """Collection of WriteStreams for consecutive file write operations."""
 
-    def __init__(self, acd_client, cache):
+    def __init__(self, acd_client, cache, buffer_size, timeout):
         self.acd_client = acd_client
         self.cache = cache
-        self.files = defaultdict(WriteProxy.WriteStream)
+        self.files = defaultdict(lambda: WriteProxy.WriteStream(buffer_size, timeout))
 
     class WriteStream(object):
         """A WriteStream is a binary file-like object that is backed by a Queue.
         It will remember its current offset."""
 
-        __slots__ = ('q', 'offset', 'error', 'closed', 'done')
+        __slots__ = ('q', 'offset', 'error', 'closed', 'done', 'timeout')
 
-        def __init__(self):
-            self.q = Queue(maxsize=WRITE_BUFFER_SZ)
+        def __init__(self, buffer_size, timeout):
+            self.q = Queue(maxsize=buffer_size)
             """a queue that buffers written blocks"""
             self.offset = 0
             """the beginning fpos"""
@@ -212,6 +223,7 @@ class WriteProxy(object):
             self.closed = False
             self.done = Event()
             """done event is triggered when file is successfully read and transferred"""
+            self.timeout = timeout
 
         def write(self, data: bytes):
             """Writes data into queue.
@@ -221,7 +233,7 @@ class WriteProxy(object):
             if self.error:
                 raise FuseOSError(errno.EREMOTEIO)
             try:
-                self.q.put(data, timeout=WRITE_TIMEOUT)
+                self.q.put(data, timeout=self.timeout)
             except QueueFull:
                 logger.error('Write timeout.')
                 raise FuseOSError(errno.ETIMEDOUT)
@@ -383,10 +395,13 @@ class ACDFuse(LoggingMixIn, Operations):
         self.cache = kwargs['cache']
         self.acd_client = kwargs['acd_client']
         autosync = kwargs['autosync']
+        conf = kwargs['conf']
 
-        self.rp = ReadProxy(self.acd_client)
+        self.rp = ReadProxy(self.acd_client, 
+                            conf.getint('read', 'open_chunk_limit'), conf.getint('read', 'timeout'))
         """collection of files opened for reading"""
-        self.wp = WriteProxy(self.acd_client, self.cache)
+        self.wp = WriteProxy(self.acd_client, self.cache, 
+                             conf.getint('write', 'buffer_size'), conf.getint('write', 'timeout'))
         """collection of files opened for writing"""
         self.total, _ = self.acd_client.fs_sizes()
         """total disk space"""
@@ -700,6 +715,8 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
         opts['big_writes']=True
 
     kwargs.update(opts)
+
+    args['conf'] = get_conf(args['settings_path'])
 
     FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **kwargs)
 

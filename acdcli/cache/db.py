@@ -1,3 +1,4 @@
+import configparser
 import logging
 import os
 import re
@@ -15,6 +16,27 @@ logger = logging.getLogger(__name__)
 _ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder" ORDER BY created'
 
 
+_SETTINGS_FILENAME = 'cache.ini'
+
+_def_conf = configparser.ConfigParser()
+_def_conf['sqlite'] = dict(filename='nodes.db', busy_timeout=30000, journal_mode='wal')
+_def_conf['blacklist'] = dict(folders= [])
+
+
+def _get_conf(path='') -> configparser.ConfigParser:
+    conf = configparser.ConfigParser()
+    conf.read_dict(_def_conf)
+
+    conffn = os.path.join(path, _SETTINGS_FILENAME)
+    try:
+        with open(conffn) as cf:
+            conf.read_file(cf)
+    except OSError:
+        pass
+
+    return conf
+
+
 class IntegrityError(Exception):
     def __init__(self, msg):
         self.msg = msg
@@ -24,7 +46,7 @@ class IntegrityError(Exception):
 
 
 def _create_conn(path: str) -> sqlite3.Connection:
-    c = sqlite3.connect(path, timeout=60)
+    c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row # allow dict-like access on rows with col name
     return c
 
@@ -36,14 +58,13 @@ def _regex_match(pattern: str, cell: str) -> bool:
 
 
 class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
-    _DB_FILENAME = 'nodes.db'
-    _TIMEOUT = 30000
-
     IntegrityCheckType = dict(full=0, quick=1, none=2)
     """types of SQLite integrity checks"""
 
-    def __init__(self, path: str='', check=IntegrityCheckType['full']):
-        self.db_path = os.path.join(path, self._DB_FILENAME)
+    def __init__(self, cache_path: str='', settings_path='', check=IntegrityCheckType['full']):
+        self._conf = _get_conf(settings_path)
+
+        self.db_path = os.path.join(cache_path, self._conf['sqlite']['filename'])
         self.tl = local()
 
         self.integrity_check(check)
@@ -64,8 +85,8 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
 
             self.root_id = first_id
 
-        self._execute_pragma('busy_timeout', self._TIMEOUT)
-        self._execute_pragma('journal_mode', 'wal')
+        self._execute_pragma('busy_timeout', self._conf['sqlite']['busy_timeout'])
+        self._execute_pragma('journal_mode', self._conf['sqlite']['journal_mode'])
 
     @property
     def _conn(self) -> sqlite3.Connection:
