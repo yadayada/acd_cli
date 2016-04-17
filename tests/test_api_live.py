@@ -43,9 +43,6 @@ def gen_rand_anon_mmap(size=gen_rand_sz()) -> tuple:
 def do_not_run(func):
     return lambda x: None
 
-content._CHUNK_SIZE = content.CHUNK_SIZE
-content._CONSECUTIVE_DL_LIMIT = content.CONSECUTIVE_DL_LIMIT
-
 print(sys.argv)
 
 
@@ -57,8 +54,7 @@ class APILiveTestCase(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(path, 'endpoint_data')))
 
     def tearDown(self):
-        content.CHUNK_SIZE = content._CHUNK_SIZE
-        content.CONSECUTIVE_DL_LIMIT = content._CONSECUTIVE_DL_LIMIT
+        pass
 
     #
     # common.py
@@ -148,7 +144,7 @@ class APILiveTestCase(unittest.TestCase):
 
     def test_download(self):
         f, sz = gen_temp_file()
-        self.assertTrue(sz < content.CONSECUTIVE_DL_LIMIT)
+        self.assertTrue(sz < self.acd_client._conf.getint('transfer', 'dl_chunk_size'))
         md5 = hashing.hash_file_obj(f)
         n = self.acd_client.upload_file(f.name)
         self.assertIn('id', n)
@@ -163,7 +159,7 @@ class APILiveTestCase(unittest.TestCase):
 
     def test_download_chunked(self):
         ch_sz = gen_rand_sz()
-        content.CHUNK_SIZE = ch_sz
+        self.acd_client._conf['transfer']['dl_chunk_size'] = str(ch_sz)
         f, sz = gen_temp_file(size=5 * ch_sz)
         md5 = hashing.hash_file_obj(f)
 
@@ -181,7 +177,7 @@ class APILiveTestCase(unittest.TestCase):
 
     def test_incomplete_download(self):
         ch_sz = gen_rand_sz()
-        content.CHUNK_SIZE = ch_sz
+        self.acd_client._conf['transfer']['dl_chunk_size'] = str(ch_sz)
         f, sz = gen_temp_file(size=5 * ch_sz)
         md5 = hashing.hash_file_obj(f)
 
@@ -199,8 +195,7 @@ class APILiveTestCase(unittest.TestCase):
 
     def test_download_resume(self):
         ch_sz = gen_rand_sz()
-        content.CHUNK_SIZE = ch_sz
-        content.CONSECUTIVE_DL_LIMIT = ch_sz
+        self.acd_client._conf['transfer']['dl_chunk_size'] = str(ch_sz)
         f, sz = gen_temp_file(size=5 * ch_sz)
         md5 = hashing.hash_file(f.name)
         n = self.acd_client.upload_file(f.name)
