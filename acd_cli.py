@@ -768,7 +768,7 @@ def upload_action(args: argparse.Namespace) -> int:
                                       args.deduplicate, args.remove_source_files,
                                       excl_re, args.exclude_path, jobs)
 
-    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
+    ql = QueuedLoader(args.max_connections, args.print_progress, max_retries=args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
@@ -781,7 +781,7 @@ def upload_stream_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
     prog = progress.FileProgress(0)
-    ql = QueuedLoader(max_retries=0)
+    ql = QueuedLoader(print_progress=args.print_progress, max_retries=0)
     job = partial(upload_stream,
                   sys.stdin.buffer, args.name, args.parent, args.overwrite, args.deduplicate,
                   pg_handler=prog)
@@ -796,7 +796,7 @@ def overwrite_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
     prog = progress.FileProgress(os.path.getsize(args.file))
-    ql = QueuedLoader(max_retries=args.max_retries)
+    ql = QueuedLoader(print_progress=args.print_progress, max_retries=args.max_retries)
     job = partial(overwrite, args.node, args.file, pg_handler=prog)
     ql.add_jobs([job])
 
@@ -811,7 +811,7 @@ def download_action(args: argparse.Namespace) -> int:
     ret_val |= create_dl_jobs(args.node, args.path, args.times, args.remove_source_files,
                               excl_re, jobs)
 
-    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
+    ql = QueuedLoader(args.max_connections, args.print_progress, args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
@@ -1205,6 +1205,9 @@ def get_parser() -> tuple:
                        help='set the maximum number of retries '
                             '[default: 0, maximum: %i]' % QueuedLoader.MAX_RETRIES)
 
+    quiet = Argument('--quiet', '-q', action='store_false', dest='print_progress',
+                     help='do not display the progress indicator')
+
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
@@ -1318,13 +1321,15 @@ def get_parser() -> tuple:
                            help='exclude duplicate files from upload')
     upload_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
                            help='remove local files on successful upload')
+    quiet.attach(upload_sp)
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', default='/', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
 
     overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'], help=
-    'overwrite file A [remote] with content of file B [local]')
+                                         'overwrite file A [remote] with content of file B [local]')
     max_ret.attach(overwrite_sp)
+    quiet.attach(overwrite_sp)
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)
@@ -1334,6 +1339,7 @@ def get_parser() -> tuple:
     stream_sp.add_argument('--overwrite', '-o', action='store_true')
     stream_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='prevent duplicates from getting stored after upload')
+    quiet.attach(stream_sp)
     stream_sp.add_argument('name', help='the remote file name')
     stream_sp.add_argument('parent', help='remote parent folder')
     stream_sp.set_defaults(func=upload_stream_action)
@@ -1345,6 +1351,7 @@ def get_parser() -> tuple:
                              help='preserve modification times')
     download_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
                              help='remove remote files on successful download')
+    quiet.attach(download_sp)
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None,
                              help='local download directory [optional]')
