@@ -488,8 +488,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
             or force:
-        return overwrite(parent_id, file_id, path, dedup=dedup, rsf=rsf,
-                         pg_handler=pg_handler).ret_val
+        return overwrite(file_id, path, dedup=dedup, rsf=rsf, pg_handler=pg_handler).ret_val
     elif not force:
         logger.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()
@@ -497,17 +496,19 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 
 @retry_on(STD_RETRY_RETVALS)
-def overwrite(parent_id: str, node_id: str, local_file: str, dedup=False, rsf=False,
+def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
               pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
     local_size = os.path.getsize(local_file)
+
+    initial_node = acd_client.get_metadata(node_id)
     try:
         r = acd_client.overwrite_file(node_id, local_file,
                                       read_callbacks=[hasher.update, pg_handler.update],
                                       deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return upload_timeout(parent_id, local_file, hasher.get_result(), local_size, rsf)
+            return overwrite_timeout(initial_node, local_file, hasher.get_result(), local_size, rsf)
 
         logger.error('Error overwriting file. %s' % str(e))
         return UL_DL_FAILED
