@@ -208,7 +208,7 @@ class QueryMixin(object):
             r = c.fetchone()[0]
         return r
 
-    def get_folder_count(self) -> int:
+    def get_file_count(self) -> int:
         with cursor(self._conn) as c:
             c.execute(NUM_FILES_SQL)
             r = c.fetchone()[0]
