@@ -13,6 +13,7 @@ Contents:
    setup
    authorization
    usage
+   configuration
    transfer
    find
    FUSE

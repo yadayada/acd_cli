@@ -1502,6 +1502,8 @@ def main():
     for msg in plugin_log:
         logger.info(msg)
 
+    logger.info('Settings path is "%s".' % SETTINGS_PATH)
+
     global acd_client
     global cache
 
