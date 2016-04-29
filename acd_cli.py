@@ -503,7 +503,7 @@ def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
 
     initial_node = acd_client.get_metadata(node_id)
 
-    logger.info('Overwriting "%s" with "%s".' (node_id, local_file))
+    logger.info('Overwriting "%s" with "%s".' % (node_id, local_file))
 
     try:
         r = acd_client.overwrite_file(node_id, local_file,
