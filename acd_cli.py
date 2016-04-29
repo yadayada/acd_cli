@@ -502,6 +502,9 @@ def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
     local_size = os.path.getsize(local_file)
 
     initial_node = acd_client.get_metadata(node_id)
+
+    logger.info('Overwriting "%s" with "%s".' (node_id, local_file))
+
     try:
         r = acd_client.overwrite_file(node_id, local_file,
                                       read_callbacks=[hasher.update, pg_handler.update],
@@ -510,7 +513,7 @@ def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
             return overwrite_timeout(initial_node, local_file, hasher.get_result(), local_size, rsf)
 
-        logger.error('Error overwriting file. %s' % str(e))
+        logger.error('Error overwriting "%s". %s' % (node_id, str(e)))
         return UL_DL_FAILED
     else:
         return upload_complete(r, local_file, hasher.get_result(), local_size, rsf)
