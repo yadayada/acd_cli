@@ -73,7 +73,7 @@ Building deb/rpm packages
 
 You will need to have `fpm <https://github.com/jordansissel/fpm>`_ installed to build packages.
 
-There is a `Makefile <../assets/Makefile>`_ that includes commands to build Debian packages
+There is a Makefile in the assets directory that includes commands to build Debian packages
 (``make deb``) or RedHat packages (``make rpm``). It will also build the required 
 requests-toolbelt package.
 fpm may also be able to build packages for other distributions or operating systems.

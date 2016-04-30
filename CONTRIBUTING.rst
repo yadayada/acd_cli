@@ -11,7 +11,7 @@ sent to all of the issue's participants and some of them might consider it spam.
 For minor corrections or additions, try to update your posts rather than writing a new reply.
 Use strike-through markdown for corrections and put updates at the bottom of your original post.
 
-+1ing an issue or "me, too" replies will not get anything done faster.
+Please use the reaction button to "vote" on issues rather than commenting "+1" or similar.
 
 Adding Issues
 +++++++++++++
@@ -35,6 +35,8 @@ Please provide as much possibly relevant information as you can. This should at 
 
 You might find the ``--verbose`` and, to a lesser extent, ``--debug`` flags helpful.
 
+**Caution:** Be sure not to include authorization tokens from the log output in your comments.
+
 Use `code block markup <https://guides.github.com/features/mastering-markdown/>`_ for console
 output, log messages, etc.
 
@@ -46,7 +48,8 @@ like specified in PEP 3107 and, to stay 3.2-compliant, stringified `PEP 484 type
 <https://docs.python.org/3/library/typing.html>`_ where appropriate.
 The limit on line length is 100 characters.
 
-It is a generally a good idea to explicitly announce that you are working on an issue.
+It is a generally a good idea to explicitly announce that you are working on a feature or 
+an issue.
 
 Please squash your commits and add yourself to the `contributors list <docs/contributors.rst>`_
 before making a pull request.
@@ -55,7 +58,8 @@ Have a look at `Github's general guide how to contribute
 <https://guides.github.com/activities/contributing-to-open-source/#contributing>`_.
 It is not necessary to create a feature branch, i.e. you may commit to the master branch.
 
-There is also a `TODO <docs/TODO.rst>`_ list of some of the open tasks.
+If you do not know how to contribute, look for issues tagged with "help wanted" and read the
+`TODO list <docs/TODO.rst>`_ of some of the open tasks.
 
 Donations
 ---------

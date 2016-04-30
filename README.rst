@@ -32,7 +32,7 @@ File Operations
 Documentation
 -------------
 
-The full documentation is available at `<https://acd-cli.readthedocs.org>`_.
+The full documentation is available at `<https://acd-cli.readthedocs.io>`_.
 
 Quick Start
 -----------
@@ -49,8 +49,8 @@ Then, a relative local path ``local/spam`` is uploaded recursively using two con
 ::
 
     $ acd_cli sync
-      Syncing...
-      Done.
+      Getting changes...
+      Inserting nodes..
 
     $ acd_cli ls /
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
@@ -104,7 +104,7 @@ Recent Changes
   * added ``--times``` argument to download action for preservation of modification times
   * added streamed overwrite action
   * fixed upload of directories containing broken symlinks
-  * disabled FUSE autosync
+  * disabled FUSE autosync by default
   * fixed exit status >=256
 
 0.3.1

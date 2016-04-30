@@ -4,8 +4,10 @@ FUSE module
 Status
 ------
 
-The FUSE support is still in its early stage and may be
-(`prone to bugs <https://github.com/yadayada/acd_cli/labels/FUSE>`_).
+The FUSE module will never provide anything as good and reliable as a local filesystem. 
+See the `bug tracker <https://github.com/yadayada/acd_cli/labels/FUSE>`_ for issues that
+may occur. 
+
 acd\_cli's FUSE module has the following filesystem features implemented:
 
 =====================  ===========
@@ -61,10 +63,14 @@ Linux and Mac OS.
     Changes made to your cloud drive storage not using acd\_cli will no longer be synchronized
     automatically. See the ``--interval`` option below to re-enable automatic synchronization.
 
-Mount options
+.. WARNING::
+    Using acd_cli's CLI commands (e.g. upload or sync) while having the cloud drive mounted
+    may lead to errors or corruption of the node cache.
+
+Mount Options
 ~~~~~~~~~~~~~
 
-For further information on the most of the options below, see your mount.fuse man page.
+For further information on the most of the options below, see your :manpage:`mount.fuse(8)` man page.
 
 To convert the node's standard character set (UTF-8) to the system locale, the modules argument
 may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
@@ -81,7 +87,7 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --uid UID                 override the user ID (defaults to the user's uid)
 --umask UMASK             override the standard permission bits
 
-Automatic remount
+Automatic Remount
 ~~~~~~~~~~~~~~~~~
 
 Please make sure your network connection is up before you try to run the mount command.

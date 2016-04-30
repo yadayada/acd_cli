@@ -22,6 +22,18 @@ Where Does acd\_cli Store its Cache and Settings?
 
 You can see which paths are used in the log output of ``acd_cli -v init``.
 
+My Sync Fails. What Should I Do?
+--------------------------------
+
+If you are doing an incremental synchronization (i.e. you have synchronized before) and it fails,
+a full sync might work ``acd_cli sync -f``.
+
+If the sync times out, consider increasing the idle timeout (refer to the 
+:doc:`config documentation <configuration>`).
+
+You may also want to try the deprecated (and undocumented) synchronization method ``acd_cli old-sync`` 
+if you happen to have only up to a few thousand files and folders in total.
+
 How Do I Pass a Node ID Starting with ``-`` (dash/minus/hyphen)?
 ----------------------------------------------------------------
 
