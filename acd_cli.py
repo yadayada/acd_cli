@@ -424,9 +424,10 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         nodes = cache.find_by_md5(hashing.hash_file(path))
         nodes = [n for n in cache.path_format(nodes)]
         if len(nodes) > 0:
-            # print('Skipping upload of duplicate file "%s".' % short_nm)
-            logger.info('Location of duplicates: %s' % nodes)
+            logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s' % (short_nm, nodes))
             pg_handler.done()
+            if rsf:
+                return remove_source_file(path)
             return DUPLICATE
 
     conflicting_node = cache.get_conflicting_node(short_nm, parent_id)
@@ -473,10 +474,6 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             return upload_complete(r, path, hasher.get_result(), local_size, rsf)
 
     # else: file exists
-    if not overwr and not force:
-        logger.info('Skipping upload of existing file "%s".' % short_nm)
-        pg_handler.done()
-        return 0
 
     rmod = datetime_to_timestamp(conflicting_node.modified)
     rmod = datetime.utcfromtimestamp(rmod)
@@ -484,6 +481,15 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     lcre = datetime.utcfromtimestamp(os.path.getctime(path))
 
     logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
+
+    if not overwr and not force:
+        pg_handler.done()
+        if not rsf:
+            logger.info('Skipping upload of existing file "%s".' % short_nm)
+            return 0
+
+        if not compare_sizes(os.path.getsize(path), conflicting_node.size, short_nm):
+            return remove_source_file(path)
 
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
@@ -1323,7 +1329,9 @@ def get_parser() -> tuple:
     upload_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='exclude duplicate files from upload')
     upload_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
-                           help='remove local files on successful upload')
+                           help='remove local files on successful upload or if a remote file'
+                                ' of the same size exists in the upload path or'
+                                ' -d is used and a duplicate exists')
     quiet.attach(upload_sp)
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', default='/', help='remote parent folder')
