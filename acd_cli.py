@@ -19,7 +19,7 @@ from pkg_resources import iter_entry_points
 import acdcli
 from acdcli.api import client
 from acdcli.api.common import RequestError, is_valid_id
-from acdcli.cache import format, db
+from acdcli.cache import db, format
 from acdcli.utils import hashing, progress
 from acdcli.utils.threading import QueuedLoader
 from acdcli.utils.time import *
@@ -161,7 +161,7 @@ def sync_node_list(full=False) -> 'Union[int, None]':
 def old_sync() -> 'Union[int, None]':
     global cache
     cache.drop_all()
-    cache = db.NodeCache(CACHE_PATH)
+    cache = db.get_cache(CACHE_PATH)
     try:
         folders = acd_client.get_folder_list()
         folders.extend(acd_client.get_trashed_folders())
@@ -422,7 +422,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
     if dedup and cache.file_size_exists(os.path.getsize(path)):
         nodes = cache.find_by_md5(hashing.hash_file(path))
-        nodes = [n for n in cache.path_format(nodes)]
+        nodes = [n for n in format.path_format(nodes)]
         if len(nodes) > 0:
             logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s' % (short_nm, nodes))
             pg_handler.done()
@@ -724,8 +724,8 @@ def tree_action(args: argparse.Namespace):
         logger.critical('Invalid folder.')
         return INVALID_ARG_RETVAL
 
-    for line in cache.tree_format(node, args.node_path, trash=args.include_trash,
-                                  dir_only=args.dir_only, max_depth=args.max_depth):
+    for line in format.tree_format(node, args.node_path, trash=args.include_trash,
+                                   dir_only=args.dir_only, max_depth=args.max_depth):
         print(line)
 
 
@@ -908,8 +908,8 @@ def create_action(args: argparse.Namespace) -> int:
 @no_autores_trash_action
 @offline_action
 def list_trash_action(args: argparse.Namespace):
-    for node in cache.ls_format(cache.get_root_node().id, [], recursive=args.recursive,
-                                trash_only=True, trashed_children=True):
+    for node in format.ls_format(cache.get_root_node().id, [], recursive=args.recursive,
+                                 trash_only=True, trashed_children=True):
         print(node)
 
 
@@ -947,7 +947,7 @@ def find_action(args: argparse.Namespace):
     if not nodes:
         return INVALID_ARG_RETVAL
 
-    for line in cache.long_id_format(nodes):
+    for line in format.long_id_format(nodes):
         print(line)
 
 
@@ -969,14 +969,14 @@ def find_regex_action(args: argparse.Namespace) -> int:
         logger.critical('Invalid regular expression specified.')
         return INVALID_ARG_RETVAL
     nodes = cache.find_by_regex(args.regex)
-    for node in cache.long_id_format(nodes):
+    for node in format.long_id_format(nodes):
         print(node)
     return 0
 
 
 @offline_action
 def children_action(args: argparse.Namespace) -> int:
-    for entry in cache.ls_format(args.node, [], args.recursive,
+    for entry in format.ls_format(args.node, [], args.recursive,
                                  False, args.include_trash, args.long, args.size_bytes):
         print(entry)
 
@@ -1240,8 +1240,8 @@ def get_parser() -> tuple:
                                  '"always" turns coloring on '
                                  'and "auto" colors listings when stdout is a tty '
                                  '[uses the Linux-style LS_COLORS environment variable]')
-    opt_parser.add_argument('-i', '--check', default=db.NodeCache.IntegrityCheckType['full'],
-                            choices=db.NodeCache.IntegrityCheckType.keys(),
+    opt_parser.add_argument('-i', '--check', default=db.IntegrityCheckType['full'],
+                            choices=db.IntegrityCheckType.keys(),
                             help='select database integrity check type [default: full]')
     opt_parser.add_argument('-u', '--utf', action='store_true',
                             help='force utf output')
@@ -1524,7 +1524,7 @@ def main():
 
     if args.func not in nocache_actions:
         try:
-            cache = db.NodeCache(CACHE_PATH, SETTINGS_PATH, args.check)
+            cache = db.get_cache(CACHE_PATH, SETTINGS_PATH, args.check)
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
@@ -1536,8 +1536,6 @@ def main():
 
     args.__setattr__('acd_client', acd_client)
     args.__setattr__('cache', cache)
-
-    format.init(args.color)
 
     if args.no_wait:
         from acdcli.api.backoff_req import BackOffRequest
