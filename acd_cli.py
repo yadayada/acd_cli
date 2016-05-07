@@ -483,13 +483,18 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
     if not overwr and not force:
+        logger.info('Skipping upload of existing file "%s".' % short_nm)
         pg_handler.done()
+        
         if not rsf:
-            logger.info('Skipping upload of existing file "%s".' % short_nm)
             return 0
 
         if not compare_sizes(os.path.getsize(path), conflicting_node.size, short_nm):
             return remove_source_file(path)
+        
+        logger.info('Keeping "%s" because of remote size mismatch.' % path)
+        return 0
+
 
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
