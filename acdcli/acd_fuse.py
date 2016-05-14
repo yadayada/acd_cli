@@ -738,7 +738,7 @@ def unmount(path=None, lazy=False) -> int:
         umount_cmd = ['umount']
     if lazy:
         if system == 'linux':
-            umount_cmd.append('-l')
+            umount_cmd.append('-z')
         else:
             logging.warning('Lazy unmounting is not supported on your platform.')
 
