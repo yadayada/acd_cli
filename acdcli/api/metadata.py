@@ -33,10 +33,10 @@ class MetadataMixin(object):
     def get_trashed_files(self) -> list:
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
-    def get_changes(self, checkpoint='', include_purged=False, silent=True) \
-        -> 'Generator[ChangeSet]':
-        """ Generates a ChangeSet for each checkpoint in changes response. See
-        `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_."""
+    def get_changes(self, checkpoint='', include_purged=False, silent=True, file=None):
+        """Writes changes into a (temporary) file. See
+        `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_.
+        """
 
         logger.info('Getting changes with checkpoint "%s".' % checkpoint)
 
@@ -50,7 +50,10 @@ class MetadataMixin(object):
             r.close()
             raise RequestError(r.status_code, r.text)
 
-        tmp = tempfile.TemporaryFile('w+b')
+        if file:
+            tmp = open(file, 'w+b')
+        else:
+            tmp = tempfile.TemporaryFile('w+b')
         try:
             for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
                 if line:
@@ -68,17 +71,20 @@ class MetadataMixin(object):
         finally:
             r.close()
             tmp.seek(0)
-            for cs in self._iter_changes_lines(tmp):
-                yield cs
+            return tmp
 
     @staticmethod
     def _iter_changes_lines(f) -> 'Generator[ChangeSet]':
-        """Generates a ChangeSet per line in changes response
+        """Generates a ChangeSet per line in passed file
 
         the expected return format should be:
         {"checkpoint": str, "reset": bool, "nodes": []}
         {"checkpoint": str, "reset": false, "nodes": []}
-        {"end": true}"""
+        {"end": true}
+
+        :arg f: opened file with current position at the beginning of a changeset
+        :throws: RequestError
+        """
 
         end = False
         pages = -1
@@ -132,7 +138,11 @@ class MetadataMixin(object):
             logger.warning('End of change request not reached.')
 
     def get_metadata(self, node_id: str, assets=False, temp_link=True) -> dict:
-        """Gets a node's metadata."""
+        """Gets a node's metadata.
+
+        :arg assets: also include asset info (e.g. thumbnails) if the node is a file
+        :arg temp_link: include a temporary download link if the node is a file
+        """
         params = {'tempLink': 'true' if temp_link else 'false',
                   'asset': 'ALL' if assets else 'NONE'}
         r = self.BOReq.get(self.metadata_url + 'nodes/' + node_id, params=params)

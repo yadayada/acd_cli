@@ -116,16 +116,32 @@ class CacheConsts(object):
     MAX_AGE = 30
 
 
-def sync_node_list(full=False) -> 'Union[int, None]':
+def sync_node_list(full=False, to_file=None, from_file=None) -> 'Union[int, None]':
     global cache
     cp_ = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
     print('Getting changes', end='', flush=True)
 
+    if from_file:
+        f = open(from_file, 'rb')
+    else:
+        f = acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_), silent=False,
+                                   file=to_file if to_file else None)
+
+        if to_file:
+            f.close()
+            return
+
     try:
         first = True
-        for changeset in acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_),
-                                                silent=False):
+
+        for changeset in acd_client._iter_changes_lines(f):
+            if to_file:
+                if first:
+                    out = open(to_file, 'wb')
+                out.write(b'%s\n' % str(changeset))
+                continue
+
             if changeset.reset or (full and first):
                 cache.drop_all()
                 cache.init()
@@ -156,6 +172,8 @@ def sync_node_list(full=False) -> 'Union[int, None]':
     finally:
         if not first:
             print()
+        if to_file:
+            out.close()
 
 
 def old_sync() -> 'Union[int, None]':
@@ -682,7 +700,7 @@ def no_autores_trash_action(func):
 # actual actions
 
 def sync_action(args: argparse.Namespace):
-    return sync_node_list(full=args.full)
+    return sync_node_list(args.full, args.to_file, args.from_file)
 
 
 def old_sync_action(args: argparse.Namespace):
@@ -1259,11 +1277,15 @@ def get_parser() -> tuple:
     vers_sp.set_defaults(func=print_version_action)
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
-                                    help='[+] refresh node list cache; fetches complete node list'
-                                         'if cache is empty or incremental changes '
-                                         'if cache is non-empty')
+                                    help='[+] refresh node list cache; fetches complete node list '
+                                         'if the cache is empty or incremental changes '
+                                         'if the cache is non-empty')
     sync_sp.add_argument('--full', '-f', action='store_true',
                          help='perform a full sync even if the node list is not empty')
+    sync_sp.add_argument('--to-file', help='do not update the cache, but instead write the changes'
+                                           ' into the file specified')
+    sync_sp.add_argument('--from-file', help='update the cache using the contents '
+                                             'of the file specified')
     sync_sp.set_defaults(func=sync_action)
 
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
