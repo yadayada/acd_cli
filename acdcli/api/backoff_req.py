@@ -91,6 +91,7 @@ class BackOffRequest(object):
         else:
             timeout = self.timeout
 
+        r = None
         exc = False
         try:
             try:
