@@ -90,8 +90,9 @@ You will find the current path settings in the output of ``acd_cli -v init``.
 The cache path is where acd\_cli stores OAuth data, the node cache, logs etc. You
 may override the cache path by setting the ``ACD_CLI_CACHE_PATH`` environment variable.
 
-.. The settings path is where various configuration files are stored.
-   The default path may be overriden the ``ACD_CLI_SETTINGS_PATH`` environment variable.
+The settings path is where various configuration files are stored (refer to the 
+:doc:`configuration section <configuration>`).
+The default path may be overriden by setting the ``ACD_CLI_SETTINGS_PATH`` environment variable.
 
 Proxy support
 ~~~~~~~~~~~~~
@@ -108,6 +109,8 @@ You can also use HTTP proxies supporting CONNECT method:
 ::
 
     export HTTPS_PROXY="http://1.2.3.4:8888/"
+
+Another way to permanently set the proxy is via configuration file.
 
 Locale
 ~~~~~~

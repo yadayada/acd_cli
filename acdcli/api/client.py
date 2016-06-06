@@ -24,6 +24,7 @@ _def_conf = configparser.ConfigParser()
 _def_conf['endpoints'] = dict(filename='endpoint_data', validity_duration=259200)
 _def_conf['transfer'] = dict(fs_chunk_size=128 * 1024, dl_chunk_size=500 * 1024 ** 2,
                              chunk_retries=1, connection_timeout=30, idle_timeout=60)
+_def_conf['proxies'] = dict()
 
 
 def _get_conf(path='') -> configparser.ConfigParser:
@@ -36,6 +37,8 @@ def _get_conf(path='') -> configparser.ConfigParser:
             conf.read_file(cf)
     except OSError:
         pass
+
+    logger.debug('config: %s' % {section: dict(conf[section]) for section in conf})
 
     return conf
 
@@ -59,8 +62,9 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
 
         requests_timeout = (self._conf.getint('transfer', 'connection_timeout'),
                             self._conf.getint('transfer', 'idle_timeout'))
+        proxies = dict(self._conf['proxies'])
 
-        self.BOReq = BackOffRequest(self.handler, requests_timeout)
+        self.BOReq = BackOffRequest(self.handler, requests_timeout, proxies)
 
     @property
     def _endpoint_data_path(self):

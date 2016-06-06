@@ -33,6 +33,11 @@ acd\_client.ini
   connection_timeout = 30
   idle_timeout = 60
 
+  [proxies]
+  ;none by default
+
+A proxy may be set by adding a protocol to proxy mapping like
+``https = https://user:pass@1.1.1.1:1234`` to the proxies section.
 
 cache.ini
 ---------
@@ -60,7 +65,6 @@ fuse.ini
 ::
 
   [read]
-
   ;maximal number of simultaneously opened chunks per file
   open_chunk_limit = 10
 
@@ -68,7 +72,6 @@ fuse.ini
   timeout = 5
 
   [write]
-
   ;number of buffered chunks in the write queue
   ;the size of the chunks may vary (e.g. 512B, 4KB, or 128KB)
   buffer_size = 32

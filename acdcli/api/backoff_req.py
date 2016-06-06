@@ -17,13 +17,17 @@ class BackOffRequest(object):
     Caution: this catches all connection errors and may stall for a long time.
     It is necessary to init this module before use."""
 
-    def __init__(self, auth_callback: 'requests.auth.AuthBase', timeout: 'Tuple[int, int]'):
+    def __init__(self, auth_callback: 'requests.auth.AuthBase', timeout: 'Tuple[int, int]', proxies: dict={}):
         """:arg auth_callback: callable object that attaches auth info to a request
            :arg timeout: tuple of connection timeout and idle timeout \
-                         (http://docs.python-requests.org/en/latest/user/advanced/#timeouts)"""
+                         (http://docs.python-requests.org/en/latest/user/advanced/#timeouts)
+           :arg proxies: dict of protocol to proxy, \
+                         see http://docs.python-requests.org/en/master/user/advanced/#proxies
+        """
 
         self.auth_callback = auth_callback
         self.timeout = timeout if requests.__version__ >= '2.4.0' else timeout[1]
+        self.proxies = proxies
 
         self.__session = requests.session()
         self.__thr_local = local()
@@ -96,7 +100,8 @@ class BackOffRequest(object):
         try:
             try:
                 r = self.__session.request(type_, url, auth=self.auth_callback,
-                                           headers=headers, timeout=timeout, **kwargs)
+                                           proxies=self.proxies, headers=headers, timeout=timeout,
+                                           **kwargs)
             except RequestException as e:
                 r = e.request
                 raise
