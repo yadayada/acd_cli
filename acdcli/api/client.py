@@ -5,6 +5,8 @@ import json
 import requests
 import time
 
+from acdcli.utils.conf import get_conf
+
 from . import oauth
 from .backoff_req import BackOffRequest
 from .common import *
@@ -27,22 +29,6 @@ _def_conf['transfer'] = dict(fs_chunk_size=128 * 1024, dl_chunk_size=500 * 1024 
 _def_conf['proxies'] = dict()
 
 
-def _get_conf(path='') -> configparser.ConfigParser:
-    conf = configparser.ConfigParser()
-    conf.read_dict(_def_conf)
-
-    conffn = os.path.join(path, _SETTINGS_FILENAME)
-    try:
-        with open(conffn) as cf:
-            conf.read_file(cf)
-    except OSError:
-        pass
-
-    logger.debug('config: %s' % {section: dict(conf[section]) for section in conf})
-
-    return conf
-
-
 class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
     """Provides a client to the Amazon Cloud Drive RESTful interface."""
 
@@ -50,7 +36,7 @@ class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
     def __init__(self, cache_path='', settings_path=''):
         """Initializes OAuth and endpoints."""
 
-        self._conf = _get_conf(settings_path)
+        self._conf = get_conf(settings_path, _SETTINGS_FILENAME, _def_conf)
 
         self.cache_path = cache_path
         logger.info('Initializing ACD with path "%s".' % cache_path)

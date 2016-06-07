@@ -5,6 +5,8 @@ import re
 import sqlite3
 from threading import local
 
+from acdcli.utils.conf import get_conf
+
 from .cursors import *
 from .format import FormatterMixin
 from .query import QueryMixin
@@ -22,19 +24,6 @@ _def_conf = configparser.ConfigParser()
 _def_conf['sqlite'] = dict(filename='nodes.db', busy_timeout=30000, journal_mode='wal')
 _def_conf['blacklist'] = dict(folders= [])
 
-
-def _get_conf(path='') -> configparser.ConfigParser:
-    conf = configparser.ConfigParser()
-    conf.read_dict(_def_conf)
-
-    conffn = os.path.join(path, _SETTINGS_FILENAME)
-    try:
-        with open(conffn) as cf:
-            conf.read_file(cf)
-    except OSError:
-        pass
-
-    return conf
 
 
 class IntegrityError(Exception):
@@ -62,7 +51,7 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
     """types of SQLite integrity checks"""
 
     def __init__(self, cache_path: str='', settings_path='', check=IntegrityCheckType['full']):
-        self._conf = _get_conf(settings_path)
+        self._conf = get_conf(settings_path, _SETTINGS_FILENAME, _def_conf)
 
         self.db_path = os.path.join(cache_path, self._conf['sqlite']['filename'])
         self.tl = local()

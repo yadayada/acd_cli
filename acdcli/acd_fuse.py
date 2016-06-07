@@ -15,6 +15,7 @@ from time import time, sleep
 
 from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
+from acdcli.utils.conf import get_conf
 from acdcli.utils.time import *
 
 logger = logging.getLogger(__name__)
@@ -33,20 +34,6 @@ _SETTINGS_FILENAME = 'fuse.ini'
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
 _def_conf['write'] = dict(buffer_size = 32, timeout=30)
-
-
-def get_conf(path='') -> configparser.ConfigParser:
-    conf = configparser.ConfigParser()
-    conf.read_dict(_def_conf)
-
-    conffn = os.path.join(path, _SETTINGS_FILENAME)
-    try:
-        with open(conffn) as cf:
-            conf.read_file(cf)
-    except OSError:
-        pass
-
-    return conf
 
 
 class FuseOSError(FuseError):
@@ -716,7 +703,7 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
 
     kwargs.update(opts)
 
-    args['conf'] = get_conf(args['settings_path'])
+    args['conf'] = get_conf(args['settings_path'], _SETTINGS_FILENAME, _def_conf)
 
     FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **kwargs)
 
