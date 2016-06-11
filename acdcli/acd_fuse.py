@@ -13,7 +13,20 @@ from queue import Queue, Full as QueueFull
 from threading import Thread, Lock, Event
 from time import time, sleep
 
-from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
+import ctypes.util
+ctypes.util.__find_library = ctypes.util.find_library
+
+def find_library(*args):
+    if 'fuse' in args[0]:
+        libfuse_path = os.environ.get('LIBFUSE_PATH')
+        if libfuse_path:
+            return libfuse_path
+
+    return ctypes.util.__find_library(*args)
+
+ctypes.util.find_library = find_library
+
+from fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
 from acdcli.utils.conf import get_conf
 from acdcli.utils.time import *
