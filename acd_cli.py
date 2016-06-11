@@ -9,8 +9,10 @@ import signal
 import time
 import re
 import appdirs
-from functools import partial
+
 from collections import namedtuple
+from configparser import ConfigParser
+from functools import partial
 from multiprocessing import Event
 
 from pkgutil import walk_packages
@@ -21,6 +23,7 @@ from acdcli.api import client
 from acdcli.api.common import RequestError, is_valid_id
 from acdcli.cache import format, db
 from acdcli.utils import hashing, progress
+from acdcli.utils.conf import get_conf
 from acdcli.utils.threading import QueuedLoader
 from acdcli.utils.time import *
 
@@ -62,11 +65,17 @@ for path in paths:
             else:
                 logger.warning(err_msg % path)
 
+def_conf = ConfigParser()
+def_conf['download'] = dict(keep_corrupt=False, keep_incomplete=True)
+conf = get_conf(SETTINGS_PATH, 'acd_cli.ini', def_conf)
+
 # consts
 
 MIN_AUTOSYNC_INTERVAL = 60
 MAX_LOG_SIZE = 10 * 2 ** 20
 MAX_LOG_FILES = 5
+
+TIMESTAMP_FORMAT = "%Y-%m-%d_%H:%M:%S"
 
 # return values
 
@@ -220,7 +229,7 @@ def autosync(interval: int, stop: Event = None):
 
 RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
 STD_RETRY_RETVALS = [UL_DL_FAILED]
-
+DL_RETRY_RETVALS = [UL_DL_FAILED, HASH_MISMATCH]
 
 def retry_on(ret_vals: 'List[int]'):
     """Retry decorator that sets the wrapped function's progress handler argument according to its
@@ -270,7 +279,7 @@ def compare_sizes(size1: int, size2: int, file_name: str) -> int:
     return 0
 
 
-def remove_source_file(path: str) -> int:
+def remove_file(path: str) -> int:
     try:
         os.remove(path)
     except OSError:
@@ -291,7 +300,7 @@ def upload_complete(node: dict, path: str, hash_: str, size_: int, rsf: bool) ->
         return match
 
     if rsf:
-        return remove_source_file(path)
+        return remove_file(path)
 
     return 0
 
@@ -324,10 +333,17 @@ def overwrite_timeout(initial_node: dict, path: str, hash_: str, size_: int, rsf
 
 
 def download_complete(node: 'Node', path: str, hash_: str, rsf: bool):
-    match = (compare_hashes(node.md5, hash_, node.name) |
-             compare_sizes(node.size, os.path.getsize(path), path))
-    if match != 0:
-        return match
+    md5_match = compare_hashes(node.md5, hash_, node.name)
+    if md5_match != 0:
+        if not conf.getboolean('download', 'keep_corrupt'):
+            return md5_match | remove_file(path)
+        else:
+            os.rename(path, '%s_%s' % (path, datetime.now().strftime(TIMESTAMP_FORMAT)))
+            return md5_match
+
+    size_match = compare_sizes(node.size, os.path.getsize(path), path)
+    if size_match != 0:
+        return size_match
 
     if rsf:
         try:
@@ -445,7 +461,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s' % (short_nm, nodes))
             pg_handler.done()
             if rsf:
-                return remove_source_file(path)
+                return remove_file(path)
             return DUPLICATE
 
     conflicting_node = cache.get_conflicting_node(short_nm, parent_id)
@@ -508,7 +524,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
             return 0
 
         if not compare_sizes(os.path.getsize(path), conflicting_node.size, short_nm):
-            return remove_source_file(path)
+            return remove_file(path)
         
         logger.info('Keeping "%s" because of remote size mismatch.' % path)
         return 0
@@ -645,7 +661,7 @@ def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool, rsf:
     return ret_val
 
 
-@retry_on(STD_RETRY_RETVALS)
+@retry_on(DL_RETRY_RETVALS)
 def download_file(node_id: str, local_path: str, preserve_mtime: bool, rsf: bool,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     node = cache.get_node(node_id)
