@@ -372,21 +372,6 @@ class ACDFuse(LoggingMixIn, Operations):
     """FUSE filesystem operations class for Amazon Cloud Drive.
     See `<http://fuse.sourceforge.net/doxygen/structfuse__operations.html>`_."""
 
-    class XATTRS(object):
-        """Generic extended node attributes"""
-        ID = 'acd.id'
-        DESCR = 'acd.description'
-
-        @classmethod
-        def vars(cls):
-            """Returns list of manually added member variables."""
-            return [getattr(cls, x) for x in set(dir(cls)) - set(dir(type('', (object,), {})))
-                    if not callable(getattr(cls, x))]
-
-    class FXATTRS(XATTRS):
-        """Extended file attributes"""
-        MD5 = 'acd.md5'
-
     def __init__(self, **kwargs):
         """Calculates ACD usage and starts autosync process.
 
@@ -455,32 +440,6 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_nlink=self.cache.num_parents(node.id) if self.nlinks else 1,
                         st_size=node.size,
                         **times)
-
-    def listxattr(self, path) -> 'List[str]':
-        """Lists extended node attributes (names)."""
-
-        node = self.cache.resolve(path)
-        if node.is_file:
-            return self.FXATTRS.vars()
-        elif node.is_folder:
-            return self.XATTRS.vars()
-
-    def getxattr(self, path, name, position=0) -> bytes:
-        """Gets value of extended attribute ``name``."""
-
-        if name not in self.XATTRS.vars() and name not in self.FXATTRS.vars():
-            raise FuseOSError(errno.ENODATA)
-
-        node = self.cache.resolve(path)
-
-        if name == self.XATTRS.ID:
-            return bytes(node.id, encoding='utf-8')
-        elif name == self.XATTRS.DESCR:
-            return bytes(node.description if node.description else '', encoding='utf-8')
-        elif name == self.FXATTRS.MD5:
-            return bytes(node.md5, encoding='utf-8')
-
-        raise FuseOSError(errno.ENODATA)
 
     def read(self, path, length, offset, fh) -> bytes:
         """Read ```length`` bytes from ``path`` att ``offset``."""
