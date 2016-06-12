@@ -490,7 +490,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if not node:
             raise FuseOSError(errno.ENOENT)
 
-        if node.size == 0 or node.size == offset:
+        if node.size <= offset:
             return b''
 
         return self.rp.get(node.id, offset, length, node.size)
