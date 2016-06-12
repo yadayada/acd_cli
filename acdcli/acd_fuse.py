@@ -536,10 +536,13 @@ class ACDFuse(LoggingMixIn, Operations):
         try:
             r = self.acd_client.create_file(name, p.id)
             self.cache.insert_node(r)
+            node = self.cache.get_node(r['id'])
         except RequestError as e:
             FuseOSError.convert(e)
 
-        self.fh += 1
+        with self.fh_lock:
+            self.fh += 1
+            self.handles[self.fh] = node
         return self.fh
 
     def rename(self, old, new):
