@@ -148,7 +148,7 @@ class ReadProxy(object):
             """Gets a byte range from existing StreamChunks"""
 
             with self.lock:
-                i = self.chunks.__len__() - 1
+                i = len(self.chunks) - 1
                 while i >= 0:
                     c = self.chunks[i]
                     if c.has_byte_range(offset, length):
@@ -393,7 +393,11 @@ class ACDFuse(LoggingMixIn, Operations):
         self.free = self.total - self.cache.calculate_usage()
         """manually determined free space (differs from available quota value)"""
         self.fh = 1
-        """next free file handle\n\n :type: int"""
+        """file handle counter\n\n :type: int"""
+        self.handles = {}
+        """map fh->node\n\n :type: dict"""
+        self.fh_lock = Lock()
+        """lock for fh counter increment and handle dict writes"""
         self.nlinks = kwargs.get('nlinks', False)
         """whether to calculate the number of hardlinks for folders"""
 
@@ -423,7 +427,10 @@ class ACDFuse(LoggingMixIn, Operations):
         """Creates a stat-like attribute dict, see :manpage:`stat(2)`.
         Calculates correct number of links for folders if :attr:`nlinks` is set."""
 
-        node = self.cache.resolve(path)
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
@@ -442,15 +449,20 @@ class ACDFuse(LoggingMixIn, Operations):
                         **times)
 
     def read(self, path, length, offset, fh) -> bytes:
-        """Read ```length`` bytes from ``path`` att ``offset``."""
+        """Read ```length`` bytes from ``path`` at ``offset``."""
 
-        node = self.cache.resolve(path, trash=False)
-
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
         if node.size <= offset:
             return b''
+
+        if node.size < offset + length:
+            length = node.size - offset
 
         return self.rp.get(node.id, offset, length, node.size)
 
@@ -582,7 +594,7 @@ class ACDFuse(LoggingMixIn, Operations):
             self.cache.insert_node(r)
 
     def open(self, path, flags) -> int:
-        """Sloppily opens a file.
+        """Opens a file.
 
         :param flags: flags defined as in :manpage:`open(2)`
         :returns: file handle"""
@@ -590,8 +602,12 @@ class ACDFuse(LoggingMixIn, Operations):
         if (flags & os.O_APPEND) == os.O_APPEND:
             raise FuseOSError(errno.EFAULT)
 
-        # TODO: check flags
-        self.fh += 1
+        node = self.cache.resolve(path, False)
+        if not node:
+            raise FuseOSError(errno.ENOENT)
+        with self.fh_lock:
+            self.fh += 1
+            self.handles[self.fh] = node
         return self.fh
 
     def write(self, path, data, offset, fh) -> int:
@@ -599,11 +615,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :returns: number of bytes written"""
 
-        if offset == 0:
-            n = self.cache.resolve(path, False)
-            node_id = n.id
-        else:
-            node_id = ''
+        node_id = self.handles[fh].id
         self.wp.write(node_id, fh, offset, data)
         return len(data)
 
@@ -612,29 +624,43 @@ class ACDFuse(LoggingMixIn, Operations):
         self.wp.flush(fh)
 
     def truncate(self, path, length, fh=None):
-        """Pseudo-truncates a file, i.e. clears content if ``length`` ==0 or does nothing
+        """Pseudo-truncates a file, i.e. clears content if ``length``==0 or does nothing
         if ``length`` is equal to current file size.
 
         :raises FuseOSError: if pseudo-truncation to length is not supported"""
 
-        n = self.cache.resolve(path)
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path)
+        if not node:
+            raise FuseOSError(errno.ENOENT)
+
         if length == 0:
             try:
-                r = self.acd_client.clear_file(n.id)
+                r = self.acd_client.clear_file(node.id)
             except RequestError as e:
                 raise FuseOSError.convert(e)
             else:
                 self.cache.insert_node(r)
         elif length > 0:
-            if n.size != length:
+            if node.size != length:
                 raise FuseOSError(errno.ENOSYS)
 
     def release(self, path, fh):
         """Releases an open ``path``."""
-        node = self.cache.resolve(path, trash=False)
+
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path, trash=False)
         if node:
             self.rp.release(node.id)
             self.wp.release(fh)
+            with self.fh_lock:
+                del self.handles[fh]
+        else:
+            raise FuseOSError(errno.ENOENT)
 
     def utimens(self, path, times=None):
         """Not functional. Should set node atime and mtime to values as passed in ``times``
