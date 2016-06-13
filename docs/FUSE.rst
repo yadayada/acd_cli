@@ -90,7 +90,7 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 Automatic Remount
 ~~~~~~~~~~~~~~~~~
 
-Please make sure your network connection is up before you try to run the mount command.
+It is advisable to wait until your network connection is up before you try to run the mount command.
 
 Linux users may use the systemd service file from the assets directory
 to have the clouddrive automatically remounted on login.

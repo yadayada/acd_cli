@@ -388,10 +388,17 @@ class ACDFuse(LoggingMixIn, Operations):
         self.wp = WriteProxy(self.acd_client, self.cache, 
                              conf.getint('write', 'buffer_size'), conf.getint('write', 'timeout'))
         """collection of files opened for writing"""
-        self.total, _ = self.acd_client.fs_sizes()
+        try:
+            total, _ = self.acd_client.fs_sizes()
+        except RequestError:
+            logger.warning('Error getting account quota data. '
+                           'Cannot determine total and available disk space.')
+            total = 0
+
+        self.total = total
         """total disk space"""
-        self.free = self.total - self.cache.calculate_usage()
-        """manually determined free space (differs from available quota value)"""
+        self.free = 0 if not total else total - self.cache.calculate_usage()
+        """manually calculated available disk space"""
         self.fh = 1
         """file handle counter\n\n :type: int"""
         self.handles = {}
