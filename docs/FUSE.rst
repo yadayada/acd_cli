@@ -43,12 +43,12 @@ Usage
 The command to mount the (root of the) cloud drive to the empty directory ``path/to/mountpoint`` is
 ::
 
-    acd_cli mount path/to/mountpoint
+    acd_cli -nl mount path/to/mountpoint
 
 A cloud drive folder may be mounted similarly, by
 ::
 
-    acd_cli mount --modules="subdir,subdir=/folder" path/to/mountpoint
+    acd_cli -nl mount --modules="subdir,subdir=/folder" path/to/mountpoint
 
 Unmounting is usually achieved by the following command
 ::
@@ -106,7 +106,7 @@ For this to work, an executable shell script /usr/bin/acdmount must be created
   
   #!/bin/bash
 
-  acd_cli mount $1
+  acd_cli mount -nl $1
 
 Library Path
 ~~~~~~~~~~~~
