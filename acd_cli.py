@@ -51,6 +51,8 @@ sp = os.environ.get('ACD_CLI_SETTINGS_PATH')
 CACHE_PATH = cp if cp else appdirs.user_cache_dir(_app_name)
 SETTINGS_PATH = sp if sp else appdirs.user_config_dir(_app_name)
 
+_SETTINGS_FILENAME = _app_name + '.ini'
+
 paths = {CACHE_PATH: True, SETTINGS_PATH: False}  # path:str : critical:bool
 
 for path in paths:
@@ -67,7 +69,7 @@ for path in paths:
 
 def_conf = ConfigParser()
 def_conf['download'] = dict(keep_corrupt=False, keep_incomplete=True)
-conf = get_conf(SETTINGS_PATH, 'acd_cli.ini', def_conf)
+conf = None
 
 # consts
 
@@ -1554,6 +1556,8 @@ def main():
         logger.info(msg)
 
     logger.info('Settings path is "%s".' % SETTINGS_PATH)
+
+    conf = get_conf(SETTINGS_PATH, _SETTINGS_FILENAME, def_conf)
 
     global acd_client
     global cache
