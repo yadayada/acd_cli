@@ -997,7 +997,7 @@ def find_md5_action(args: argparse.Namespace) -> int:
     if len(args.md5) != 32:
         logger.critical('Invalid MD5 specified')
         return INVALID_ARG_RETVAL
-    nodes = cache.find_by_md5(args.md5)
+    nodes = cache.find_by_md5(args.md5.lower())
     for line in cache.long_id_format(nodes):
         print(line)
 
