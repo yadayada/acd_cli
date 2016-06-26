@@ -43,7 +43,7 @@ and not as an argument, e.g. ``-- -AbCdEfGhIjKlMnOpQr012``.
 Can I Share or Delete Files/Folders?
 ------------------------------------
 
-No. It is not possible to share or delete using the Cloud Drive API. Please do it manually
+No. It is not possible to share or delete using the Amazon Drive API. Please do it manually
 using the `Web interface <https://www.amazon.com/clouddrive>`_.
 
 What Do I Do When I get an `sqlite3.OperationalError: database is locked` error?

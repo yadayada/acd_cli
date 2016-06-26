@@ -98,7 +98,7 @@ Proxy support
 ~~~~~~~~~~~~~
  
 `Requests <https://github.com/kennethreitz/requests>`_ supports HTTP(S) proxies via environment
-variables. Since all connections to Amazon Cloud Drive are using HTTPS, you need to
+variables. Since all connections to Amazon Drive are using HTTPS, you need to
 set the variable ``HTTPS_PROXY``. The following example shows how to do that in a bash-compatible
 environment.
 ::
@@ -152,5 +152,5 @@ and node data in the cache path. Then, use pip to uninstall
 
     pip3 uninstall acdcli
 
-Then, revoke the permission for ``acd_cli_oa`` to access your cloud drive in your Amazon profile,
+Then, revoke the permission for ``acd_cli_oa`` to access your drive in your Amazon profile,
 more precisely at https://www.amazon.com/ap/adam.

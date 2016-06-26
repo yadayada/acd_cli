@@ -3,8 +3,8 @@
 acd\_cli
 ========
 
-**acd\_cli** provides a command line interface to Amazon Cloud Drive and allows Unix users
-to mount their cloud drive using FUSE for read and write access. It is currently in beta stage.
+**acd\_cli** provides a command line interface to Amazon Drive and allows Unix users to mount
+their drive using FUSE for read and (sequential) write access. It is currently in beta stage.
 
 Node Cache Features
 -------------------
@@ -44,7 +44,7 @@ Have a look at the `known issues`_, then follow the `setup guide <docs/setup.rst
 CLI Usage Example
 -----------------
 
-In this example, a two-level folder hierarchy is created in an empty cloud drive.
+In this example, a two-level folder hierarchy is created in an empty drive.
 Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
 ::
 

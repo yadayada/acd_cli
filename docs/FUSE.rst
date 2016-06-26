@@ -40,12 +40,12 @@ Symbolic links           ❌ [#]_
 Usage
 -----
 
-The command to mount the (root of the) cloud drive to the empty directory ``path/to/mountpoint`` is
+The command to mount the (root of the) Amazon Drive to the empty directory ``path/to/mountpoint`` is
 ::
 
     acd_cli -nl mount path/to/mountpoint
 
-A cloud drive folder may be mounted similarly, by
+A non-root folder may be mounted similarly, by
 ::
 
     acd_cli -nl mount --modules="subdir,subdir=/folder" path/to/mountpoint
@@ -60,11 +60,11 @@ There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse m
 Linux and Mac OS.
 
 .. NOTE::
-    Changes made to your cloud drive storage not using acd\_cli will no longer be synchronized
+    Changes made to your Amazon Drive not using acd\_cli will no longer be synchronized
     automatically. See the ``--interval`` option below to re-enable automatic synchronization.
 
 .. WARNING::
-    Using acd_cli's CLI commands (e.g. upload or sync) while having the cloud drive mounted
+    Using acd_cli's CLI commands (e.g. upload or sync) while having the drive mounted
     may lead to errors or corruption of the node cache.
 
 Mount Options
@@ -93,7 +93,7 @@ Automatic Remount
 It is advisable to wait until your network connection is up before you try to run the mount command.
 
 Linux users may use the systemd service file from the assets directory
-to have the clouddrive automatically remounted on login.
+to have the drive automatically remounted on login.
 Alternative ways are to add a crontab entry using the ``@reboot`` keyword or to add an
 fstab entry like so:
 ::
@@ -122,8 +122,8 @@ This is particularly helpful if the libfuse library is properly installed, but n
 Deleting Nodes
 ~~~~~~~~~~~~~~
 
-"Deleting" directories or files from the file system will only trash them in your cloud drive.
-Calling rmdir on a directory will always move it into the trash, even if it is not empty.
+"Deleting" directories or files from the file system will in reality trash them in Amazon Drive.
+Calling ``rmdir`` on a directory will always move it into the trash, even if it is not empty.
 
 Logging
 ~~~~~~~
