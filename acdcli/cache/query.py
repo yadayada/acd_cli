@@ -262,7 +262,7 @@ class QueryMixin(object):
     def list_trashed_children(self, folder_id) -> 'Tuple[List[Node], List[Node]]':
         folders, files = self.list_children(folder_id, True)
         folders[:] = [f for f in folders if f.is_trashed]
-        files[:] = [f for f in folders if f.is_trashed]
+        files[:] = [f for f in files if f.is_trashed]
         return folders, files
 
     def first_path(self, node_id: str) -> str:
