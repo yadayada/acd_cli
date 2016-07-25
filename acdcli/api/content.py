@@ -256,8 +256,14 @@ class ContentMixin(object):
         resume = kwargs.get('resume', True)
         if resume and os.path.isfile(part_path):
             with open(part_path, 'ab') as f:
-                trunc_pos = os.path.getsize(part_path) - 1 - chunk_sz
-                f.truncate(trunc_pos if trunc_pos >= 0 else 0)
+                part_size = os.path.getsize(part_path)
+                trunc_pos = part_size - 1 - chunk_sz
+                trunc_pos = trunc_pos if trunc_pos >= 0 else 0
+
+                if part_size != trunc_pos:
+                    f.truncate(trunc_pos)
+                    logger.debug('Truncated "%s" at %i, '
+                                 'original size %i.' % (part_path, trunc_pos, part_size))
 
             write_callbacks = kwargs.get('write_callbacks')
             if write_callbacks:
@@ -275,8 +281,8 @@ class ContentMixin(object):
         pos = f.tell()
         f.close()
         if length > 0 and pos < length:
-            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
-                               '[acd_api] download incomplete.')
+            raise RequestError(RequestError.CODE.INCOMPLETE_RESULT, '[acd_api] download incomplete. '
+                               'Expected %i, got %i.' % (length, pos))
 
         if os.path.isfile(dl_path):
             logger.info('Deleting existing file "%s".' % dl_path)
@@ -312,7 +318,7 @@ class ContentMixin(object):
                                acc_codes=ok_codes,
                                headers={'Range': 'bytes=%d-%d' % (chunk_start, chunk_end)})
 
-            logger.debug('Range %d-%d' % (chunk_start, chunk_end))
+            logger.debug('Node "%s", range %d-%d' % (node_id, chunk_start, chunk_end))
             # this should only happen at the end of unknown-length downloads
             if r.status_code == http.REQUESTED_RANGE_NOT_SATISFIABLE:
                 r.close()
@@ -335,8 +341,8 @@ class ContentMixin(object):
                         curr_ln += len(chunk)
             finally:
                 r.close()
+                chunk_start = file.tell()
 
-            chunk_start += dl_chunk_sz
             retries = 0
 
         return
