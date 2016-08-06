@@ -9,9 +9,12 @@ import datetime
 
 from .cursors import cursor
 
-colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
-colors = dict(c.split('=') for c in colors)
-# colors is now a mapping of 'type': 'color code' or '*.ext' : 'color code'
+try:
+    colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
+    colors = dict(c.split('=') for c in colors)
+    # colors is now a mapping of 'type': 'color code' or '*.ext' : 'color code'
+except:
+    colors = {}
 
 seq_tpl = '\x1B[%sm'
 res = seq_tpl % colors.get('rs', '')  # reset code
