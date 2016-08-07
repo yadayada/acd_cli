@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import sqlite3
-from threading import local
+from threading import local, Lock
 
 from acdcli.utils.conf import get_conf
 
@@ -24,7 +24,11 @@ _def_conf = configparser.ConfigParser()
 _def_conf['sqlite'] = dict(filename='nodes.db', busy_timeout=30000, journal_mode='wal')
 _def_conf['blacklist'] = dict(folders= [])
 
-
+class CacheConsts(object):
+    CHECKPOINT_KEY = 'checkpoint'
+    LAST_SYNC_KEY = 'last_sync'
+    OWNER_ID = 'owner_id'
+    MAX_AGE = 30
 
 class IntegrityError(Exception):
     def __init__(self, msg):
@@ -60,6 +64,11 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
         self.init()
 
         self._conn.create_function('REGEXP', _regex_match.__code__.co_argcount, _regex_match)
+
+        self.path_to_node_id = {}
+        self.path_to_node_id_lock = Lock()
+        """There are a huge number of repeated path lookups,
+        so cache results and invalidate on new nodes."""
 
         with cursor(self._conn) as c:
             c.execute(_ROOT_ID_SQL)

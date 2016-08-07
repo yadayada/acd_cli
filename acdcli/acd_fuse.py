@@ -2,6 +2,7 @@
 
 import configparser
 import errno
+import json
 import logging
 import os
 import stat
@@ -14,6 +15,10 @@ from threading import Thread, Lock, Event
 from time import time, sleep
 
 import ctypes.util
+import binascii
+
+from acdcli.cache.db import CacheConsts
+
 ctypes.util.__find_library = ctypes.util.find_library
 
 def find_library(*args):
@@ -43,6 +48,7 @@ except:
     errno.EREMOTEIO = errno.EIO
 
 _SETTINGS_FILENAME = 'fuse.ini'
+_XATTR_PROPERTY_NAME = 'xattrs'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
@@ -211,7 +217,7 @@ class WriteProxy(object):
         """A WriteStream is a binary file-like object that is backed by a Queue.
         It will remember its current offset."""
 
-        __slots__ = ('q', 'offset', 'error', 'closed', 'done', 'timeout')
+        __slots__ = ('q', 'offset', 'error', 'closed', 'done', 'timeout', 'lock')
 
         def __init__(self, buffer_size, timeout):
             self.q = Queue(maxsize=buffer_size)
@@ -224,6 +230,8 @@ class WriteProxy(object):
             self.done = Event()
             """done event is triggered when file is successfully read and transferred"""
             self.timeout = timeout
+            self.lock = Lock()
+            """make sure only one writer is appending to the queue at once"""
 
         def write(self, data: bytes):
             """Writes data into queue.
@@ -309,35 +317,36 @@ class WriteProxy(object):
 
         :raises: FuseOSError: wrong offset or writing failed"""
 
-        f = self.files[fh]
+        f = self.files[node_id]
 
-        if f.offset == offset:
-            f.write(bytes_)
-        else:
-            f.error = True  # necessary?
-            logger.error('Wrong offset for writing to fh %s.' % fh)
-            raise FuseOSError(errno.ESPIPE)
+        with f.lock:
+            if f.offset == offset:
+                f.write(bytes_)
+            else:
+                f.error = True  # necessary?
+                logger.error('Wrong offset for writing to fh %s.' % fh)
+                raise FuseOSError(errno.ESPIPE)
 
         if offset == 0:
             t = Thread(target=self.write_n_sync, args=(f, node_id))
             t.daemon = True
             t.start()
 
-    def flush(self, fh):
-        f = self.files.get(fh)
+    def flush(self, node_id, fh):
+        f = self.files.get(node_id)
         if f:
             f.flush()
 
-    def release(self, fh):
+    def release(self, node_id, fh):
         """:raises: FuseOSError"""
-        f = self.files.get(fh)
+        f = self.files.get(node_id)
         if f:
             try:
                 f.close()
             except:
                 raise
             finally:
-                del self.files[fh]
+                del self.files[node_id]
 
 
 class LoggingMixIn(object):
@@ -377,15 +386,20 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :param kwargs: cache (NodeCache), acd_client (ACDClient), autosync (partial)"""
 
+        self.xattr_cache = {}
+        self.xattr_dirty = set()
+        self.xattr_cache_lock = Lock()
+
         self.cache = kwargs['cache']
         self.acd_client = kwargs['acd_client']
+        self.acd_client_owner = self.cache.KeyValueStorage.get(CacheConsts.OWNER_ID)
         autosync = kwargs['autosync']
         conf = kwargs['conf']
 
-        self.rp = ReadProxy(self.acd_client, 
+        self.rp = ReadProxy(self.acd_client,
                             conf.getint('read', 'open_chunk_limit'), conf.getint('read', 'timeout'))
         """collection of files opened for reading"""
-        self.wp = WriteProxy(self.acd_client, self.cache, 
+        self.wp = WriteProxy(self.acd_client, self.cache,
                              conf.getint('write', 'buffer_size'), conf.getint('write', 'timeout'))
         """collection of files opened for writing"""
         try:
@@ -403,6 +417,8 @@ class ACDFuse(LoggingMixIn, Operations):
         """file handle counter\n\n :type: int"""
         self.handles = {}
         """map fh->node\n\n :type: dict"""
+        self.node_to_fh = defaultdict(lambda: set())
+        """map node_id to list of interested file handles"""
         self.fh_lock = Lock()
         """lock for fh counter increment and handle dict writes"""
         self.nlinks = kwargs.get('nlinks', False)
@@ -415,6 +431,7 @@ class ACDFuse(LoggingMixIn, Operations):
         p.start()
 
     def destroy(self, path):
+        self._xattr_write_and_sync()
         self.destroyed.set()
 
     def readdir(self, path, fh) -> 'List[str]':
@@ -454,6 +471,87 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_nlink=self.cache.num_parents(node.id) if self.nlinks else 1,
                         st_size=node.size,
                         **times)
+
+    # def listxattr(self, path):
+    #     node_id = self.cache.resolve_id(path)
+    #     if not node_id:
+    #         raise FuseOSError(errno.ENOENT)
+    #     self._xattr_load(node_id)
+    #
+    #     with self.xattr_cache_lock:
+    #         try:
+    #             return [k for k, v in self.xattr_cache[node_id].items()]
+    #         except:
+    #             return []
+
+    def getxattr(self, path, name, position=0):
+        node_id = self.cache.resolve_id(path)
+        if not node_id:
+            raise FuseOSError(errno.ENOENT)
+        self._xattr_load(node_id)
+
+        with self.xattr_cache_lock:
+            try:
+                ret = self.xattr_cache[node_id][name]
+                if ret:
+                    return ret
+            except:
+                raise FuseOSError(errno.ENODATA)  # should be ENOATTR
+            else:
+                raise FuseOSError(errno.ENODATA)  # should be ENOATTR
+
+    # def removexattr(self, path, name):
+    #     node_id = self.cache.resolve_id(path)
+    #     if not node_id:
+    #         raise FuseOSError(errno.ENOENT)
+    #     self._xattr_load(node_id)
+    #
+    #     with self.xattr_cache_lock:
+    #         try:
+    #             if self.xattr_cache[node_id][name]:
+    #                 del self.xattr_cache[node_id][name]
+    #                 self.properties_dirty.add(node_id)
+    #         except:
+    #             raise FuseOSError(errno.ENODATA)  # should be ENOATTR
+
+    def setxattr(self, path, name, value, options, position=0):
+        node_id = self.cache.resolve_id(path)
+        if not node_id:
+            raise FuseOSError(errno.ENOENT)
+        self._xattr_load(node_id)
+
+        with self.xattr_cache_lock:
+            try:
+                self.xattr_cache[node_id][name] = value
+                self.xattr_dirty.add(node_id)
+            except:
+                raise FuseOSError(errno.ENOTSUP)
+
+    def _xattr_load(self, node_id):
+        with self.xattr_cache_lock:
+            if node_id not in self.xattr_cache:
+                xattrs_str = self.cache.get_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME)
+                try: self.xattr_cache[node_id] = json.loads(xattrs_str)
+                except: self.xattr_cache[node_id] = {}
+                for k, v in self.xattr_cache[node_id].items():
+                    self.xattr_cache[node_id][k] = binascii.a2b_base64(v)
+
+    def _xattr_write_and_sync(self):
+        with self.xattr_cache_lock:
+            for node_id in self.xattr_dirty:
+                try:
+                    xattrs = {}
+                    for k, v in self.xattr_cache[node_id].items():
+                        xattrs[k] = binascii.b2a_base64(v).decode("utf-8")
+                    xattrs_str = json.dumps(xattrs)
+
+                    self.acd_client.add_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME,
+                                                 xattrs_str)
+                except (RequestError, IOError) as e:
+                    logger.error('Error writing node xattrs "%s". %s' % (node_id, str(e)))
+                else:
+                    self.cache.insert_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME, xattrs_str)
+            self.xattr_dirty.clear()
 
     def read(self, path, length, offset, fh) -> bytes:
         """Read ```length`` bytes from ``path`` at ``offset``."""
@@ -550,6 +648,7 @@ class ACDFuse(LoggingMixIn, Operations):
         with self.fh_lock:
             self.fh += 1
             self.handles[self.fh] = node
+            self.node_to_fh[node.id].add(self.fh)
         return self.fh
 
     def rename(self, old, new):
@@ -618,6 +717,7 @@ class ACDFuse(LoggingMixIn, Operations):
         with self.fh_lock:
             self.fh += 1
             self.handles[self.fh] = node
+            self.node_to_fh[node.id].add(self.fh)
         return self.fh
 
     def write(self, path, data, offset, fh) -> int:
@@ -631,7 +731,8 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def flush(self, path, fh):
         """Flushes ``fh`` in WriteProxy."""
-        self.wp.flush(fh)
+        node_id = self.handles[fh].id
+        self.wp.flush(node_id, fh)
 
     def truncate(self, path, length, fh=None):
         """Pseudo-truncates a file, i.e. clears content if ``length``==0 or does nothing
@@ -666,8 +767,18 @@ class ACDFuse(LoggingMixIn, Operations):
             node = self.cache.resolve(path, trash=False)
         if node:
             self.rp.release(node.id)
-            self.wp.release(fh)
             with self.fh_lock:
+                """release the writer if there's no more interest. This allows many file
+                handles to write to a single node provided they do it in order, enabling
+                sequential writes using mmap.
+                """
+                interest = self.node_to_fh.get(node.id)
+                if interest:
+                    interest.discard(fh)
+                if not interest:
+                    self.wp.release(node.id, fh)
+                    self._xattr_write_and_sync()
+                    del self.node_to_fh[node.id]
                 del self.handles[fh]
         else:
             raise FuseOSError(errno.ENOENT)

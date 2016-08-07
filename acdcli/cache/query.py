@@ -45,6 +45,8 @@ CHILD_OF_SQL = """SELECT n.*, f.* FROM nodes n
 NODE_BY_ID_SQL = """SELECT n.*, f.* FROM nodes n LEFT OUTER JOIN files f ON n.id = f.id
                     WHERE n.id = (?)"""
 
+PROPERTY_BY_ID_SQL = """SELECT * FROM properties WHERE id=? AND owner=? AND key=?"""
+
 USAGE_SQL = 'SELECT SUM(size) FROM files'
 
 FIND_BY_NAME_SQL = """SELECT n.*, f.* FROM nodes n
@@ -151,7 +153,31 @@ class QueryMixin(object):
             if n.is_available and n.name.lower() == name.lower():
                 return n
 
+    def resolve_id(self, path: str, trash=False) -> 'Union[str|None]':
+        """Gets a node's id from a path
+        This is far faster than the below method if the id is cached;
+        there are zero sqlite queries."""
+        with self.path_to_node_id_lock:
+            try: return self.path_to_node_id[path]
+            except: pass
+            n = self._resolve(path, trash)
+            if n:
+                self.path_to_node_id[path] = n.id
+                return n.id
+            return None
+
     def resolve(self, path: str, trash=False) -> 'Union[Node|None]':
+        """Gets a node from a path"""
+        with self.path_to_node_id_lock:
+            try: return self.get_node(self.path_to_node_id[path])
+            except: pass
+            n = self._resolve(path,trash)
+            if n:
+                self.path_to_node_id[path] = n.id
+                return n
+            return None
+
+    def _resolve(self, path: str, trash=False) -> 'Union[Node|None]':
         segments = list(filter(bool, path.split('/')))
         if not segments:
             if not self.root_id:
@@ -312,3 +338,11 @@ class QueryMixin(object):
             no = c.fetchone()[0]
 
         return bool(no)
+
+    def get_property(self, node_id, owner_id, key) -> 'Union[str|None]':
+        with cursor(self._conn) as c:
+            c.execute(PROPERTY_BY_ID_SQL, [node_id, owner_id, key])
+            r = c.fetchone()
+            if r:
+                return r['value']
+        return None

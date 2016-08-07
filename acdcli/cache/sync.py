@@ -42,12 +42,16 @@ class SyncMixin(object):
                 c.execute('DELETE FROM files WHERE id IN %s' % placeholders(slice_), slice_)
                 c.execute('DELETE FROM parentage WHERE parent IN %s' % placeholders(slice_), slice_)
                 c.execute('DELETE FROM parentage WHERE child IN %s' % placeholders(slice_), slice_)
+                c.execute('DELETE FROM properties WHERE id IN %s' % placeholders(slice_), slice_)
                 c.execute('DELETE FROM labels WHERE id IN %s' % placeholders(slice_), slice_)
 
         logger.info('Purged %i node(s).' % len(purged))
 
     def insert_nodes(self, nodes: list, partial=True):
         """Inserts mixed list of files and folders into cache."""
+        with self.path_to_node_id_lock:
+            self.path_to_node_id.clear()
+
         files = []
         folders = []
         for node in nodes:
@@ -72,6 +76,7 @@ class SyncMixin(object):
         self.insert_files(files)
 
         self.insert_parentage(files + folders, partial)
+        self.insert_properties(files + folders)
 
     def insert_node(self, node: dict):
         """Inserts single file or folder into cache."""
@@ -143,3 +148,30 @@ class SyncMixin(object):
                     c.execute('INSERT OR IGNORE INTO parentage VALUES (?, ?)', [p, n['id']])
 
         logger.info('Parented %d node(s).' % len(nodes))
+
+    def insert_properties(self, nodes: list):
+        if not nodes:
+            return
+
+        with mod_cursor(self._conn) as c:
+            for n in nodes:
+                if 'properties' not in n:
+                    continue
+                id = n['id']
+                for owner_id, key_value in n['properties'].items():
+                    for key, value in key_value.items():
+                        c.execute('INSERT OR REPLACE INTO properties '
+                                  '(id, owner, key, value) '
+                                  'VALUES (?, ?, ?, ?)',
+                                  [id, owner_id, key, value]
+                                  )
+
+        logger.info('Applied properties to %d node(s).' % len(nodes))
+
+    def insert_property(self, node_id, owner_id, key, value):
+        with mod_cursor(self._conn) as c:
+            c.execute('INSERT OR REPLACE INTO properties '
+                      '(id, owner, key, value) '
+                      'VALUES (?, ?, ?, ?)',
+                      [node_id, owner_id, key, value]
+                      )
