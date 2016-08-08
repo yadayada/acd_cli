@@ -361,6 +361,8 @@ class LoggingMixIn(object):
             targs = (len(args[0]),) + args[1:]
         elif op == 'chmod':
             targs = (oct(args[0]),) + args[1:]
+        elif op == 'setxattr':
+            targs = (args[0], "binary")
 
         logger.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
 
@@ -374,6 +376,8 @@ class LoggingMixIn(object):
         finally:
             if op == 'read':
                 ret = len(ret)
+            elif op == 'getxattr' and ret:
+                ret = "binary"
             logger.debug('<- %s %s', op, repr(ret))
 
 
