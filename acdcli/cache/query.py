@@ -1,5 +1,8 @@
 import logging
 from datetime import datetime
+
+from dateutil.tz import tzutc
+
 from .cursors import cursor
 
 logger = logging.getLogger(__name__)
@@ -7,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 def datetime_from_string(dt: str) -> datetime:
     try:
-        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S.%f+00:00')
+        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S.%f+00:00').replace(tzinfo=tzutc())
     except ValueError:
-        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S+00:00')
+        dt = datetime.strptime(dt, '%Y-%m-%d %H:%M:%S+00:00').replace(tzinfo=tzutc())
     return dt
 
 

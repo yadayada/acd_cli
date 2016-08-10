@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import stat
+import struct
 import sys
 
 from collections import deque, defaultdict
@@ -49,6 +50,7 @@ except:
 
 _SETTINGS_FILENAME = 'fuse.ini'
 _XATTR_PROPERTY_NAME = 'xattrs'
+_XATTR_MTIME_OVERRIDE_NAME = 'fuse.mtime'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
@@ -462,8 +464,11 @@ class ACDFuse(LoggingMixIn, Operations):
         if not node:
             raise FuseOSError(errno.ENOENT)
 
+        try: mtime = self._getxattr_f(node.id, _XATTR_MTIME_OVERRIDE_NAME)
+        except: mtime = node.modified.timestamp()
+
         times = dict(st_atime=time(),
-                     st_mtime=node.modified.timestamp(),
+                     st_mtime=mtime,
                      st_ctime=node.created.timestamp())
 
         if node.is_folder:
@@ -476,24 +481,28 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_size=node.size,
                         **times)
 
-    # def listxattr(self, path):
-    #     node_id = self.cache.resolve_id(path)
-    #     if not node_id:
-    #         raise FuseOSError(errno.ENOENT)
-    #     self._xattr_load(node_id)
-    #
-    #     with self.xattr_cache_lock:
-    #         try:
-    #             return [k for k, v in self.xattr_cache[node_id].items()]
-    #         except:
-    #             return []
+    def listxattr(self, path):
+        node_id = self.cache.resolve_id(path)
+        if not node_id:
+            raise FuseOSError(errno.ENOENT)
+        return self._listxattr(node_id)
+
+    def _listxattr(self, node_id):
+        self._xattr_load(node_id)
+        with self.xattr_cache_lock:
+            try:
+                return [k for k, v in self.xattr_cache[node_id].items()]
+            except:
+                return []
 
     def getxattr(self, path, name, position=0):
         node_id = self.cache.resolve_id(path)
         if not node_id:
             raise FuseOSError(errno.ENOENT)
-        self._xattr_load(node_id)
+        return self._getxattr(node_id, name)
 
+    def _getxattr(self, node_id, name):
+        self._xattr_load(node_id)
         with self.xattr_cache_lock:
             try:
                 ret = self.xattr_cache[node_id][name]
@@ -504,32 +513,39 @@ class ACDFuse(LoggingMixIn, Operations):
             else:
                 raise FuseOSError(errno.ENODATA)  # should be ENOATTR
 
-    # def removexattr(self, path, name):
-    #     node_id = self.cache.resolve_id(path)
-    #     if not node_id:
-    #         raise FuseOSError(errno.ENOENT)
-    #     self._xattr_load(node_id)
-    #
-    #     with self.xattr_cache_lock:
-    #         try:
-    #             if self.xattr_cache[node_id][name]:
-    #                 del self.xattr_cache[node_id][name]
-    #                 self.properties_dirty.add(node_id)
-    #         except:
-    #             raise FuseOSError(errno.ENODATA)  # should be ENOATTR
+    def _getxattr_f(self, node_id, name):
+        return struct.unpack('d', self._getxattr(node_id, name))[0]
+
+    def removexattr(self, path, name):
+        node_id = self.cache.resolve_id(path)
+        if not node_id:
+            raise FuseOSError(errno.ENOENT)
+        self._removexattr(node_id, name)
+
+    def _removexattr(self, node_id, name):
+        self._xattr_load(node_id)
+        with self.xattr_cache_lock:
+            if name in self.xattr_cache[node_id]:
+                del self.xattr_cache[node_id][name]
+                self.properties_dirty.add(node_id)
 
     def setxattr(self, path, name, value, options, position=0):
         node_id = self.cache.resolve_id(path)
         if not node_id:
             raise FuseOSError(errno.ENOENT)
-        self._xattr_load(node_id)
+        self._setxattr(node_id, name, value)
 
+    def _setxattr(self, node_id, name, value):
+        self._xattr_load(node_id)
         with self.xattr_cache_lock:
             try:
                 self.xattr_cache[node_id][name] = value
                 self.xattr_dirty.add(node_id)
             except:
                 raise FuseOSError(errno.ENOTSUP)
+
+    def _setxattr_f(self, node_id, name, value: float):
+        self._setxattr(node_id, name, struct.pack('d', value))
 
     def _xattr_load(self, node_id):
         with self.xattr_cache_lock:
@@ -731,6 +747,8 @@ class ACDFuse(LoggingMixIn, Operations):
 
         node_id = self.handles[fh].id
         self.wp.write(node_id, fh, offset, data)
+        """on a write, we can use amazon's modified time"""
+        self._removexattr(node_id, _XATTR_MTIME_OVERRIDE_NAME)
         return len(data)
 
     def flush(self, path, fh):
@@ -788,10 +806,15 @@ class ACDFuse(LoggingMixIn, Operations):
             raise FuseOSError(errno.ENOENT)
 
     def utimens(self, path, times=None):
-        """Not functional. Should set node atime and mtime to values as passed in ``times``
-        or current time (see :manpage:`utimesat(2)`).
+        """Should set node atime and mtime to values as passed in ``times``
+        or current time (see :manpage:`utimensat(2)`).
+        Note that this is only implemented for modified time.
 
         :param times: [atime, mtime]"""
+
+        node_id = self.cache.resolve_id(path)
+        if not node_id:
+            raise FuseOSError(errno.ENOENT)
 
         if times:
             # atime = times[0]
@@ -799,6 +822,14 @@ class ACDFuse(LoggingMixIn, Operations):
         else:
             # atime = time()
             mtime = time()
+
+        try:
+            self._setxattr_f(node_id, _XATTR_MTIME_OVERRIDE_NAME, mtime)
+            self._xattr_write_and_sync()
+        except:
+            raise FuseOSError(errno.ENOTSUP)
+
+        return 0
 
     def chmod(self, path, mode):
         """Not implemented."""
