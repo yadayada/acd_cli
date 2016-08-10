@@ -1,3 +1,9 @@
+appdirs
+colorama
+fusepy
+python-dateutil
+requests
+requests_toolbelt
 # adds sphinx module for rtfd.org build process
 
 -e .
