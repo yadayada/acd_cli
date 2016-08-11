@@ -464,7 +464,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if not node:
             raise FuseOSError(errno.ENOENT)
 
-        try: mtime = self._getxattr_f(node.id, _XATTR_MTIME_OVERRIDE_NAME)
+        try: mtime = self._getxattr(node.id, _XATTR_MTIME_OVERRIDE_NAME)
         except: mtime = node.modified.timestamp()
 
         times = dict(st_atime=time(),
@@ -499,7 +499,7 @@ class ACDFuse(LoggingMixIn, Operations):
         node_id = self.cache.resolve_id(path)
         if not node_id:
             raise FuseOSError(errno.ENOENT)
-        return self._getxattr(node_id, name)
+        return self._getxattr_bytes(node_id, name)
 
     def _getxattr(self, node_id, name):
         self._xattr_load(node_id)
@@ -513,8 +513,8 @@ class ACDFuse(LoggingMixIn, Operations):
             else:
                 raise FuseOSError(errno.ENODATA)  # should be ENOATTR
 
-    def _getxattr_f(self, node_id, name):
-        return struct.unpack('d', self._getxattr(node_id, name))[0]
+    def _getxattr_bytes(self, node_id, name):
+        return binascii.a2b_base64(self._getxattr(node_id, name))
 
     def removexattr(self, path, name):
         node_id = self.cache.resolve_id(path)
@@ -533,7 +533,7 @@ class ACDFuse(LoggingMixIn, Operations):
         node_id = self.cache.resolve_id(path)
         if not node_id:
             raise FuseOSError(errno.ENOENT)
-        self._setxattr(node_id, name, value)
+        self._setxattr_bytes(node_id, name, value)
 
     def _setxattr(self, node_id, name, value):
         self._xattr_load(node_id)
@@ -544,8 +544,8 @@ class ACDFuse(LoggingMixIn, Operations):
             except:
                 raise FuseOSError(errno.ENOTSUP)
 
-    def _setxattr_f(self, node_id, name, value: float):
-        self._setxattr(node_id, name, struct.pack('d', value))
+    def _setxattr_bytes(self, node_id, name, value: bytes):
+        self._setxattr(node_id, name, binascii.b2a_base64(value).decode("utf-8"))
 
     def _xattr_load(self, node_id):
         with self.xattr_cache_lock:
@@ -553,24 +553,19 @@ class ACDFuse(LoggingMixIn, Operations):
                 xattrs_str = self.cache.get_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME)
                 try: self.xattr_cache[node_id] = json.loads(xattrs_str)
                 except: self.xattr_cache[node_id] = {}
-                for k, v in self.xattr_cache[node_id].items():
-                    self.xattr_cache[node_id][k] = binascii.a2b_base64(v)
 
     def _xattr_write_and_sync(self):
         with self.xattr_cache_lock:
             for node_id in self.xattr_dirty:
                 try:
-                    xattrs = {}
-                    for k, v in self.xattr_cache[node_id].items():
-                        xattrs[k] = binascii.b2a_base64(v).decode("utf-8")
-                    xattrs_str = json.dumps(xattrs)
-
+                    xattrs_str = json.dumps(self.xattr_cache[node_id])
                     self.acd_client.add_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME,
                                                  xattrs_str)
                 except (RequestError, IOError) as e:
                     logger.error('Error writing node xattrs "%s". %s' % (node_id, str(e)))
                 else:
                     self.cache.insert_property(node_id, self.acd_client_owner, _XATTR_PROPERTY_NAME, xattrs_str)
+                    logger.debug('_xattr_write_and_sync: node: %s xattrs: %s: ' % (node_id, xattrs_str))
             self.xattr_dirty.clear()
 
     def read(self, path, length, offset, fh) -> bytes:
@@ -747,8 +742,6 @@ class ACDFuse(LoggingMixIn, Operations):
 
         node_id = self.handles[fh].id
         self.wp.write(node_id, fh, offset, data)
-        """on a write, we can use amazon's modified time"""
-        self._removexattr(node_id, _XATTR_MTIME_OVERRIDE_NAME)
         return len(data)
 
     def flush(self, path, fh):
@@ -824,7 +817,7 @@ class ACDFuse(LoggingMixIn, Operations):
             mtime = time()
 
         try:
-            self._setxattr_f(node_id, _XATTR_MTIME_OVERRIDE_NAME, mtime)
+            self._setxattr(node_id, _XATTR_MTIME_OVERRIDE_NAME, mtime)
             self._xattr_write_and_sync()
         except:
             raise FuseOSError(errno.ENOTSUP)
