@@ -51,6 +51,7 @@ except:
 _SETTINGS_FILENAME = 'fuse.ini'
 _XATTR_PROPERTY_NAME = 'xattrs'
 _XATTR_MTIME_OVERRIDE_NAME = 'fuse.mtime'
+_XATTR_HEADER_OVERRIDE_NAME = 'fuse.header'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
@@ -363,8 +364,6 @@ class LoggingMixIn(object):
             targs = (len(args[0]),) + args[1:]
         elif op == 'chmod':
             targs = (oct(args[0]),) + args[1:]
-        elif op == 'setxattr':
-            targs = (args[0], "binary")
 
         logger.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
 
@@ -378,8 +377,6 @@ class LoggingMixIn(object):
         finally:
             if op == 'read':
                 ret = len(ret)
-            elif op == 'getxattr' and ret:
-                ret = "binary"
             logger.debug('<- %s %s', op, repr(ret))
 
 
@@ -584,7 +581,17 @@ class ACDFuse(LoggingMixIn, Operations):
         if node.size < offset + length:
             length = node.size - offset
 
-        return self.rp.get(node.id, offset, length, node.size)
+        ret = self.rp.get(node.id, offset, length, node.size)
+
+        """Check if we're overwriting the file's header, and splice that into the read bytes"""
+        try:
+            header = self._getxattr_bytes(node.id, _XATTR_HEADER_OVERRIDE_NAME)
+            if offset < len(header):
+                header = header[offset:]
+                ret = header + ret[len(header):]
+        except:
+            pass
+        return ret
 
     def statfs(self, path) -> dict:
         """Gets some filesystem statistics as specified in :manpage:`stat(2)`."""
@@ -741,6 +748,21 @@ class ACDFuse(LoggingMixIn, Operations):
         :returns: number of bytes written"""
 
         node_id = self.handles[fh].id
+
+        """Allow overwriting a file's header. This is useful to support encrypted
+        filesystems that leave a header at the start of each file, and write to
+        it while writing to the body.."""
+        f = self.wp.files[node_id]
+        with f.lock:
+            if f.offset > 0 and offset == 0:
+                """sanity check that all headers must be the same size,
+                or we could end up overwriting the file in an xattr"""
+                try: header_sz = len(self._getxattr_bytes(node_id, _XATTR_HEADER_OVERRIDE_NAME))
+                except: header_sz = len(data)
+                if header_sz == len(data):
+                    self._setxattr_bytes(node_id, _XATTR_HEADER_OVERRIDE_NAME, data)
+                    return len(data)
+
         self.wp.write(node_id, fh, offset, data)
         return len(data)
 
