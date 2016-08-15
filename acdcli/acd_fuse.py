@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import stat
-import struct
 import sys
 
 from collections import deque, defaultdict
@@ -236,6 +235,13 @@ class WriteProxy(object):
                 self.b[offset:offset + len(bytes_)] = bytes_
                 return old_len
 
+        def truncate(self, length):
+            with self.lock:
+                if len(self.b) < length:
+                    self.b = self.b.ljust(length, '\0')
+                else:
+                    self.b = self.b[:length]
+
         def flush(self) -> bytes:
             with self.lock:
                 ret = self.b
@@ -357,6 +363,15 @@ class WriteProxy(object):
             t = Thread(target=self.write_n_sync, args=(f, node_id))
             t.daemon = True
             t.start()
+
+    def truncate(self, node_id, fh, length):
+        """truncates a buffer if it exists to a given length and returns true.
+        If not, does nothing (we don't preallocate) and returns false"""
+        b = self.buffers.get(node_id)
+        if b:
+            b.trunate(length)
+            return True
+        return False
 
     def _flush(self, node_id, fh):
         f = self.files.get(node_id)
@@ -796,8 +811,11 @@ class ACDFuse(LoggingMixIn, Operations):
             else:
                 self.cache.insert_node(r)
         elif length > 0:
-            if node.size != length:
-                raise FuseOSError(errno.ENOSYS)
+            if not self.wp.truncate(node.id, fh, length):
+                if node.size != length:
+                    """from man 2 truncate; the file is not open for writing"""
+                    raise FuseOSError(errno.EINVAL)
+        return 0
 
     def release(self, path, fh):
         """Releases an open ``path``."""
