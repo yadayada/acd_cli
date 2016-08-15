@@ -237,10 +237,10 @@ class WriteProxy(object):
 
         def truncate(self, length):
             with self.lock:
-                if len(self.b) < length:
-                    self.b = self.b.ljust(length, '\0')
-                else:
+                if len(self.b) >= length:
                     self.b = self.b[:length]
+                    return True
+                return False
 
         def flush(self) -> bytes:
             with self.lock:
@@ -369,8 +369,7 @@ class WriteProxy(object):
         If not, does nothing (we don't preallocate) and returns false"""
         b = self.buffers.get(node_id)
         if b:
-            b.trunate(length)
-            return True
+            return b.trunate(length)
         return False
 
     def _flush(self, node_id, fh):
@@ -812,9 +811,8 @@ class ACDFuse(LoggingMixIn, Operations):
                 self.cache.insert_node(r)
         elif length > 0:
             if not self.wp.truncate(node.id, fh, length):
-                if node.size != length:
-                    """from man 2 truncate; the file is not open for writing"""
-                    raise FuseOSError(errno.EINVAL)
+                logger.debug("truncate: attempting to skip ahead, ignoring")
+                # raise FuseOSError(errno.EINVAL)
         return 0
 
     def release(self, path, fh):
