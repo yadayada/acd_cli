@@ -51,7 +51,6 @@ except:
 _SETTINGS_FILENAME = 'fuse.ini'
 _XATTR_PROPERTY_NAME = 'xattrs'
 _XATTR_MTIME_OVERRIDE_NAME = 'fuse.mtime'
-_XATTR_HEADER_OVERRIDE_NAME = 'fuse.header'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
@@ -215,6 +214,37 @@ class WriteProxy(object):
         self.acd_client = acd_client
         self.cache = cache
         self.files = defaultdict(lambda: WriteProxy.WriteStream(buffer_size, timeout))
+        self.buffers = defaultdict(lambda: WriteProxy.WriteBuffer())
+
+    class WriteBuffer(object):
+        """An in-memory segment of a file. This gets pushed out to amazon via a WriteStream on
+        flush() calls. Anything that hasn't been flushed yet can be rewritten in place any
+        number of times."""
+
+        def __init__(self):
+            self.b = bytearray()
+            """The memory backing"""
+            self.lock = Lock()
+
+        def write(self, offset, bytes_: bytes):
+            """Writes to the buffer and returns the old buffer length"""
+            with self.lock:
+                old_len = len(self.b)
+                if offset > old_len:
+                    logger.error('Wrong offset for writing to buffer; writing gap detected')
+                    raise FuseOSError(errno.ESPIPE)
+                self.b[offset:offset + len(bytes_)] = bytes_
+                return old_len
+
+        def flush(self) -> bytes:
+            with self.lock:
+                ret = self.b
+                self.b = bytearray()
+                return ret
+
+        def __len__(self):
+            with self.lock:
+                return len(self.b)
 
     class WriteStream(object):
         """A WriteStream is a binary file-like object that is backed by a Queue.
@@ -320,28 +350,26 @@ class WriteProxy(object):
 
         :raises: FuseOSError: wrong offset or writing failed"""
 
+        b = self.buffers[node_id]
         f = self.files[node_id]
 
-        with f.lock:
-            if f.offset == offset:
-                f.write(bytes_)
-            else:
-                f.error = True  # necessary?
-                logger.error('Wrong offset for writing to fh %s.' % fh)
-                raise FuseOSError(errno.ESPIPE)
-
-        if offset == 0:
+        if b.write(offset, bytes_) == 0:
             t = Thread(target=self.write_n_sync, args=(f, node_id))
             t.daemon = True
             t.start()
 
-    def flush(self, node_id, fh):
+    def _flush(self, node_id, fh):
         f = self.files.get(node_id)
-        if f:
-            f.flush()
+        b = self.buffers.get(node_id)
+        if f and b:
+            if len(b):
+                data = b.flush()
+                with f.lock:
+                    f.write(data)
 
     def release(self, node_id, fh):
         """:raises: FuseOSError"""
+        self._flush(node_id, fh)
         f = self.files.get(node_id)
         if f:
             try:
@@ -350,6 +378,7 @@ class WriteProxy(object):
                 raise
             finally:
                 del self.files[node_id]
+                del self.buffers[node_id]
 
 
 class LoggingMixIn(object):
@@ -581,17 +610,7 @@ class ACDFuse(LoggingMixIn, Operations):
         if node.size < offset + length:
             length = node.size - offset
 
-        ret = self.rp.get(node.id, offset, length, node.size)
-
-        """Check if we're overwriting the file's header, and splice that into the read bytes"""
-        try:
-            header = self._getxattr_bytes(node.id, _XATTR_HEADER_OVERRIDE_NAME)
-            if offset < len(header):
-                header = header[offset:]
-                ret = header + ret[len(header):]
-        except:
-            pass
-        return ret
+        return self.rp.get(node.id, offset, length, node.size)
 
     def statfs(self, path) -> dict:
         """Gets some filesystem statistics as specified in :manpage:`stat(2)`."""
@@ -748,28 +767,13 @@ class ACDFuse(LoggingMixIn, Operations):
         :returns: number of bytes written"""
 
         node_id = self.handles[fh].id
-
-        """Allow overwriting a file's header. This is useful to support encrypted
-        filesystems that leave a header at the start of each file, and write to
-        it while writing to the body.."""
-        f = self.wp.files[node_id]
-        with f.lock:
-            if f.offset > 0 and offset == 0:
-                """sanity check that all headers must be the same size,
-                or we could end up overwriting the file in an xattr"""
-                try: header_sz = len(self._getxattr_bytes(node_id, _XATTR_HEADER_OVERRIDE_NAME))
-                except: header_sz = len(data)
-                if header_sz == len(data):
-                    self._setxattr_bytes(node_id, _XATTR_HEADER_OVERRIDE_NAME, data)
-                    return len(data)
-
         self.wp.write(node_id, fh, offset, data)
         return len(data)
 
     def flush(self, path, fh):
-        """Flushes ``fh`` in WriteProxy."""
-        node_id = self.handles[fh].id
-        self.wp.flush(node_id, fh)
+        """noop since we need to keep the whole buffer in memory;
+        acd only supports sequentual writes otherwise"""
+        pass
 
     def truncate(self, path, length, fh=None):
         """Pseudo-truncates a file, i.e. clears content if ``length``==0 or does nothing
