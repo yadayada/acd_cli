@@ -235,13 +235,6 @@ class WriteProxy(object):
                 self.b[offset:offset + len(bytes_)] = bytes_
                 return old_len
 
-        def truncate(self, length):
-            with self.lock:
-                if len(self.b) >= length:
-                    self.b = self.b[:length]
-                    return True
-                return False
-
         def flush(self) -> bytes:
             with self.lock:
                 ret = self.b
@@ -363,14 +356,6 @@ class WriteProxy(object):
             t = Thread(target=self.write_n_sync, args=(f, node_id))
             t.daemon = True
             t.start()
-
-    def truncate(self, node_id, fh, length):
-        """truncates a buffer if it exists to a given length and returns true.
-        If not, does nothing (we don't preallocate) and returns false"""
-        b = self.buffers.get(node_id)
-        if b:
-            return b.trunate(length)
-        return False
 
     def _flush(self, node_id, fh):
         f = self.files.get(node_id)
@@ -791,7 +776,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
     def truncate(self, path, length, fh=None):
         """Pseudo-truncates a file, i.e. clears content if ``length``==0 or does nothing
-        if ``length`` is equal to current file size.
+        if ``length`` is positive.
 
         :raises FuseOSError: if pseudo-truncation to length is not supported"""
 
@@ -809,10 +794,12 @@ class ACDFuse(LoggingMixIn, Operations):
                 raise FuseOSError.convert(e)
             else:
                 self.cache.insert_node(r)
-        elif length > 0:
-            if not self.wp.truncate(node.id, fh, length):
-                logger.debug("truncate: attempting to skip ahead, ignoring")
-                # raise FuseOSError(errno.EINVAL)
+
+        """No good way to deal with positive lengths at the moment; since we can only do
+        something about it in the middle of writing, this means the only use case we can
+        capture is when a program over-writes and then truncates back. In the future, if
+        we can get cached file backing instead of memory backing, there would be more to
+        do here. In the mean time we ignore."""
         return 0
 
     def release(self, path, fh):
