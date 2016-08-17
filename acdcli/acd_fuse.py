@@ -7,12 +7,12 @@ import logging
 import os
 import stat
 import sys
+import tempfile
 
 from collections import deque, defaultdict
 from multiprocessing import Process
-from queue import Queue, Full as QueueFull
-from threading import Thread, Lock, Event
-from time import time, sleep
+from threading import Thread, Lock
+from time import time
 
 import ctypes.util
 import binascii
@@ -53,7 +53,7 @@ _XATTR_MTIME_OVERRIDE_NAME = 'fuse.mtime'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
-_def_conf['write'] = dict(buffer_size = 32, timeout=30)
+_def_conf['write'] = dict(buffer_size=int(1e9), timeout=30)
 
 
 class FuseOSError(FuseError):
@@ -212,172 +212,51 @@ class WriteProxy(object):
     def __init__(self, acd_client, cache, buffer_size, timeout):
         self.acd_client = acd_client
         self.cache = cache
-        self.files = defaultdict(lambda: WriteProxy.WriteStream(buffer_size, timeout))
-        self.buffers = defaultdict(lambda: WriteProxy.WriteBuffer())
+        self.buffers = defaultdict(lambda: WriteProxy.WriteBuffer(buffer_size))
 
     class WriteBuffer(object):
-        """An in-memory segment of a file. This gets pushed out to amazon via a WriteStream on
-        flush() calls. Anything that hasn't been flushed yet can be rewritten in place any
-        number of times."""
-
-        def __init__(self):
-            self.b = bytearray()
-            """The memory backing"""
+        def __init__(self, buffer_size):
+            self.f = tempfile.SpooledTemporaryFile(max_size=buffer_size)
             self.lock = Lock()
 
         def write(self, offset, bytes_: bytes):
-            """Writes to the buffer and returns the old buffer length"""
             with self.lock:
-                old_len = len(self.b)
+                self.f.seek(0, os.SEEK_END)
+                old_len = self.f.tell()
                 if offset > old_len:
                     logger.error('Wrong offset for writing to buffer; writing gap detected')
                     raise FuseOSError(errno.ESPIPE)
-                self.b[offset:offset + len(bytes_)] = bytes_
+                self.f.seek(offset)
+                self.f.write(bytes_)
                 return old_len
 
-        def flush(self) -> bytes:
-            with self.lock:
-                ret = self.b
-                self.b = bytearray()
-                return ret
+        def get_file(self):
+            self.f.seek(0)
+            return self.f
 
-        def __len__(self):
-            with self.lock:
-                return len(self.b)
-
-    class WriteStream(object):
-        """A WriteStream is a binary file-like object that is backed by a Queue.
-        It will remember its current offset."""
-
-        __slots__ = ('q', 'offset', 'error', 'closed', 'done', 'timeout', 'lock')
-
-        def __init__(self, buffer_size, timeout):
-            self.q = Queue(maxsize=buffer_size)
-            """a queue that buffers written blocks"""
-            self.offset = 0
-            """the beginning fpos"""
-            self.error = False
-            """whether the read or write failed"""
-            self.closed = False
-            self.done = Event()
-            """done event is triggered when file is successfully read and transferred"""
-            self.timeout = timeout
-            self.lock = Lock()
-            """make sure only one writer is appending to the queue at once"""
-
-        def write(self, data: bytes):
-            """Writes data into queue.
-
-            :raises: FuseOSError on timeout"""
-
-            if self.error:
-                raise FuseOSError(errno.EREMOTEIO)
-            try:
-                self.q.put(data, timeout=self.timeout)
-            except QueueFull:
-                logger.error('Write timeout.')
-                raise FuseOSError(errno.ETIMEDOUT)
-            self.offset += len(data)
-
-        def read(self, ln=0) -> bytes:
-            """Returns as much byte data from queue as possible.
-            Returns empty bytestring (EOF) if queue is empty and file was closed.
-
-            :raises: IOError"""
-
-            if self.error:
-                raise IOError(errno.EIO, errno.errorcode[errno.EIO])
-
-            if self.closed and self.q.empty():
-                return b''
-
-            b = [self.q.get()]
-            self.q.task_done()
-            while not self.q.empty():
-                b.append(self.q.get())
-                self.q.task_done()
-
-            return b''.join(b)
-
-        def flush(self):
-            """Waits until the queue is emptied.
-
-            :raises: FuseOSError"""
-
-            while True:
-                if self.error:
-                    raise FuseOSError(errno.EREMOTEIO)
-                if self.q.empty():
-                    return
-                sleep(1)
-
-        def close(self):
-            """Sets the closed flag to signal 'EOF' to the read function.
-            Then, waits until :attr:`done` event is triggered.
-
-            :raises: FuseOSError"""
-
-            self.closed = True
-            # prevent read deadlock
-            self.q.put(b'')
-
-            # wait until read is complete
-            while True:
-                if self.error:
-                    raise FuseOSError(errno.EREMOTEIO)
-                if self.done.wait(1):
-                    return
-
-    def write_n_sync(self, stream: WriteStream, node_id: str):
-        """Try to overwrite file with id ``node_id`` with content from ``stream``.
-        Triggers the :attr:`WriteStream.done` event on success.
-
-        :param stream: a file-like object"""
-
+    def _write_and_sync(self, buffer: WriteBuffer, node_id: str):
         try:
-            r = self.acd_client.overwrite_stream(stream, node_id)
+            r = self.acd_client.overwrite_tempfile(node_id, buffer.get_file())
         except (RequestError, IOError) as e:
-            stream.error = True
             logger.error('Error writing node "%s". %s' % (node_id, str(e)))
         else:
             self.cache.insert_node(r)
-            stream.done.set()
 
     def write(self, node_id, fh, offset, bytes_):
-        """Gets WriteStream from defaultdict. Creates overwrite thread if offset is 0,
-        tries to continue otherwise.
+        """Gets WriteBuffer from defaultdict.
 
         :raises: FuseOSError: wrong offset or writing failed"""
 
         b = self.buffers[node_id]
-        f = self.files[node_id]
-
-        if b.write(offset, bytes_) == 0:
-            t = Thread(target=self.write_n_sync, args=(f, node_id))
-            t.daemon = True
-            t.start()
-
-    def _flush(self, node_id, fh):
-        f = self.files.get(node_id)
-        b = self.buffers.get(node_id)
-        if f and b:
-            if len(b):
-                data = b.flush()
-                with f.lock:
-                    f.write(data)
+        b.write(offset, bytes_)
 
     def release(self, node_id, fh):
         """:raises: FuseOSError"""
-        self._flush(node_id, fh)
-        f = self.files.get(node_id)
-        if f:
-            try:
-                f.close()
-            except:
-                raise
-            finally:
-                del self.files[node_id]
-                del self.buffers[node_id]
+
+        b = self.buffers.get(node_id)
+        if b:
+            self._write_and_sync(b, node_id)
+            del self.buffers[node_id]
 
 
 class LoggingMixIn(object):
