@@ -49,8 +49,11 @@ class SyncMixin(object):
 
     def insert_nodes(self, nodes: list, partial=True):
         """Inserts mixed list of files and folders into cache."""
-        with self.path_to_node_id_lock:
-            self.path_to_node_id.clear()
+
+        """Flush the path cache since these new nodes may be deletes, moves, or renames
+        that affect the path cache, or overwrites that would invalidate the data in it."""
+        with self.path_to_node_cache_lock:
+            self.path_to_node_cache.clear()
 
         files = []
         folders = []

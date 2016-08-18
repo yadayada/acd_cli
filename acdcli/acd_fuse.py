@@ -355,7 +355,8 @@ class ACDFuse(LoggingMixIn, Operations):
         if not node.type == 'folder':
             raise FuseOSError(errno.ENOTDIR)
 
-        return [_ for _ in ['.', '..'] + [c for c in self.cache.childrens_names(node.id)]]
+        folders, files = self.cache.list_children(folder_id=node.id, folder_path=path)
+        return [_ for _ in ['.', '..'] + [c.name for c in folders + files]]
 
     def getattr(self, path, fh=None) -> dict:
         """Creates a stat-like attribute dict, see :manpage:`stat(2)`.
@@ -386,10 +387,10 @@ class ACDFuse(LoggingMixIn, Operations):
                         **times)
 
     def listxattr(self, path):
-        node_id = self.cache.resolve_id(path)
-        if not node_id:
+        node = self.cache.resolve(path)
+        if not node:
             raise FuseOSError(errno.ENOENT)
-        return self._listxattr(node_id)
+        return self._listxattr(node.id)
 
     def _listxattr(self, node_id):
         self._xattr_load(node_id)
@@ -400,10 +401,10 @@ class ACDFuse(LoggingMixIn, Operations):
                 return []
 
     def getxattr(self, path, name, position=0):
-        node_id = self.cache.resolve_id(path)
-        if not node_id:
+        node = self.cache.resolve(path)
+        if not node:
             raise FuseOSError(errno.ENOENT)
-        return self._getxattr_bytes(node_id, name)
+        return self._getxattr_bytes(node.id, name)
 
     def _getxattr(self, node_id, name):
         self._xattr_load(node_id)
@@ -421,10 +422,10 @@ class ACDFuse(LoggingMixIn, Operations):
         return binascii.a2b_base64(self._getxattr(node_id, name))
 
     def removexattr(self, path, name):
-        node_id = self.cache.resolve_id(path)
-        if not node_id:
+        node = self.cache.resolve(path)
+        if not node:
             raise FuseOSError(errno.ENOENT)
-        self._removexattr(node_id, name)
+        self._removexattr(node.id, name)
 
     def _removexattr(self, node_id, name):
         self._xattr_load(node_id)
@@ -434,10 +435,10 @@ class ACDFuse(LoggingMixIn, Operations):
                 self.properties_dirty.add(node_id)
 
     def setxattr(self, path, name, value, options, position=0):
-        node_id = self.cache.resolve_id(path)
-        if not node_id:
+        node = self.cache.resolve(path)
+        if not node:
             raise FuseOSError(errno.ENOENT)
-        self._setxattr_bytes(node_id, name, value)
+        self._setxattr_bytes(node.id, name, value)
 
     def _setxattr(self, node_id, name, value):
         self._xattr_load(node_id)
@@ -713,8 +714,8 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :param times: [atime, mtime]"""
 
-        node_id = self.cache.resolve_id(path)
-        if not node_id:
+        node = self.cache.resolve(path)
+        if not node:
             raise FuseOSError(errno.ENOENT)
 
         if times:
@@ -725,7 +726,7 @@ class ACDFuse(LoggingMixIn, Operations):
             mtime = time()
 
         try:
-            self._setxattr(node_id, _XATTR_MTIME_OVERRIDE_NAME, mtime)
+            self._setxattr(node.id, _XATTR_MTIME_OVERRIDE_NAME, mtime)
             self._xattr_write_and_sync()
         except:
             raise FuseOSError(errno.ENOTSUP)
