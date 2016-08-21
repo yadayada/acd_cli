@@ -219,6 +219,11 @@ class WriteProxy(object):
             self.f = tempfile.SpooledTemporaryFile(max_size=buffer_size)
             self.lock = Lock()
 
+        def read(self, offset, length: int):
+            with self.lock:
+                self.f.seek(offset)
+                return self.f.read(length)
+
         def write(self, offset, bytes_: bytes):
             with self.lock:
                 self.f.seek(0, os.SEEK_END)
@@ -231,18 +236,25 @@ class WriteProxy(object):
                 return old_len
 
         def get_file(self):
+            """Return the file for direct access. Be sure to lock from the outside when doing so"""
             self.f.seek(0)
             return self.f
 
     def _write_and_sync(self, buffer: WriteBuffer, node_id: str):
         try:
-            r = self.acd_client.overwrite_tempfile(node_id, buffer.get_file())
+            with buffer.lock:
+                r = self.acd_client.overwrite_tempfile(node_id, buffer.get_file())
         except (RequestError, IOError) as e:
             logger.error('Error writing node "%s". %s' % (node_id, str(e)))
         else:
             self.cache.insert_node(r)
 
-    def write(self, node_id, fh, offset, bytes_):
+    def read(self, node_id, fh, offset, length: int):
+        b = self.buffers.get(node_id)
+        if b:
+            return b.read(offset, length)
+
+    def write(self, node_id, fh, offset, bytes_: bytes):
         """Gets WriteBuffer from defaultdict.
 
         :raises: FuseOSError: wrong offset or writing failed"""
@@ -271,6 +283,8 @@ class LoggingMixIn(object):
             targs = (len(args[0]),) + args[1:]
         elif op == 'chmod':
             targs = (oct(args[0]),) + args[1:]
+        elif op == 'setxattr':
+            targs = (len(args[0]),) + args[1:]
 
         logger.debug('-> %s %s %s', op, path, repr(args if not targs else targs))
 
@@ -283,6 +297,8 @@ class LoggingMixIn(object):
             raise
         finally:
             if op == 'read':
+                ret = len(ret)
+            elif op == 'getxattr' and ret and ret != '[Errno 61] No data available':
                 ret = len(ret)
             logger.debug('<- %s %s', op, repr(ret))
 
@@ -677,9 +693,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
         """No good way to deal with positive lengths at the moment; since we can only do
         something about it in the middle of writing, this means the only use case we can
-        capture is when a program over-writes and then truncates back. In the future, if
-        we can get cached file backing instead of memory backing, there would be more to
-        do here. In the mean time we ignore."""
+        capture is when a program over-writes and then truncates back."""
         return 0
 
     def release(self, path, fh):
