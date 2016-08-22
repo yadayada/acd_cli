@@ -45,6 +45,8 @@ CHILD_OF_SQL = """SELECT n.*, f.* FROM nodes n
 NODE_BY_ID_SQL = """SELECT n.*, f.* FROM nodes n LEFT OUTER JOIN files f ON n.id = f.id
                     WHERE n.id = (?)"""
 
+PROPERTY_BY_ID_SQL = """SELECT * FROM properties WHERE id=? AND owner=? AND key=?"""
+
 USAGE_SQL = 'SELECT SUM(size) FROM files'
 
 FIND_BY_NAME_SQL = """SELECT n.*, f.* FROM nodes n
@@ -152,6 +154,17 @@ class QueryMixin(object):
                 return n
 
     def resolve(self, path: str, trash=False) -> 'Union[Node|None]':
+        """Gets a node from a path"""
+        with self.path_to_node_cache_lock:
+            try: return self.path_to_node_cache[path]
+            except: pass
+            n = self._resolve(path,trash)
+            if n:
+                self.path_to_node_cache[path] = n
+                return n
+            return None
+
+    def _resolve(self, path: str, trash=False) -> 'Union[Node|None]':
         segments = list(filter(bool, path.split('/')))
         if not segments:
             if not self.root_id:
@@ -241,7 +254,7 @@ class QueryMixin(object):
             if r.is_available:
                 return r
 
-    def list_children(self, folder_id, trash=False) -> 'Tuple[List[Node], List[Node]]':
+    def list_children(self, folder_id, trash=False, folder_path=None) -> 'Tuple[List[Node], List[Node]]':
         files = []
         folders = []
 
@@ -256,6 +269,14 @@ class QueryMixin(object):
                     elif node.is_folder:
                         folders.append(node)
                 node = c.fetchone()
+
+        """If the caller provides the folder_path, we can add all the children to the
+        path->node_id cache for faster lookup after a directory listing"""
+        if folder_path:
+            children = folders + files
+            with self.path_to_node_cache_lock:
+                for c in children:
+                    self.path_to_node_cache[folder_path + '/' + c.name] = c
 
         return folders, files
 
@@ -312,3 +333,11 @@ class QueryMixin(object):
             no = c.fetchone()[0]
 
         return bool(no)
+
+    def get_property(self, node_id, owner_id, key) -> 'Union[str|None]':
+        with cursor(self._conn) as c:
+            c.execute(PROPERTY_BY_ID_SQL, [node_id, owner_id, key])
+            r = c.fetchone()
+            if r:
+                return r['value']
+        return None

@@ -28,6 +28,15 @@ _CREATION_SCRIPT = """
         CHECK (status IN ('AVAILABLE', 'TRASH', 'PURGED', 'PENDING'))
     );
 
+    CREATE TABLE properties (
+        id VARCHAR(50) NOT NULL,
+        owner TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (id),
+        FOREIGN KEY(id) REFERENCES nodes (id)
+    );
+
     CREATE TABLE labels (
         id VARCHAR(50) NOT NULL,
         name VARCHAR(256) NOT NULL,

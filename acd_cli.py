@@ -1,34 +1,32 @@
 #!/usr/bin/env python3
-import sys
-import os
-import json
 import argparse
+import json
 import logging
 import logging.handlers
-import signal
-import time
+import os
 import re
-import appdirs
-
+import signal
+import sys
+import time
 from collections import namedtuple
 from configparser import ConfigParser
 from functools import partial
 from multiprocessing import Event
-
 from pkgutil import walk_packages
+
+import appdirs
 from pkg_resources import iter_entry_points
 
 import acdcli
+from acdcli import plugins
 from acdcli.api import client
 from acdcli.api.common import RequestError, is_valid_id
 from acdcli.cache import format, db
+from acdcli.cache.db import CacheConsts
 from acdcli.utils import hashing, progress
 from acdcli.utils.conf import get_conf
 from acdcli.utils.threading import QueuedLoader
 from acdcli.utils.time import *
-
-# load local plugin modules (default ones, for developers)
-from acdcli import plugins
 
 for importer, modname, ispkg in walk_packages(path=plugins.__path__, prefix=plugins.__name__ + '.',
                                               onerror=lambda x: None):
@@ -120,11 +118,13 @@ cache = None
 # Glue functions (API, cache)
 #
 
-
-class CacheConsts(object):
-    CHECKPOINT_KEY = 'checkpoint'
-    LAST_SYNC_KEY = 'last_sync'
-    MAX_AGE = 30
+def sync_owner_id():
+    global cache
+    owner_id = cache.KeyValueStorage.get(CacheConsts.OWNER_ID)
+    if not owner_id:
+        owner_id = acd_client.get_owner_id()
+        cache.KeyValueStorage[CacheConsts.OWNER_ID] = owner_id
+    return owner_id
 
 
 def sync_node_list(full=False, to_file=None, from_file=None) -> 'Union[int, None]':
@@ -185,12 +185,14 @@ def sync_node_list(full=False, to_file=None, from_file=None) -> 'Union[int, None
             print()
         if to_file:
             out.close()
+    sync_owner_id()
 
 
 def old_sync() -> 'Union[int, None]':
     global cache
     cache.drop_all()
     cache = db.NodeCache(CACHE_PATH)
+    sync_owner_id()
     try:
         folders = acd_client.get_folder_list()
         folders.extend(acd_client.get_trashed_folders())
