@@ -19,6 +19,10 @@ Thanks to
 
 - `kylemanna <https://github.com/kylemanna>`_ for adding a systemd service file
 
+- `calisro <https://github.com/calisro>`_ for adding uid, gid, umask overrides for fuse layer
+
+- `memoz <https://github.com/memoz>`_ for amending proxy documentation
+
 Also thanks to
 
 - `fibersnet <https://github.com/fibersnet>`_ for pointing out a possible deadlock in ACDFuse.

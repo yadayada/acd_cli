@@ -1,40 +1,67 @@
 """fusepy filesystem module"""
 
-import sys
-import os
-import stat
+import configparser
 import errno
 import logging
-from time import time, sleep
+import os
+import stat
+import sys
+
 from collections import deque, defaultdict
 from multiprocessing import Process
-from threading import Thread, Lock, Event
 from queue import Queue, Full as QueueFull
+from threading import Thread, Lock, Event
+from time import time, sleep
 
-from acdcli.bundled.fuse import FUSE, FuseOSError as FuseError, Operations
+import ctypes.util
+ctypes.util.__find_library = ctypes.util.find_library
+
+def find_library(*args):
+    if 'fuse' in args[0]:
+        libfuse_path = os.environ.get('LIBFUSE_PATH')
+        if libfuse_path:
+            return libfuse_path
+
+    return ctypes.util.__find_library(*args)
+
+ctypes.util.find_library = find_library
+
+from fuse import FUSE, FuseOSError as FuseError, Operations
 from acdcli.api.common import RequestError
-from acdcli.api.content import CHUNK_SIZE as CHUNK_SZ
+from acdcli.utils.conf import get_conf
 from acdcli.utils.time import *
 
 logger = logging.getLogger(__name__)
 
-MAX_CHUNKS_PER_FILE = 15
-"""maximal number of opened chunks per file"""
+try:
+    errno.ECOMM
+except:
+    errno.ECOMM = errno.ECONNABORTED
+try:
+    errno.EREMOTEIO
+except:
+    errno.EREMOTEIO = errno.EIO
 
-CHUNK_TIMEOUT = 5
-"""timeout for reading from an opened chunk"""
+_SETTINGS_FILENAME = 'fuse.ini'
 
-WRITE_TIMEOUT = 60
-"""timeout for writing into file buffer"""
-
-WRITE_BUFFER_SZ = 2 ** 5
-"""maximal number of chunks per file"""
+_def_conf = configparser.ConfigParser()
+_def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
+_def_conf['write'] = dict(buffer_size = 32, timeout=30)
 
 
 class FuseOSError(FuseError):
     def __init__(self, err_no: int):
         # logger.debug('FUSE error %i, %s.' % (err_no, errno.errorcode[err_no]))
         super().__init__(err_no)
+
+    CODE = RequestError.CODE
+    codes = RequestError.codes
+    code_mapping = {CODE.CONN_EXCEPTION: FuseError(errno.ECOMM),
+                    codes.CONFLICT: FuseError(errno.EEXIST),
+                    codes.REQUESTED_RANGE_NOT_SATISFIABLE: FuseError(errno.EFAULT),
+                    codes.REQUEST_TIMEOUT: FuseError(errno.ETIMEDOUT),
+                    codes.GATEWAY_TIMEOUT: FuseError(errno.ETIMEDOUT)
+                    }
 
     @staticmethod
     def convert(e: RequestError):
@@ -46,23 +73,20 @@ class FuseOSError(FuseError):
             caller = ''
         logger.error(caller + e.__str__())
 
-        if e.status_code == e.CODE.CONN_EXCEPTION:
-            raise FuseOSError(errno.ECOMM)
-        elif e.status_code == e.codes.CONFLICT:
-            raise FuseOSError(errno.EEXIST)
-        elif e.status_code == e.codes.REQUESTED_RANGE_NOT_SATISFIABLE:
-            raise FuseOSError(errno.EFAULT)
-        else:
-            raise FuseOSError(errno.EREMOTEIO)
+        try:
+            exc = FuseOSError.code_mapping[e.status_code]
+        except AttributeError:
+            exc = FuseOSError(errno.EREMOTEIO)
+        raise exc
 
 
 class ReadProxy(object):
     """Dict of stream chunks for consecutive read access of files."""
 
-    def __init__(self, acd_client):
+    def __init__(self, acd_client, open_chunk_limit, timeout):
         self.acd_client = acd_client
         self.lock = Lock()
-        self.files = defaultdict(ReadProxy.ReadFile)
+        self.files = defaultdict(lambda: ReadProxy.ReadFile(open_chunk_limit, timeout))
 
     class StreamChunk(object):
         """StreamChunk represents a file node chunk as a streamed ranged HTTP response
@@ -112,18 +136,19 @@ class ReadProxy(object):
         """Represents a file opened for reading.
         Encapsulates at most :attr:`MAX_CHUNKS_PER_FILE` open chunks."""
 
-        __slots__ = ('chunks', 'access', 'lock')
+        __slots__ = ('chunks', 'access', 'lock', 'timeout')
 
-        def __init__(self):
-            self.chunks = deque(maxlen=MAX_CHUNKS_PER_FILE)
+        def __init__(self, open_chunk_limit, timeout):
+            self.chunks = deque(maxlen=open_chunk_limit)
             self.access = time()
             self.lock = Lock()
+            self.timeout = timeout
 
         def get(self, acd_client, id_, offset, length, total) -> bytes:
             """Gets a byte range from existing StreamChunks"""
 
             with self.lock:
-                i = self.chunks.__len__() - 1
+                i = len(self.chunks) - 1
                 while i >= 0:
                     c = self.chunks[i]
                     if c.has_byte_range(offset, length):
@@ -138,7 +163,12 @@ class ReadProxy(object):
             try:
                 with self.lock:
                     chunk = ReadProxy.StreamChunk(acd_client, id_, offset,
-                                                  CHUNK_SZ, timeout=CHUNK_TIMEOUT)
+                                                  acd_client._conf.getint('transfer',
+                                                                          'dl_chunk_size'),
+                                                  timeout=self.timeout)
+                    if len(self.chunks) == self.chunks.maxlen:
+                        self.chunks[0].close()
+
                     self.chunks.append(chunk)
                     return chunk.get(length)
             except RequestError as e:
@@ -157,7 +187,7 @@ class ReadProxy(object):
     def get(self, id_, offset, length, total):
         with self.lock:
             f = self.files[id_]
-            return f.get(self.acd_client, id_, offset, length, total)
+        return f.get(self.acd_client, id_, offset, length, total)
 
     def invalidate(self):
         pass
@@ -172,19 +202,19 @@ class ReadProxy(object):
 class WriteProxy(object):
     """Collection of WriteStreams for consecutive file write operations."""
 
-    def __init__(self, acd_client, cache):
+    def __init__(self, acd_client, cache, buffer_size, timeout):
         self.acd_client = acd_client
         self.cache = cache
-        self.files = defaultdict(WriteProxy.WriteStream)
+        self.files = defaultdict(lambda: WriteProxy.WriteStream(buffer_size, timeout))
 
     class WriteStream(object):
         """A WriteStream is a binary file-like object that is backed by a Queue.
         It will remember its current offset."""
 
-        __slots__ = ('q', 'offset', 'error', 'closed', 'done')
+        __slots__ = ('q', 'offset', 'error', 'closed', 'done', 'timeout')
 
-        def __init__(self):
-            self.q = Queue(maxsize=WRITE_BUFFER_SZ)
+        def __init__(self, buffer_size, timeout):
+            self.q = Queue(maxsize=buffer_size)
             """a queue that buffers written blocks"""
             self.offset = 0
             """the beginning fpos"""
@@ -193,6 +223,7 @@ class WriteProxy(object):
             self.closed = False
             self.done = Event()
             """done event is triggered when file is successfully read and transferred"""
+            self.timeout = timeout
 
         def write(self, data: bytes):
             """Writes data into queue.
@@ -202,7 +233,7 @@ class WriteProxy(object):
             if self.error:
                 raise FuseOSError(errno.EREMOTEIO)
             try:
-                self.q.put(data, timeout=WRITE_TIMEOUT)
+                self.q.put(data, timeout=self.timeout)
             except QueueFull:
                 logger.error('Write timeout.')
                 raise FuseOSError(errno.ETIMEDOUT)
@@ -341,21 +372,6 @@ class ACDFuse(LoggingMixIn, Operations):
     """FUSE filesystem operations class for Amazon Cloud Drive.
     See `<http://fuse.sourceforge.net/doxygen/structfuse__operations.html>`_."""
 
-    class XATTRS(object):
-        """Generic extended node attributes"""
-        ID = 'acd.id'
-        DESCR = 'acd.description'
-
-        @classmethod
-        def vars(cls):
-            """Returns list of manually added member variables."""
-            return [getattr(cls, x) for x in set(dir(cls)) - set(dir(type('', (object,), {})))
-                    if not callable(getattr(cls, x))]
-
-    class FXATTRS(XATTRS):
-        """Extended file attributes"""
-        MD5 = 'acd.md5'
-
     def __init__(self, **kwargs):
         """Calculates ACD usage and starts autosync process.
 
@@ -364,17 +380,31 @@ class ACDFuse(LoggingMixIn, Operations):
         self.cache = kwargs['cache']
         self.acd_client = kwargs['acd_client']
         autosync = kwargs['autosync']
+        conf = kwargs['conf']
 
-        self.rp = ReadProxy(self.acd_client)
+        self.rp = ReadProxy(self.acd_client, 
+                            conf.getint('read', 'open_chunk_limit'), conf.getint('read', 'timeout'))
         """collection of files opened for reading"""
-        self.wp = WriteProxy(self.acd_client, self.cache)
+        self.wp = WriteProxy(self.acd_client, self.cache, 
+                             conf.getint('write', 'buffer_size'), conf.getint('write', 'timeout'))
         """collection of files opened for writing"""
-        self.total, _ = self.acd_client.fs_sizes()
+        try:
+            total, _ = self.acd_client.fs_sizes()
+        except RequestError:
+            logger.warning('Error getting account quota data. '
+                           'Cannot determine total and available disk space.')
+            total = 0
+
+        self.total = total
         """total disk space"""
-        self.free = self.total - self.cache.calculate_usage()
-        """manually determined free space (differs from available quota value)"""
+        self.free = 0 if not total else total - self.cache.calculate_usage()
+        """manually calculated available disk space"""
         self.fh = 1
-        """next free file handle\n\n :type: int"""
+        """file handle counter\n\n :type: int"""
+        self.handles = {}
+        """map fh->node\n\n :type: dict"""
+        self.fh_lock = Lock()
+        """lock for fh counter increment and handle dict writes"""
         self.nlinks = kwargs.get('nlinks', False)
         """whether to calculate the number of hardlinks for folders"""
 
@@ -404,7 +434,10 @@ class ACDFuse(LoggingMixIn, Operations):
         """Creates a stat-like attribute dict, see :manpage:`stat(2)`.
         Calculates correct number of links for folders if :attr:`nlinks` is set."""
 
-        node = self.cache.resolve(path)
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
@@ -422,42 +455,21 @@ class ACDFuse(LoggingMixIn, Operations):
                         st_size=node.size,
                         **times)
 
-    def listxattr(self, path) -> 'List[str]':
-        """Lists extended node attributes (names)."""
-
-        node = self.cache.resolve(path)
-        if node.is_file:
-            return self.FXATTRS.vars()
-        elif node.is_folder:
-            return self.XATTRS.vars()
-
-    def getxattr(self, path, name, position=0) -> bytes:
-        """Gets value of extended attribute ``name``."""
-
-        if name not in self.XATTRS.vars() and name not in self.FXATTRS.vars():
-            raise FuseOSError(errno.ENODATA)
-
-        node = self.cache.resolve(path)
-
-        if name == self.XATTRS.ID:
-            return bytes(node.id, encoding='utf-8')
-        elif name == self.XATTRS.DESCR:
-            return bytes(node.description if node.description else '', encoding='utf-8')
-        elif name == self.FXATTRS.MD5:
-            return bytes(node.md5, encoding='utf-8')
-
-        raise FuseOSError(errno.ENODATA)
-
     def read(self, path, length, offset, fh) -> bytes:
-        """Read ```length`` bytes from ``path`` att ``offset``."""
+        """Read ```length`` bytes from ``path`` at ``offset``."""
 
-        node = self.cache.resolve(path, trash=False)
-
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path, trash=False)
         if not node:
             raise FuseOSError(errno.ENOENT)
 
-        if node.size == 0 or node.size == offset:
+        if node.size <= offset:
             return b''
+
+        if node.size < offset + length:
+            length = node.size - offset
 
         return self.rp.get(node.id, offset, length, node.size)
 
@@ -531,10 +543,13 @@ class ACDFuse(LoggingMixIn, Operations):
         try:
             r = self.acd_client.create_file(name, p.id)
             self.cache.insert_node(r)
+            node = self.cache.get_node(r['id'])
         except RequestError as e:
             FuseOSError.convert(e)
 
-        self.fh += 1
+        with self.fh_lock:
+            self.fh += 1
+            self.handles[self.fh] = node
         return self.fh
 
     def rename(self, old, new):
@@ -589,7 +604,7 @@ class ACDFuse(LoggingMixIn, Operations):
             self.cache.insert_node(r)
 
     def open(self, path, flags) -> int:
-        """Sloppily opens a file.
+        """Opens a file.
 
         :param flags: flags defined as in :manpage:`open(2)`
         :returns: file handle"""
@@ -597,8 +612,12 @@ class ACDFuse(LoggingMixIn, Operations):
         if (flags & os.O_APPEND) == os.O_APPEND:
             raise FuseOSError(errno.EFAULT)
 
-        # TODO: check flags
-        self.fh += 1
+        node = self.cache.resolve(path, False)
+        if not node:
+            raise FuseOSError(errno.ENOENT)
+        with self.fh_lock:
+            self.fh += 1
+            self.handles[self.fh] = node
         return self.fh
 
     def write(self, path, data, offset, fh) -> int:
@@ -606,11 +625,7 @@ class ACDFuse(LoggingMixIn, Operations):
 
         :returns: number of bytes written"""
 
-        if offset == 0:
-            n = self.cache.resolve(path, False)
-            node_id = n.id
-        else:
-            node_id = ''
+        node_id = self.handles[fh].id
         self.wp.write(node_id, fh, offset, data)
         return len(data)
 
@@ -619,29 +634,43 @@ class ACDFuse(LoggingMixIn, Operations):
         self.wp.flush(fh)
 
     def truncate(self, path, length, fh=None):
-        """Pseudo-truncates a file, i.e. clears content if ``length`` ==0 or does nothing
+        """Pseudo-truncates a file, i.e. clears content if ``length``==0 or does nothing
         if ``length`` is equal to current file size.
 
         :raises FuseOSError: if pseudo-truncation to length is not supported"""
 
-        n = self.cache.resolve(path)
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path)
+        if not node:
+            raise FuseOSError(errno.ENOENT)
+
         if length == 0:
             try:
-                r = self.acd_client.clear_file(n.id)
+                r = self.acd_client.clear_file(node.id)
             except RequestError as e:
                 raise FuseOSError.convert(e)
             else:
                 self.cache.insert_node(r)
         elif length > 0:
-            if n.size != length:
+            if node.size != length:
                 raise FuseOSError(errno.ENOSYS)
 
     def release(self, path, fh):
         """Releases an open ``path``."""
-        node = self.cache.resolve(path, trash=False)
+
+        if fh:
+            node = self.handles[fh]
+        else:
+            node = self.cache.resolve(path, trash=False)
         if node:
             self.rp.release(node.id)
             self.wp.release(fh)
+            with self.fh_lock:
+                del self.handles[fh]
+        else:
+            raise FuseOSError(errno.ENOENT)
 
     def utimens(self, path, times=None):
         """Not functional. Should set node atime and mtime to values as passed in ``times``
@@ -676,12 +705,15 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
         logger.critical('Mountpoint does not exist or already used.')
         return 1
 
-    FUSE(ACDFuse(**args), path,
-         auto_cache=True, sync_read=True,
-         uid=os.getuid(), gid=os.getgid(),
-         subtype=ACDFuse.__name__,
-         **kwargs
-         )
+    opts = dict(auto_cache=True, sync_read=True)
+    if sys.platform == 'linux':
+        opts['big_writes']=True
+
+    kwargs.update(opts)
+
+    args['conf'] = get_conf(args['settings_path'], _SETTINGS_FILENAME, _def_conf)
+
+    FUSE(ACDFuse(**args), path, subtype=ACDFuse.__name__, **kwargs)
 
 
 def unmount(path=None, lazy=False) -> int:
@@ -701,7 +733,7 @@ def unmount(path=None, lazy=False) -> int:
         umount_cmd = ['umount']
     if lazy:
         if system == 'linux':
-            umount_cmd.append('-l')
+            umount_cmd.append('-z')
         else:
             logging.warning('Lazy unmounting is not supported on your platform.')
 

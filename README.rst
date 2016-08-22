@@ -3,13 +3,13 @@
 acd\_cli
 ========
 
-**acd\_cli** provides a command line interface to Amazon Cloud Drive and allows mounting your
-cloud drive using FUSE for read and write access. It is currently in beta stage.
+**acd\_cli** provides a command line interface to Amazon Drive and allows Unix users to mount
+their drive using FUSE for read and (sequential) write access. It is currently in beta stage.
 
 Node Cache Features
 -------------------
 
-- caching of local node metadata in an SQLite database
+- local caching of node metadata in an SQLite database
 - addressing of remote nodes via a pathname (e.g. ``/Photos/kitten.jpg``)
 - file search
 
@@ -32,7 +32,7 @@ File Operations
 Documentation
 -------------
 
-The full documentation is available at `<https://acd-cli.readthedocs.org>`_.
+The full documentation is available at `<https://acd-cli.readthedocs.io>`_.
 
 Quick Start
 -----------
@@ -44,13 +44,13 @@ Have a look at the `known issues`_, then follow the `setup guide <docs/setup.rst
 CLI Usage Example
 -----------------
 
-In this example, a two-level folder hierarchy is created in an empty cloud drive.
+In this example, a two-level folder hierarchy is created in an empty drive.
 Then, a relative local path ``local/spam`` is uploaded recursively using two connections.
 ::
 
     $ acd_cli sync
-      Syncing...
-      Done.
+      Getting changes...
+      Inserting nodes..
 
     $ acd_cli ls /
       [PHwiEv53QOKoGFGqYNl8pw] [A] /
@@ -101,9 +101,15 @@ Recent Changes
   0.3.2
   ~~~~~
   * added ``--remove-source-files`` argument to upload action
-  * added ``--times``` argument to download action
+  * added ``--times``` argument to download action for preservation of modification times
   * added streamed overwrite action
   * fixed upload of directories containing broken symlinks
+  * disabled FUSE autosync by default
+  * added timeout handling for uploads of large files
+  * fixed exit status >=256
+  * added config files
+  * added syncing to/from file
+  * fixed download of files with failed (incomplete) chunks
 
 0.3.1
 ~~~~~
@@ -135,6 +141,7 @@ Recent Changes
 
 0.2.0
 ~~~~~
+
 * setuptools support
 * workaround for download of files larger than 10 GiB
 * automatic resuming of downloads

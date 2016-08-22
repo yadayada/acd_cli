@@ -1,8 +1,11 @@
+import configparser
 import logging
 import os
 import re
 import sqlite3
 from threading import local
+
+from acdcli.utils.conf import get_conf
 
 from .cursors import *
 from .format import FormatterMixin
@@ -12,7 +15,15 @@ from .sync import SyncMixin
 
 logger = logging.getLogger(__name__)
 
-_ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder"'
+_ROOT_ID_SQL = 'SELECT id FROM nodes WHERE name IS NULL AND type == "folder" ORDER BY created'
+
+
+_SETTINGS_FILENAME = 'cache.ini'
+
+_def_conf = configparser.ConfigParser()
+_def_conf['sqlite'] = dict(filename='nodes.db', busy_timeout=30000, journal_mode='wal')
+_def_conf['blacklist'] = dict(folders= [])
+
 
 
 class IntegrityError(Exception):
@@ -24,7 +35,7 @@ class IntegrityError(Exception):
 
 
 def _create_conn(path: str) -> sqlite3.Connection:
-    c = sqlite3.connect(path, timeout=60)
+    c = sqlite3.connect(path)
     c.row_factory = sqlite3.Row # allow dict-like access on rows with col name
     return c
 
@@ -36,17 +47,17 @@ def _regex_match(pattern: str, cell: str) -> bool:
 
 
 class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
-    _DB_FILENAME = 'nodes.db'
-
     IntegrityCheckType = dict(full=0, quick=1, none=2)
     """types of SQLite integrity checks"""
 
-    def __init__(self, path: str='', check=IntegrityCheckType['full']):
-        self.db_path = os.path.join(path, self._DB_FILENAME)
+    def __init__(self, cache_path: str='', settings_path='', check=IntegrityCheckType['full']):
+        self._conf = get_conf(settings_path, _SETTINGS_FILENAME, _def_conf)
+
+        self.db_path = os.path.join(cache_path, self._conf['sqlite']['filename'])
         self.tl = local()
 
-        self.init()
         self.integrity_check(check)
+        self.init()
 
         self._conn.create_function('REGEXP', _regex_match.__code__.co_argcount, _regex_match)
 
@@ -63,11 +74,22 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
 
             self.root_id = first_id
 
+        self._execute_pragma('busy_timeout', self._conf['sqlite']['busy_timeout'])
+        self._execute_pragma('journal_mode', self._conf['sqlite']['journal_mode'])
+
     @property
     def _conn(self) -> sqlite3.Connection:
         if not hasattr(self.tl, '_conn'):
             self.tl._conn = _create_conn(self.db_path)
         return self.tl._conn
+
+    def _execute_pragma(self, key, value) -> str:
+        with cursor(self._conn) as c:
+            c.execute('PRAGMA %s=%s;' % (key, value))
+            r = c.fetchone()
+        if r:
+            logger.debug('Set %s to %s. Result: %s.' % (key, value, r[0]))
+            return r[0]
 
     def remove_db_file(self) -> bool:
         """Removes database file."""
@@ -76,10 +98,10 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
         import os
         import random
         import string
-        tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
-        tmp_name = os.path.join(os.path.basename(self.db_path), tmp_name)
+        import tempfile
 
-        logger.info(tmp_name)
+        tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
+        tmp_name = os.path.join(tempfile.gettempdir(), tmp_name)
 
         try:
             os.rename(self.db_path, tmp_name)

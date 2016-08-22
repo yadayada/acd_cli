@@ -9,9 +9,12 @@ import datetime
 
 from .cursors import cursor
 
-colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
-colors = dict(c.split('=') for c in colors)
-# colors is now a mapping of 'type': 'color code' or '*.ext' : 'color code'
+try:
+    colors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
+    colors = dict(c.split('=') for c in colors)
+    # colors is now a mapping of 'type': 'color code' or '*.ext' : 'color code'
+except:
+    colors = {}
 
 seq_tpl = '\x1B[%sm'
 res = seq_tpl % colors.get('rs', '')  # reset code
@@ -90,6 +93,15 @@ class FormatterMixin(object):
             return nor_fmt % str(self.num_children(node.id)).rjust(7 if not size_bytes else 11)
         return ''
 
+    def file_entry(self, file, long=False, size_bytes=False) -> str:
+        return '[{}] [{}] {}{}{}'.format(
+            nor_fmt % file.id,
+            color_status(file.status),
+            (self.size_nlink_str(file, size_bytes=size_bytes) + ' ') if long else '',
+            (date_str(file.modified) + ' ') if long else '',
+            color_path(file.name)
+        )
+
     def ls_format(self, folder_id, folder_path=None, recursive=False,
                   trash_only=False, trashed_children=False,
                   long=False, size_bytes=False) -> 'Generator[str]':
@@ -102,17 +114,12 @@ class FormatterMixin(object):
         else:
             folders, files = self.list_children(folder_id, trashed_children)
 
-        for file in files:
-            yield '[{}] [{}] {}{}{}'.format(
-                nor_fmt % file.id,
-                color_status(file.status),
-                (self.size_nlink_str(file, size_bytes=size_bytes) + ' ') if long else '',
-                (date_str(file.modified) + ' ') if long else '',
-                color_path(file.name)
-            )
+        if recursive:
+            for file in files:
+                yield self.file_entry(file, long, size_bytes)
 
-        if recursive and files and folders:
-            yield ''
+            if files and folders:
+                yield ''
 
         is_first = True
         for folder in folders:
@@ -135,21 +142,29 @@ class FormatterMixin(object):
                                         recursive, False, trashed_children, long, size_bytes):
                     yield n
 
+        if not recursive:
+            for file in files:
+                yield self.file_entry(file, long, size_bytes)
 
-    def tree_format(self, node, path, trash=False, depth=0) -> 'Generator[str]':
+    def tree_format(self, node, path, trash=False, dir_only=False,
+                    depth=0, max_depth=None) -> 'Generator[str]':
         """A simple tree formatter that indicates parentship by indentation
         (i.e. does not display graphical branches like :program:`tree`)."""
 
         indent = ' ' * 4 * depth
         yield indent + color_path(node.simple_name)
+        if max_depth is not None and depth >= max_depth:
+            return
 
         indent += ' ' * 4
         folders, files = self.list_children(node.id, trash)
         for folder in folders:
-            for line in self.tree_format(folder, '', trash, depth + 1):
+            for line in self.tree_format(folder, '', trash, dir_only, depth + 1, max_depth):
                 yield line
-        for file in files:
-            yield indent + color_path(file.simple_name)
+
+        if not dir_only:
+            for file in files:
+                yield indent + color_path(file.simple_name)
 
     @staticmethod
     def id_format(nodes) -> 'Generator[str]':

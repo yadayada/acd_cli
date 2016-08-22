@@ -4,16 +4,11 @@ import random
 import logging
 from threading import Lock, local
 
+from requests.exceptions import RequestException
+
 from .common import *
 
 logger = logging.getLogger(__name__)
-
-CONN_TIMEOUT = 30
-"""timeout for establishing a connection"""
-IDLE_TIMEOUT = 60
-"""read timeout"""
-REQUESTS_TIMEOUT = (CONN_TIMEOUT, IDLE_TIMEOUT) if requests.__version__ >= '2.4.0' else IDLE_TIMEOUT
-"""http://docs.python-requests.org/en/latest/user/advanced/#timeouts"""
 
 
 class BackOffRequest(object):
@@ -22,12 +17,19 @@ class BackOffRequest(object):
     Caution: this catches all connection errors and may stall for a long time.
     It is necessary to init this module before use."""
 
-    def __init__(self, auth_callback: 'requests.auth.AuthBase'):
-        """:arg auth_callback: callable object that attaches auth info to a request"""
+    def __init__(self, auth_callback: 'requests.auth.AuthBase', timeout: 'Tuple[int, int]', proxies: dict={}):
+        """:arg auth_callback: callable object that attaches auth info to a request
+           :arg timeout: tuple of connection timeout and idle timeout \
+                         (http://docs.python-requests.org/en/latest/user/advanced/#timeouts)
+           :arg proxies: dict of protocol to proxy, \
+                         see http://docs.python-requests.org/en/master/user/advanced/#proxies
+        """
 
         self.auth_callback = auth_callback
+        self.timeout = timeout if requests.__version__ >= '2.4.0' else timeout[1]
+        self.proxies = proxies
 
-        # __session = None
+        self.__session = requests.session()
         self.__thr_local = local()
         self.__lock = Lock()
         self.__retries = 0
@@ -70,8 +72,6 @@ class BackOffRequest(object):
         :param acc_codes: list of HTTP status codes that indicate a successful request
         :param kwargs: may include additional header: dict and timeout: int"""
 
-        # if not self.__session:
-        #     self.__session = requests.session()
         self._wait()
 
         headers = {}
@@ -93,14 +93,28 @@ class BackOffRequest(object):
             timeout = kwargs['timeout']
             del kwargs['timeout']
         else:
-            timeout = REQUESTS_TIMEOUT
+            timeout = self.timeout
 
+        r = None
+        exc = False
         try:
-            r = requests.request(type_, url, auth=self.auth_callback,
-                                 headers=headers, timeout=timeout, **kwargs)
+            try:
+                r = self.__session.request(type_, url, auth=self.auth_callback,
+                                           proxies=self.proxies, headers=headers, timeout=timeout,
+                                           **kwargs)
+            except RequestException as e:
+                r = e.request
+                raise
         except:
+            exc = True
             self._failed()
             raise
+        finally:
+            if r and 'x-amzn-RequestId' in r.headers:
+                if (exc or r.status_code not in acc_codes):
+                    logger.info('Failed x-amzn-RequestId: %s' % r.headers['x-amzn-RequestId'])
+                else:
+                    logger.debug('x-amzn-RequestId: %s' % r.headers['x-amzn-RequestId'])
 
         self._succeeded() if r.status_code in acc_codes else self._failed()
         return r

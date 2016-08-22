@@ -40,8 +40,8 @@ The following actions are built in
         quota (q)           show drive quota [raw JSON]
         metadata (m)        print a node's metadata [raw JSON]
 
-        mount               mount the cloud drive at a local directory
-        umount              unmount cloud drive(s)
+        mount               mount the drive at a local directory
+        umount              unmount drive(s)
 
 Please run ``acd_cli --help`` to get a current list of the available actions. A list of further
 arguments of an action and their order can be printed by calling ``acd_cli [action] --help``.
@@ -99,4 +99,7 @@ name collision                2048
 error deleting source file    4096
 ===========================  =======
 
-If multiple errors occur, their values will be compounded by a binary OR operation.
+If multiple errors occur, their respective flag values will be compounded into the exit
+status value by a binary OR operation. Because exit status values may not be larger than 255,
+flags 256 and above cannot be returned via exit status. 
+A warning message will be displayed at the end of execution if those errors occured.

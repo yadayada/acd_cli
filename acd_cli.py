@@ -9,8 +9,10 @@ import signal
 import time
 import re
 import appdirs
-from functools import partial
+
 from collections import namedtuple
+from configparser import ConfigParser
+from functools import partial
 from multiprocessing import Event
 
 from pkgutil import walk_packages
@@ -21,6 +23,7 @@ from acdcli.api import client
 from acdcli.api.common import RequestError, is_valid_id
 from acdcli.cache import format, db
 from acdcli.utils import hashing, progress
+from acdcli.utils.conf import get_conf
 from acdcli.utils.threading import QueuedLoader
 from acdcli.utils.time import *
 
@@ -48,18 +51,33 @@ sp = os.environ.get('ACD_CLI_SETTINGS_PATH')
 CACHE_PATH = cp if cp else appdirs.user_cache_dir(_app_name)
 SETTINGS_PATH = sp if sp else appdirs.user_config_dir(_app_name)
 
-if not os.path.isdir(CACHE_PATH):
-    try:
-        os.makedirs(CACHE_PATH, mode=0o0700)  # private data
-    except OSError:
-        logger.critical('Error creating cache directory "%s"' % CACHE_PATH)
-        sys.exit(1)
+_SETTINGS_FILENAME = _app_name + '.ini'
+
+paths = {CACHE_PATH: True, SETTINGS_PATH: False}  # path:str : critical:bool
+
+for path in paths:
+    if not os.path.isdir(path):
+        try:
+            os.makedirs(path, mode=0o0700)  # private data
+        except OSError:
+            err_msg = 'Error creating directory "%s".'
+            if paths[path]:
+                logger.critical(err_msg % path)
+                sys.exit(1)
+            else:
+                logger.warning(err_msg % path)
+
+def_conf = ConfigParser()
+def_conf['download'] = dict(keep_corrupt=False, keep_incomplete=True)
+conf = None
 
 # consts
 
 MIN_AUTOSYNC_INTERVAL = 60
 MAX_LOG_SIZE = 10 * 2 ** 20
 MAX_LOG_FILES = 5
+
+TIMESTAMP_FORMAT = "%Y-%m-%d_%H:%M:%S"
 
 # return values
 
@@ -109,22 +127,41 @@ class CacheConsts(object):
     MAX_AGE = 30
 
 
-def sync_node_list(full=False) -> 'Union[int, None]':
+def sync_node_list(full=False, to_file=None, from_file=None) -> 'Union[int, None]':
     global cache
     cp_ = cache.KeyValueStorage.get(CacheConsts.CHECKPOINT_KEY) if not full else None
 
-    if full:
-        cache.drop_all()
-        cache.init()
+    print('Getting changes', end='', flush=True)
+
+    if from_file:
+        f = open(from_file, 'rb')
+    else:
+        f = acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_), silent=False,
+                                   file=to_file if to_file else None)
+
+        if to_file:
+            f.close()
+            return
 
     try:
-        for changeset in acd_client.get_changes(checkpoint=cp_, include_purged=bool(cp_)):
-            if changeset.reset and not full:
+        first = True
+
+        for changeset in acd_client._iter_changes_lines(f):
+            if to_file:
+                if first:
+                    out = open(to_file, 'wb')
+                out.write(b'%s\n' % str(changeset))
+                continue
+
+            if changeset.reset or (full and first):
                 cache.drop_all()
                 cache.init()
                 full = True
             else:
                 cache.remove_purged(changeset.purged_nodes)
+
+            if first:
+                print('Inserting nodes', end='', flush=True)
 
             if len(changeset.nodes) > 0:
                 cache.insert_nodes(changeset.nodes, partial=not full)
@@ -133,6 +170,9 @@ def sync_node_list(full=False) -> 'Union[int, None]':
             if len(changeset.nodes) > 0 or len(changeset.purged_nodes) > 0:
                 cache.KeyValueStorage.update({CacheConsts.CHECKPOINT_KEY: changeset.checkpoint})
 
+            print('.', end='', flush=True)
+            first = False
+
     except RequestError as e:
         print(e)
         if e.CODE == RequestError.CODE.INCOMPLETE_RESULT:
@@ -140,6 +180,11 @@ def sync_node_list(full=False) -> 'Union[int, None]':
         else:
             logger.critical('Sync failed.')
         return ERROR_RETVAL
+    finally:
+        if not first:
+            print()
+        if to_file:
+            out.close()
 
 
 def old_sync() -> 'Union[int, None]':
@@ -186,7 +231,7 @@ def autosync(interval: int, stop: Event = None):
 
 RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
 STD_RETRY_RETVALS = [UL_DL_FAILED]
-
+DL_RETRY_RETVALS = [UL_DL_FAILED, HASH_MISMATCH]
 
 def retry_on(ret_vals: 'List[int]'):
     """Retry decorator that sets the wrapped function's progress handler argument according to its
@@ -213,6 +258,10 @@ def retry_on(ret_vals: 'List[int]'):
 
     return wrap
 
+#
+# things to do on successful transfer
+#
+
 
 def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     if hash1 != hash2:
@@ -223,7 +272,16 @@ def compare_hashes(hash1: str, hash2: str, file_name: str) -> int:
     return 0
 
 
-def remove_source_file(path: str) -> int:
+def compare_sizes(size1: int, size2: int, file_name: str) -> int:
+    if size1 != size2:
+        logger.error('Size mismatch between local and remote file for "%s".' % file_name)
+        return SIZE_MISMATCH
+
+    logger.debug('Local and remote sizes match for "%s".' % file_name)
+    return 0
+
+
+def remove_file(path: str) -> int:
     try:
         os.remove(path)
     except OSError:
@@ -234,21 +292,22 @@ def remove_source_file(path: str) -> int:
     return 0
 
 
-def upload_complete(node: dict, path: str, hash_: str, rsf: bool) -> int:
+def upload_complete(node: dict, path: str, hash_: str, size_: int, rsf: bool) -> int:
     cache.insert_node(node)
     node = cache.get_node(node['id'])
 
-    match = compare_hashes(hash_, node.md5, path)
+    match = (compare_hashes(hash_, node.md5, path) |
+             compare_sizes(size_, node.size, path) if size_ is not None else 0)
     if match != 0:
         return match
 
     if rsf:
-        return remove_source_file(path)
+        return remove_file(path)
 
     return 0
 
 
-def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
+def upload_timeout(parent_id: str, path: str, hash_: str, size_: int, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
         time.sleep(60)
@@ -256,23 +315,51 @@ def upload_timeout(parent_id: str, path: str, hash_: str, rsf: bool) -> int:
         l = acd_client.list_children(parent_id)
         for n in l:
             if os.path.basename(path) == n['name']:
-                return upload_complete(n, path, hash_, rsf)
+                return upload_complete(n, path, hash_, size_, rsf)
 
     logger.warning('Timeout while uploading "%s".' % path)
     return UL_TIMEOUT
 
 
-def overwrite_timeout(initial_node: dict, path: str, hash_: str, rsf: bool) -> int:
+def overwrite_timeout(initial_node: dict, path: str, hash_: str, size_: int, rsf: bool) -> int:
     minutes = 10
     while minutes > 0:
         time.sleep(60)
         minutes -= 1
         n = acd_client.get_metadata(initial_node['id'])
         if n['version'] > initial_node['version']:
-            return upload_complete(n, path, hash_, rsf)
+            return upload_complete(n, path, hash_, size_, rsf)
 
     logger.warning('Timeout while overwriting "%s".' % path)
     return UL_TIMEOUT
+
+
+def download_complete(node: 'Node', path: str, hash_: str, rsf: bool):
+    md5_match = compare_hashes(node.md5, hash_, node.name)
+    if md5_match != 0:
+        if not conf.getboolean('download', 'keep_corrupt'):
+            return md5_match | remove_file(path)
+        else:
+            os.rename(path, '%s_%s' % (path, datetime.now().strftime(TIMESTAMP_FORMAT)))
+            return md5_match
+
+    size_match = compare_sizes(node.size, os.path.getsize(path), path)
+    if size_match != 0:
+        return size_match
+
+    if rsf:
+        try:
+            r = acd_client.move_to_trash(node.id)
+            cache.insert_node(r)
+        except RequestError as e:
+            print(e)
+            return ERROR_RETVAL
+
+    return 0
+
+#
+# Transfer job creation and actual transfer
+#
 
 
 def create_upload_jobs(dirs: list, path: str, parent_id: str, overwr: bool, force: bool,
@@ -373,9 +460,10 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         nodes = cache.find_by_md5(hashing.hash_file(path))
         nodes = [n for n in cache.path_format(nodes)]
         if len(nodes) > 0:
-            # print('Skipping upload of duplicate file "%s".' % short_nm)
-            logger.info('Location of duplicates: %s' % nodes)
+            logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s' % (short_nm, nodes))
             pg_handler.done()
+            if rsf:
+                return remove_file(path)
             return DUPLICATE
 
     conflicting_node = cache.get_conflicting_node(short_nm, parent_id)
@@ -396,6 +484,7 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     if not file_id:
         logger.info('Uploading %s' % path)
         hasher = hashing.IncrementalHasher()
+        local_size = os.path.getsize(path)
         try:
             r = acd_client.upload_file(path, parent_id,
                                        read_callbacks=[hasher.update, pg_handler.update],
@@ -413,18 +502,14 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-                upload_timeout(parent_id, path, hasher.get_result(), rsf)
+                return upload_timeout(parent_id, path, hasher.get_result(), local_size, rsf)
             else:
                 logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
                 return UL_DL_FAILED
         else:
-            return upload_complete(r, path, hasher.get_result(), rsf)
+            return upload_complete(r, path, hasher.get_result(), local_size, rsf)
 
     # else: file exists
-    if not overwr and not force:
-        logger.info('Skipping upload of existing file "%s".' % short_nm)
-        pg_handler.done()
-        return 0
 
     rmod = datetime_to_timestamp(conflicting_node.modified)
     rmod = datetime.utcfromtimestamp(rmod)
@@ -433,11 +518,24 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
     logger.debug('Remote mtime: %s, local mtime: %s, local ctime: %s' % (rmod, lmod, lcre))
 
+    if not overwr and not force:
+        logger.info('Skipping upload of existing file "%s".' % short_nm)
+        pg_handler.done()
+        
+        if not rsf:
+            return 0
+
+        if not compare_sizes(os.path.getsize(path), conflicting_node.size, short_nm):
+            return remove_file(path)
+        
+        logger.info('Keeping "%s" because of remote size mismatch.' % path)
+        return 0
+
+
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
             or force:
-        return overwrite(parent_id, file_id, path, dedup=dedup, rsf=rsf,
-                         pg_handler=pg_handler).ret_val
+        return overwrite(file_id, path, dedup=dedup, rsf=rsf, pg_handler=pg_handler).ret_val
     elif not force:
         logger.info('Skipping upload of "%s" because of mtime or ctime and size.' % short_nm)
         pg_handler.done()
@@ -445,21 +543,27 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
 
 @retry_on(STD_RETRY_RETVALS)
-def overwrite(parent_id: str, node_id: str, local_file: str, dedup=False, rsf=False,
+def overwrite(node_id: str, local_file: str, dedup=False, rsf=False,
               pg_handler: progress.FileProgress = None) -> RetryRetVal:
     hasher = hashing.IncrementalHasher()
+    local_size = os.path.getsize(local_file)
+
+    initial_node = acd_client.get_metadata(node_id)
+
+    logger.info('Overwriting "%s" with "%s".' % (node_id, local_file))
+
     try:
         r = acd_client.overwrite_file(node_id, local_file,
                                       read_callbacks=[hasher.update, pg_handler.update],
                                       deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return upload_timeout(parent_id, local_file, hasher.get_result(), rsf)
+            return overwrite_timeout(initial_node, local_file, hasher.get_result(), local_size, rsf)
 
-        logger.error('Error overwriting file. %s' % str(e))
+        logger.error('Error overwriting "%s". %s' % (node_id, str(e)))
         return UL_DL_FAILED
     else:
-        return upload_complete(r, local_file, hasher.get_result(), rsf)
+        return upload_complete(r, local_file, hasher.get_result(), local_size, rsf)
 
 
 @retry_on([])
@@ -469,10 +573,13 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
     child = cache.get_child(parent_id, file_name)
     log_fname = 'stream/' + file_name
 
-    initial_node = acd_client.get_metadata(child.id)
+    if child and not overwr:
+        logger.warning('Skipping streamed upload because file "%s" exists.' % file_name)
+        return 0
 
     try:
-        if child and overwr:
+        if child:
+            initial_node = acd_client.get_metadata(child.id)
             r = acd_client.overwrite_stream(stream, child.id,
                                             read_callbacks=[hasher.update, pg_handler.update])
         else:
@@ -481,14 +588,17 @@ def upload_stream(stream, file_name, parent_id, overwr=False, dedup=False,
                                          deduplication=dedup)
     except RequestError as e:
         if e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
-            return overwrite_timeout(initial_node, log_fname, hasher.get_result(), False)
+            if child:
+                return overwrite_timeout(initial_node, log_fname, hasher.get_result(), None, False)
+            else:
+                return upload_timeout(parent_id, log_fname, hasher.get_result(), None, False)
         logger.error('Error uploading stream. %s' % str(e))
         return UL_DL_FAILED
     else:
-        return upload_complete(r, log_fname, hasher.get_result(), False)
+        return upload_complete(r, log_fname, hasher.get_result(), None, False)
 
 
-def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
+def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool, rsf: bool,
                    exclude: 'List[re._pattern_type]', jobs: list) -> int:
     """Appends download partials for folder/file node pointed to by *node_id*
     to the **jobs** list."""
@@ -500,7 +610,7 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
         return 0
 
     if node.is_folder:
-        return traverse_dl_folder(node, local_path, preserve_mtime, exclude, jobs)
+        return traverse_dl_folder(node, local_path, preserve_mtime, rsf, exclude, jobs)
 
     loc_name = node.name
 
@@ -518,13 +628,13 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool,
         return 0
 
     prog = progress.FileProgress(node.size)
-    fo = partial(download_file, node_id, local_path, preserve_mtime, pg_handler=prog)
+    fo = partial(download_file, node_id, local_path, preserve_mtime, rsf, pg_handler=prog)
     jobs.append(fo)
 
     return 0
 
 
-def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool,
+def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool, rsf: bool,
                        exclude: 'List[re._pattern_type', jobs: list) -> int:
     """Duplicates remote folder structure."""
 
@@ -547,14 +657,14 @@ def traverse_dl_folder(node: 'Node', local_path: str, preserve_mtime: bool,
     folders, files = sorted(folders), sorted(files)
 
     for file in files:
-        ret_val |= create_dl_jobs(file.id, curr_path, preserve_mtime, exclude, jobs)
+        ret_val |= create_dl_jobs(file.id, curr_path, preserve_mtime, rsf, exclude, jobs)
     for folder in folders:
-        ret_val |= traverse_dl_folder(folder, curr_path, preserve_mtime, exclude, jobs)
+        ret_val |= traverse_dl_folder(folder, curr_path, preserve_mtime, rsf, exclude, jobs)
     return ret_val
 
 
-@retry_on(STD_RETRY_RETVALS)
-def download_file(node_id: str, local_path: str, preserve_mtime: bool,
+@retry_on(DL_RETRY_RETVALS)
+def download_file(node_id: str, local_path: str, preserve_mtime: bool, rsf: bool,
                   pg_handler: progress.FileProgress = None) -> RetryRetVal:
     node = cache.get_node(node_id)
     name, md5, size = node.name, node.md5, node.size
@@ -573,7 +683,7 @@ def download_file(node_id: str, local_path: str, preserve_mtime: bool,
             mtime = datetime_to_timestamp(node.modified)
             os.utime(os.path.join(local_path, name), (mtime, mtime))
 
-        return compare_hashes(hasher.get_result(), md5, name)
+        return download_complete(node, os.path.join(local_path, name), hasher.get_result(), rsf)
 
 
 #
@@ -608,11 +718,7 @@ def no_autores_trash_action(func):
 # actual actions
 
 def sync_action(args: argparse.Namespace):
-    print('Syncing...')
-    r = sync_node_list(full=args.full)
-    if not r:
-        print('Done.')
-    return r
+    return sync_node_list(args.full, args.to_file, args.from_file)
 
 
 def old_sync_action(args: argparse.Namespace):
@@ -659,7 +765,8 @@ def tree_action(args: argparse.Namespace):
         logger.critical('Invalid folder.')
         return INVALID_ARG_RETVAL
 
-    for line in cache.tree_format(node, args.node_path, args.include_trash):
+    for line in cache.tree_format(node, args.node_path, trash=args.include_trash,
+                                  dir_only=args.dir_only, max_depth=args.max_depth):
         print(line)
 
 
@@ -711,7 +818,7 @@ def upload_action(args: argparse.Namespace) -> int:
                                       args.deduplicate, args.remove_source_files,
                                       excl_re, args.exclude_path, jobs)
 
-    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
+    ql = QueuedLoader(args.max_connections, args.print_progress, max_retries=args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
@@ -724,7 +831,7 @@ def upload_stream_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
     prog = progress.FileProgress(0)
-    ql = QueuedLoader(max_retries=0)
+    ql = QueuedLoader(print_progress=args.print_progress, max_retries=0)
     job = partial(upload_stream,
                   sys.stdin.buffer, args.name, args.parent, args.overwrite, args.deduplicate,
                   pg_handler=prog)
@@ -739,7 +846,7 @@ def overwrite_action(args: argparse.Namespace) -> int:
         return INVALID_ARG_RETVAL
 
     prog = progress.FileProgress(os.path.getsize(args.file))
-    ql = QueuedLoader(max_retries=args.max_retries)
+    ql = QueuedLoader(print_progress=args.print_progress, max_retries=args.max_retries)
     job = partial(overwrite, args.node, args.file, pg_handler=prog)
     ql.add_jobs([job])
 
@@ -751,9 +858,10 @@ def download_action(args: argparse.Namespace) -> int:
 
     jobs = []
     ret_val = 0
-    ret_val |= create_dl_jobs(args.node, args.path, args.times, excl_re, jobs)
+    ret_val |= create_dl_jobs(args.node, args.path, args.times, args.remove_source_files,
+                              excl_re, jobs)
 
-    ql = QueuedLoader(args.max_connections, max_retries=args.max_retries)
+    ql = QueuedLoader(args.max_connections, args.print_progress, args.max_retries)
     ql.add_jobs(jobs)
 
     return ret_val | ql.start()
@@ -889,7 +997,7 @@ def find_md5_action(args: argparse.Namespace) -> int:
     if len(args.md5) != 32:
         logger.critical('Invalid MD5 specified')
         return INVALID_ARG_RETVAL
-    nodes = cache.find_by_md5(args.md5)
+    nodes = cache.find_by_md5(args.md5.lower())
     for line in cache.long_id_format(nodes):
         print(line)
 
@@ -971,10 +1079,12 @@ def mount_action(args: argparse.Namespace):
 
     import acdcli.acd_fuse
     acdcli.acd_fuse.mount(args.path, dict(acd_client=acd_client, cache=cache,
-                                          nlinks=args.nlinks, autosync=asp),
+                                          nlinks=args.nlinks, autosync=asp,
+                                          settings_path=SETTINGS_PATH),
                           ro=args.read_only, foreground=args.foreground,
                           nothreads=args.single_threaded,
                           nonempty=args.nonempty, modules=args.modules,
+                          umask=args.umask,gid=args.gid,uid=args.uid,
                           allow_root=args.allow_root, allow_other=args.allow_other)
 
 
@@ -1145,6 +1255,9 @@ def get_parser() -> tuple:
                        help='set the maximum number of retries '
                             '[default: 0, maximum: %i]' % QueuedLoader.MAX_RETRIES)
 
+    quiet = Argument('--quiet', '-q', action='store_false', dest='print_progress',
+                     help='do not display the progress indicator')
+
     opt_parser = argparse.ArgumentParser(
         prog=_app_name, formatter_class=argparse.RawTextHelpFormatter,
         epilog='Hints: \n'
@@ -1182,11 +1295,15 @@ def get_parser() -> tuple:
     vers_sp.set_defaults(func=print_version_action)
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
-                                    help='[+] refresh node list cache; fetches complete node list'
-                                         'if cache is empty or incremental changes '
-                                         'if cache is non-empty')
+                                    help='[+] refresh node list cache; fetches complete node list '
+                                         'if the cache is empty or incremental changes '
+                                         'if the cache is non-empty')
     sync_sp.add_argument('--full', '-f', action='store_true',
                          help='perform a full sync even if the node list is not empty')
+    sync_sp.add_argument('--to-file', help='do not update the cache, but instead write the changes'
+                                           ' into the file specified')
+    sync_sp.add_argument('--from-file', help='update the cache using the contents '
+                                             'of the file specified')
     sync_sp.set_defaults(func=sync_action)
 
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
@@ -1199,6 +1316,8 @@ def get_parser() -> tuple:
     tree_sp = subparsers.add_parser('tree', aliases=['t'],
                                     help='[+] print directory tree [offline operation]')
     tree_sp.add_argument('--include-trash', '-t', action='store_true')
+    tree_sp.add_argument('--dir-only', '-d', action='store_true')
+    tree_sp.add_argument('--max-depth', '-L', type=int)
     tree_sp.add_argument('node', nargs='?', default='/', help='root folder for the tree')
     tree_sp.set_defaults(func=tree_action)
 
@@ -1255,14 +1374,18 @@ def get_parser() -> tuple:
     upload_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='exclude duplicate files from upload')
     upload_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
-                           help='remove local files on successful upload')
+                           help='remove local files on successful upload or if a remote file'
+                                ' of the same size exists in the upload path or'
+                                ' -d is used and a duplicate exists')
+    quiet.attach(upload_sp)
     upload_sp.add_argument('path', nargs='+', help='a path to a local file or directory')
     upload_sp.add_argument('parent', default='/', help='remote parent folder')
     upload_sp.set_defaults(func=upload_action)
 
     overwrite_sp = subparsers.add_parser('overwrite', aliases=['ov'], help=
-    'overwrite file A [remote] with content of file B [local]')
+                                         'overwrite file A [remote] with content of file B [local]')
     max_ret.attach(overwrite_sp)
+    quiet.attach(overwrite_sp)
     overwrite_sp.add_argument('node')
     overwrite_sp.add_argument('file')
     overwrite_sp.set_defaults(func=overwrite_action)
@@ -1272,6 +1395,7 @@ def get_parser() -> tuple:
     stream_sp.add_argument('--overwrite', '-o', action='store_true')
     stream_sp.add_argument('--deduplicate', '-d', action='store_true',
                            help='prevent duplicates from getting stored after upload')
+    quiet.attach(stream_sp)
     stream_sp.add_argument('name', help='the remote file name')
     stream_sp.add_argument('parent', help='remote parent folder')
     stream_sp.set_defaults(func=upload_stream_action)
@@ -1281,6 +1405,9 @@ def get_parser() -> tuple:
                                              'will skip existing local files')
     download_sp.add_argument('--times', '-t', action='store_true',
                              help='preserve modification times')
+    download_sp.add_argument('--remove-source-files', '-rsf', action='store_true',
+                             help='remove remote files on successful download')
+    quiet.attach(download_sp)
     download_sp.add_argument('node')
     download_sp.add_argument('path', nargs='?', default=None,
                              help='local download directory [optional]')
@@ -1352,6 +1479,9 @@ def get_parser() -> tuple:
     meta_sp.add_argument('node')
     meta_sp.set_defaults(func=metadata_action)
 
+    def_umask = os.umask(0)
+    os.umask(def_umask)
+
     fuse_sp = subparsers.add_parser('mount', help='[+] mount the cloud drive at a local directory')
     fuse_sp.add_argument('--read-only', '-ro', action='store_true', help='mount read-only')
     fuse_sp.add_argument('--foreground', '-fg', action='store_true', help='do not detach')
@@ -1363,11 +1493,20 @@ def get_parser() -> tuple:
                          help='allow access to root user')
     fuse_sp.add_argument('--allow-other', '-ao', action='store_true',
                          help='allow access to other users')
+    fuse_sp.add_argument('--umask', action='store', default=def_umask,
+                         help='override the permission bits (umask) set by the filesystem (octet)')
+    if os.name == 'nt':
+        pass
+    else:
+        fuse_sp.add_argument('--uid', action='store', default=os.getuid(),
+                             help='override the uid field set by the filesystem (numeric)')
+        fuse_sp.add_argument('--gid', action='store', default=os.getgid(),
+                             help='override the gid field set by the filesystem (numeric)')
     fuse_sp.add_argument('--modules', action='store', default='',
                          help='add iconv or subdir modules')
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
-    fuse_sp.add_argument('--interval', '-i', type=int, default=60,
-                         help='sync every x seconds [default: 60, off: 0]')
+    fuse_sp.add_argument('--interval', '-i', type=int, default=0,
+                         help='sync every x seconds [turned off by default]')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 
@@ -1416,19 +1555,23 @@ def main():
     for msg in plugin_log:
         logger.info(msg)
 
+    logger.info('Settings path is "%s".' % SETTINGS_PATH)
+
+    conf = get_conf(SETTINGS_PATH, _SETTINGS_FILENAME, def_conf)
+
     global acd_client
     global cache
 
     if args.func not in offline_actions:
         try:
-            acd_client = client.ACDClient(CACHE_PATH)
+            acd_client = client.ACDClient(CACHE_PATH, SETTINGS_PATH)
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
 
     if args.func not in nocache_actions:
         try:
-            cache = db.NodeCache(CACHE_PATH, args.check)
+            cache = db.NodeCache(CACHE_PATH, SETTINGS_PATH, args.check)
         except:
             raise
             sys.exit(INIT_FAILED_RETVAL)
@@ -1454,7 +1597,15 @@ def main():
     # call appropriate sub-parser action
     if args.func:
         logger.debug(args)
-        sys.exit(args.func(args))
+
+        ret = args.func(args)
+        if not ret:
+            sys.exit()
+
+        trunc_ret = ret % 256
+        if trunc_ret != ret:
+            logger.warning('Return value error code: %i.' % ret)
+        sys.exit(trunc_ret if trunc_ret > 0 else ERROR_RETVAL)
 
 
 if __name__ == "__main__":

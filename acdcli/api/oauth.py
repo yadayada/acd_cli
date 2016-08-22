@@ -5,6 +5,8 @@ import time
 import logging
 import webbrowser
 import datetime
+import random
+import string
 from requests.auth import AuthBase
 from urllib.parse import urlparse, parse_qs
 from threading import Lock
@@ -120,11 +122,22 @@ class OAuthHandler(AuthBase):
     def write_oauth_data(self):
         """Dumps (treated) OAuth dict to file as JSON."""
 
-        f = open(self.oauth_data_path, 'w')
+        new_nm = self.oauth_data_path + ''.join(random.choice(string.hexdigits) for _ in range(8))
+        rm_nm = self.oauth_data_path + ''.join(random.choice(string.hexdigits) for _ in range(8))
+
+        f = open(new_nm, 'w')
         json.dump(self.oauth_data, f, indent=4, sort_keys=True)
         f.flush()
         os.fsync(f.fileno())
         f.close()
+
+        if os.path.isfile(self.oauth_data_path):
+            os.rename(self.oauth_data_path, rm_nm)
+        os.rename(new_nm, self.oauth_data_path)
+        try:
+            os.remove(rm_nm)
+        except OSError:
+            pass
 
     def refresh_auth_token(self):
         """Fetches a new access token using the refresh token."""

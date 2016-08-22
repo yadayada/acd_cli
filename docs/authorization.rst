@@ -2,6 +2,7 @@ Authorization
 -------------
 
 Before you can use the program, you will have to complete the OAuth procedure with Amazon.
+It is necessary to have a Web browser installed in order to do so.
 There is a fast and simple way and a secure way.
 
 Simple (Appspot)
@@ -43,7 +44,7 @@ you will be redirected to your browser's error page. Just copy the URL
 (e.g. ``http://localhost/?code=AbCdEfGhIjKlMnOpQrSt&scope=clouddrive%3Aread_all+clouddrive%3Awrite``)
 into the console.
 
-Changing authorization methods
+Changing Authorization Methods
 ++++++++++++++++++++++++++++++
 
 If you want to change between authorization methods, go to your cache path (it is stated in the

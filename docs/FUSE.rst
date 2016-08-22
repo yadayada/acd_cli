@@ -4,8 +4,10 @@ FUSE module
 Status
 ------
 
-The FUSE support is still in its early stage and may be
-(`prone to bugs <https://github.com/yadayada/acd_cli/labels/FUSE>`_).
+The FUSE module will never provide anything as good and reliable as a local filesystem. 
+See the `bug tracker <https://github.com/yadayada/acd_cli/labels/FUSE>`_ for issues that
+may occur. 
+
 acd\_cli's FUSE module has the following filesystem features implemented:
 
 =====================  ===========
@@ -38,15 +40,15 @@ Symbolic links           ❌ [#]_
 Usage
 -----
 
-The command to mount the (root of the) cloud drive to the empty directory ``path/to/mountpoint`` is
+The command to mount the (root of the) Amazon Drive to the empty directory ``path/to/mountpoint`` is
 ::
 
-    acd_cli mount path/to/mountpoint
+    acd_cli -nl mount path/to/mountpoint
 
-A cloud drive folder may be mounted similarly, by
+A non-root folder may be mounted similarly, by
 ::
 
-    acd_cli mount --modules="subdir,subdir=/folder" path/to/mountpoint
+    acd_cli -nl mount --modules="subdir,subdir=/folder" path/to/mountpoint
 
 Unmounting is usually achieved by the following command
 ::
@@ -57,10 +59,18 @@ If the mount is busy, Linux users can use the ``--lazy`` (``-z``) flag.
 There exists a convenience action ``acd_cli umount`` that unmounts all ACDFuse mounts on
 Linux and Mac OS.
 
-Mount options
+.. NOTE::
+    Changes made to your Amazon Drive not using acd\_cli will no longer be synchronized
+    automatically. See the ``--interval`` option below to re-enable automatic synchronization.
+
+.. WARNING::
+    Using acd_cli's CLI commands (e.g. upload or sync) while having the drive mounted
+    may lead to errors or corruption of the node cache.
+
+Mount Options
 ~~~~~~~~~~~~~
 
-For further information on the most of the options below, see your mount.fuse man page.
+For further information on the most of the options below, see your :manpage:`mount.fuse(8)` man page.
 
 To convert the node's standard character set (UTF-8) to the system locale, the modules argument
 may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
@@ -68,22 +78,27 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --allow-other, -ao        allow all users to access the mountpoint (may need extra configuration)
 --allow-root, -ar         allow the root user to access the mountpoint (may need extra configuration)
 --foreground, -fg         do not detach process until filesystem is destroyed (blocks)
+--gid GID                 override the group ID (defaults to the user's gid)
 --interval INT, -i INT    set the node cache sync (refresh) interval to INT seconds
 --nlinks, -n              calculate the number of links for folders (slower)
 --nonempty, -ne           allow mounting to a non-empty mount point
 --read-only, -ro          disallow write operations (does not affect cache refresh)
 --single-threaded, -st    disallow multi-threaded FUSE operations
+--uid UID                 override the user ID (defaults to the user's uid)
+--umask UMASK             override the standard permission bits
 
-Automatic remount
+Automatic Remount
 ~~~~~~~~~~~~~~~~~
 
+It is advisable to wait until your network connection is up before you try to run the mount command.
+
 Linux users may use the systemd service file from the assets directory
-to have the clouddrive automatically remounted on login.
+to have the drive automatically remounted on login.
 Alternative ways are to add a crontab entry using the ``@reboot`` keyword or to add an
 fstab entry like so:
 ::
 
-  acdmount    /mount/point    fuse    defaults    0   0
+  acdmount    /mount/point    fuse    _netdev    0    0
 
 
 For this to work, an executable shell script /usr/bin/acdmount must be created
@@ -91,10 +106,7 @@ For this to work, an executable shell script /usr/bin/acdmount must be created
   
   #!/bin/bash
 
-  acd_cli mount $1
-
-Please make sure your network connection is up before these commands are executed
-or the mount will fail.
+  acd_cli mount -nl $1
 
 Library Path
 ~~~~~~~~~~~~
@@ -110,8 +122,8 @@ This is particularly helpful if the libfuse library is properly installed, but n
 Deleting Nodes
 ~~~~~~~~~~~~~~
 
-"Deleting" directories or files from the file system will only trash them in your cloud drive.
-Calling rmdir on a directory will always move it into the trash, even if it is not empty.
+"Deleting" directories or files from the file system will in reality trash them in Amazon Drive.
+Calling ``rmdir`` on a directory will always move it into the trash, even if it is not empty.
 
 Logging
 ~~~~~~~

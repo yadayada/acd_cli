@@ -3,6 +3,7 @@
 import json
 import logging
 import http.client
+import tempfile
 from collections import namedtuple
 
 from .common import *
@@ -32,9 +33,10 @@ class MetadataMixin(object):
     def get_trashed_files(self) -> list:
         return self.get_node_list(filters='status:TRASH AND kind:FILE')
 
-    def get_changes(self, checkpoint='', include_purged=False) -> 'Generator[ChangeSet]':
-        """ Generates a ChangeSet for each checkpoint in changes response. See
-        `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_."""
+    def get_changes(self, checkpoint='', include_purged=False, silent=True, file=None):
+        """Writes changes into a (temporary) file. See
+        `<https://developer.amazon.com/public/apis/experience/cloud-drive/content/changes>`_.
+        """
 
         logger.info('Getting changes with checkpoint "%s".' % checkpoint)
 
@@ -48,9 +50,18 @@ class MetadataMixin(object):
             r.close()
             raise RequestError(r.status_code, r.text)
 
+        if file:
+            tmp = open(file, 'w+b')
+        else:
+            tmp = tempfile.TemporaryFile('w+b')
         try:
-            for cs in self._iter_changes_lines(r):
-                yield cs
+            for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
+                if line:
+                    tmp.write(line + b'\n')
+                    if not silent:
+                        print('.', end='', flush=True)
+            if not silent:
+                print()
         except (http.client.IncompleteRead, requests.exceptions.ChunkedEncodingError) as e:
             logger.info(str(e))
             raise RequestError(RequestError.CODE.INCOMPLETE_RESULT,
@@ -59,23 +70,29 @@ class MetadataMixin(object):
             raise
         finally:
             r.close()
+            tmp.seek(0)
+            return tmp
 
     @staticmethod
-    def _iter_changes_lines(r: requests.Response) -> 'Generator[ChangeSet]':
-        """Generates a ChangeSet per line in changes response
+    def _iter_changes_lines(f) -> 'Generator[ChangeSet]':
+        """Generates a ChangeSet per line in passed file
 
         the expected return format should be:
         {"checkpoint": str, "reset": bool, "nodes": []}
         {"checkpoint": str, "reset": false, "nodes": []}
-        {"end": true}"""
+        {"end": true}
+
+        :arg f: opened file with current position at the beginning of a changeset
+        :throws: RequestError
+        """
 
         end = False
         pages = -1
 
-        for line in r.iter_lines(chunk_size=10 * 1024 ** 2, decode_unicode=False):
-            # filter out keep-alive new lines
+        while True:
+            line = f.readline()
             if not line:
-                continue
+                break
 
             reset = False
             pages += 1
@@ -121,7 +138,11 @@ class MetadataMixin(object):
             logger.warning('End of change request not reached.')
 
     def get_metadata(self, node_id: str, assets=False, temp_link=True) -> dict:
-        """Gets a node's metadata."""
+        """Gets a node's metadata.
+
+        :arg assets: also include asset info (e.g. thumbnails) if the node is a file
+        :arg temp_link: include a temporary download link if the node is a file
+        """
         params = {'tempLink': 'true' if temp_link else 'false',
                   'asset': 'ALL' if assets else 'NONE'}
         r = self.BOReq.get(self.metadata_url + 'nodes/' + node_id, params=params)

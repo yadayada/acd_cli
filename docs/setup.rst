@@ -73,7 +73,7 @@ Building deb/rpm packages
 
 You will need to have `fpm <https://github.com/jordansissel/fpm>`_ installed to build packages.
 
-There is a `Makefile <../assets/Makefile>`_ that includes commands to build Debian packages
+There is a Makefile in the assets directory that includes commands to build Debian packages
 (``make deb``) or RedHat packages (``make rpm``). It will also build the required 
 requests-toolbelt package.
 fpm may also be able to build packages for other distributions or operating systems.
@@ -90,19 +90,27 @@ You will find the current path settings in the output of ``acd_cli -v init``.
 The cache path is where acd\_cli stores OAuth data, the node cache, logs etc. You
 may override the cache path by setting the ``ACD_CLI_CACHE_PATH`` environment variable.
 
-.. The settings path is where various configuration files are stored.
-   The default path may be overriden the ``ACD_CLI_SETTINGS_PATH`` environment variable.
+The settings path is where various configuration files are stored (refer to the 
+:doc:`configuration section <configuration>`).
+The default path may be overriden by setting the ``ACD_CLI_SETTINGS_PATH`` environment variable.
 
 Proxy support
 ~~~~~~~~~~~~~
  
 `Requests <https://github.com/kennethreitz/requests>`_ supports HTTP(S) proxies via environment
-variables. Since all connections to Amazon Cloud Drive are using HTTPS, you need to
+variables. Since all connections to Amazon Drive are using HTTPS, you need to
 set the variable ``HTTPS_PROXY``. The following example shows how to do that in a bash-compatible
 environment.
 ::
 
     export HTTPS_PROXY="https://user:pass@1.2.3.4:8080/"
+
+You can also use HTTP proxies supporting CONNECT method:
+::
+
+    export HTTPS_PROXY="http://1.2.3.4:8888/"
+
+Another way to permanently set the proxy is via configuration file.
 
 Locale
 ~~~~~~
@@ -126,13 +134,10 @@ Under normal circumstances, it should not be necessary to install the dependenci
 
 - `appdirs <https://github.com/ActiveState/appdirs>`_
 - `colorama <https://github.com/tartley/colorama>`_
-- `dateutils <https://github.com/paxan/python-dateutil>`_ (recommended)
+- `dateutils <https://github.com/paxan/python-dateutil>`_
 - `requests <https://github.com/kennethreitz/requests>`_ >= 2.1.0
-- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_ (recommended)
+- `requests-toolbelt <https://github.com/sigmavirus24/requests-toolbelt>`_
 - `sqlalchemy <https://bitbucket.org/zzzeek/sqlalchemy/>`_
-
-Recommended packages are not strictly necessary; but they will be preferred to
-workarounds (in the case of dateutils) and bundled modules (requests-toolbelt).
 
 If you want to the dependencies using your distribution's packaging system and
 are using a distro based on Debian 'jessie', the necessary packages are
@@ -147,5 +152,5 @@ and node data in the cache path. Then, use pip to uninstall
 
     pip3 uninstall acdcli
 
-Then, revoke the permission for ``acd_cli_oa`` to access your cloud drive in your Amazon profile,
+Then, revoke the permission for ``acd_cli_oa`` to access your drive in your Amazon profile,
 more precisely at https://www.amazon.com/ap/adam.

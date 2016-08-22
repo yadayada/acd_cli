@@ -3,18 +3,10 @@ Syncs Amazon Node API objects with SQLite database.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from itertools import islice
 from .cursors import mod_cursor
-
-try:
-    import dateutil.parser as iso_date
-except ImportError:
-    # noinspection PyPep8Naming
-    class iso_date(object):
-        @staticmethod
-        def parse(str_: str):
-            return datetime.strptime(str_, '%Y-%m-%dT%H:%M:%S.%fZ')
+import dateutil.parser as iso_date
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +55,16 @@ class SyncMixin(object):
                 continue
             kind = node['kind']
             if kind == 'FILE':
+                if not 'name' in node or not node['name']:
+                    logger.warning('Skipping file %s because its name is empty.' % node['id'])
+                    continue
                 files.append(node)
             elif kind == 'FOLDER':
+                if (not 'name' in node or not node['name']) \
+                and (not 'isRoot' in node or not node['isRoot']):
+                    logger.warning('Skipping non-root folder %s because its name is empty.'
+                                   % node['id'])
+                    continue
                 folders.append(node)
             elif kind != 'ASSET':
                 logger.warning('Cannot insert unknown node type "%s".' % kind)

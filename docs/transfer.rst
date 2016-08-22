@@ -72,33 +72,41 @@ it exists.
 
 This action outputs the content of a file to standard output.
 
-Abort/Resume
-------------
-
-Incomplete file downloads will be resumed automatically. Aborted file uploads are not resumable
-at the moment.
-
-Folder or directory hierarchies that were created for a transfer do not need to be recreated when
-resuming a transfer.
-
-Retry
+Hints
 -----
 
-Failed upload, download and overwrite actions allow retries on error
-by specifying the ``--max-retries|-r`` argument, e.g. ``acd_cli <ACTION> -r MAX_RETRIES``.
+Abort/Resume
+
+    Incomplete file downloads will be resumed automatically. Aborted file uploads are not resumable
+    at the moment.
+
+    Folder or directory hierarchies that were created for a transfer do not need to be recreated when
+    resuming a transfer.
+
+Retry
+
+    Failed upload, download and overwrite actions allow retries on error
+    by specifying the ``--max-retries|-r`` argument, e.g. ``acd_cli <ACTION> -r MAX_RETRIES``.
 
 Exclusion
----------
 
-Files may be excluded from upload or download by regex on their name or by file ending.
-Additionally, paths can be excluded from upload. Regexes and file endings are case-insensitive.
+    Files may be excluded from upload or download by regex on their name or by file ending.
+    Additionally, paths can be excluded from upload. Regexes and file endings are case-insensitive.
 
-It is possible to specify multiple exclusion arguments of the same kind.
+    It is possible to specify multiple exclusion arguments of the same kind.
+
+Remove Source Files
+
+    The ``--remove-source-files|-rsf`` flag is used, local files will be deleted from the filesystem
+
+    #. if the upload succeeds
+    #. if deduplication is enabled and at least one duplicate is found
+    #. if a file of the same name is present in the remote upload path but the file is not to bei
+       overwritten (deletion then only occurs if the file sizes match) 
 
 Deduplication
--------------
 
-Server-side deduplication prevents completely uploaded files from being saved as a node if another
-file with the same MD5 checksum already exists.
-acd\_cli can prevent uploading duplicates by checking local files' sizes and MD5s.
-Empty files are never regarded duplicates.
+    Server-side deduplication prevents completely uploaded files from being saved as a node if another
+    file with the same MD5 checksum already exists.
+    acd\_cli can prevent uploading duplicates by checking local files' sizes and MD5s.
+    Empty files are never regarded duplicates.
