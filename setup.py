@@ -15,6 +15,14 @@ repl = ('`([^`]*?) <(docs/)?(.*?)\.rst>`_',
 version = acdcli.__version__
 StrictVersion(version)
 
+dependencies = ['appdirs', 'colorama', 'fusepy', 'python_dateutil',
+                'requests>=2.1.0,!=2.9.0', 'requests_toolbelt!=0.5.0']
+doc_dependencies = ['sphinx_paramlinks']
+test_dependencies = ['httpretty<0.8.11', 'mock']
+
+if os.environ.get('READTHEDOCS') == 'True':
+    dependencies = doc_dependencies
+
 setup(
     name='acdcli',
     version=version,
@@ -34,10 +42,9 @@ setup(
                   # 'acd_cli.plugins': ['stream = plugins.stream',
                   # 'template = plugins.template']
                   },
-    install_requires=['appdirs', 'colorama', 'fusepy', 'python_dateutil',
-                      'requests>=2.1.0,!=2.9.0', 'requests_toolbelt!=0.5.0'],
-    tests_require=['httpretty<0.8.11', 'mock'],
-    extras_require={'docs': ['sphinx_paramlinks']},
+    install_requires=dependencies,
+    tests_require=test_dependencies,
+    extras_require={'docs': doc_dependencies},
     classifiers=[
         'Environment :: Console',
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)',
@@ -45,6 +52,7 @@ setup(
         'Programming Language :: Python :: 3.2',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3 :: Only',
         'Development Status :: 4 - Beta',
         'Topic :: System :: Archiving :: Backup',
