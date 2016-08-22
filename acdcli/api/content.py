@@ -3,6 +3,7 @@ import os
 import json
 import io
 import mimetypes
+import tempfile
 from collections import OrderedDict
 import logging
 from urllib.parse import quote_plus
@@ -199,6 +200,25 @@ class ContentMixin(object):
         basename = os.path.basename(file_name)
         mime_type = _get_mimetype(basename)
         f = _tee_open(file_name, callbacks=read_callbacks)
+
+        # basename is ignored
+        m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})
+
+        r = self.BOReq.put(self.content_url + 'nodes/' + node_id + '/content', params=params,
+                           data=m, stream=True, headers={'Content-Type': m.content_type})
+
+        if r.status_code not in OK_CODES:
+            raise RequestError(r.status_code, r.text)
+
+        return r.json()
+
+    def overwrite_tempfile(self, node_id: str, file,
+                       read_callbacks: list = None, deduplication=False) -> dict:
+        params = {} if deduplication else {'suppress': 'deduplication'}
+
+        basename = "file.bin"
+        mime_type = _get_mimetype(basename)
+        f = _TeeBufferedReader(file, callbacks=read_callbacks)
 
         # basename is ignored
         m = MultipartEncoder(fields={('content', (quote_plus(basename), f, mime_type))})
