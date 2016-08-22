@@ -105,7 +105,11 @@ Recent Changes
   * added streamed overwrite action
   * fixed upload of directories containing broken symlinks
   * disabled FUSE autosync by default
+  * added timeout handling for uploads of large files
   * fixed exit status >=256
+  * added config files
+  * added syncing to/from file
+  * fixed download of files with failed (incomplete) chunks
 
 0.3.1
 ~~~~~
@@ -137,6 +141,7 @@ Recent Changes
 
 0.2.0
 ~~~~~
+
 * setuptools support
 * workaround for download of files larger than 10 GiB
 * automatic resuming of downloads
