@@ -235,6 +235,11 @@ class WriteProxy(object):
                 self.f.write(bytes_)
                 return old_len
 
+        def length(self):
+            with self.lock:
+                self.f.seek(0, os.SEEK_END)
+                return self.f.tell()
+
         def get_file(self):
             """Return the file for direct access. Be sure to lock from the outside when doing so"""
             self.f.seek(0)
@@ -261,6 +266,11 @@ class WriteProxy(object):
 
         b = self.buffers[node_id]
         b.write(offset, bytes_)
+
+    def length(self, node_id, fh):
+        b = self.buffers.get(node_id)
+        if b:
+            return b.length()
 
     def release(self, node_id, fh):
         """:raises: FuseOSError"""
@@ -388,6 +398,9 @@ class ACDFuse(LoggingMixIn, Operations):
         try: mtime = self._getxattr(node.id, _XATTR_MTIME_OVERRIDE_NAME)
         except: mtime = node.modified.timestamp()
 
+        size = self.wp.length(node.id, fh)
+        if not size: size = node.size
+
         times = dict(st_atime=time(),
                      st_mtime=mtime,
                      st_ctime=node.created.timestamp())
@@ -399,7 +412,7 @@ class ACDFuse(LoggingMixIn, Operations):
         elif node.is_file:
             return dict(st_mode=stat.S_IFREG | 0o0666,
                         st_nlink=self.cache.num_parents(node.id) if self.nlinks else 1,
-                        st_size=node.size,
+                        st_size=size,
                         **times)
 
     def listxattr(self, path):
@@ -504,6 +517,11 @@ class ACDFuse(LoggingMixIn, Operations):
 
         if node.size < offset + length:
             length = node.size - offset
+
+        """If we attempt to read something we just wrote, give it back"""
+        ret = self.wp.read(node.id, fh, offset, length)
+        if ret and len(ret) == length:
+            return ret
 
         return self.rp.get(node.id, offset, length, node.size)
 
