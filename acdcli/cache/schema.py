@@ -4,8 +4,7 @@ from .cursors import *
 
 logger = logging.getLogger(__name__)
 
-# _KeyValueStorage
-
+_DB_SCHEMA_VER = 3
 
 _CREATION_SCRIPT = """
     CREATE TABLE metadata (
@@ -26,15 +25,6 @@ _CREATION_SCRIPT = """
         PRIMARY KEY (id),
         UNIQUE (id),
         CHECK (status IN ('AVAILABLE', 'TRASH', 'PURGED', 'PENDING'))
-    );
-
-    CREATE TABLE properties (
-        id VARCHAR(50) NOT NULL,
-        owner TEXT NOT NULL,
-        key TEXT NOT NULL,
-        value TEXT,
-        PRIMARY KEY (id),
-        FOREIGN KEY(id) REFERENCES nodes (id)
     );
 
     CREATE TABLE labels (
@@ -62,13 +52,35 @@ _CREATION_SCRIPT = """
     );
 
     CREATE INDEX ix_nodes_names ON nodes(name);
-    PRAGMA user_version = 2;
+    PRAGMA user_version = %i;
+    """ % _DB_SCHEMA_VER
+
+_prop_table = """
+    CREATE TABLE properties (
+        id VARCHAR(50) NOT NULL,
+        owner TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (id),
+        FOREIGN KEY(id) REFERENCES nodes (id)
+    );
     """
+
+_CREATION_SCRIPT += _prop_table
 
 _GEN_DROP_TABLES_SQL = \
     'SELECT "DROP TABLE " || name || ";" FROM sqlite_master WHERE type == "table"'
 
+_migrations = []
+"""list of all migrations from index -> index+1"""
 
+
+def migration(func):
+    _migrations.append(func)
+    return func
+
+
+@migration
 def _0_to_1(conn):
     conn.executescript(
         'ALTER TABLE nodes ADD updated DATETIME;'
@@ -77,7 +89,7 @@ def _0_to_1(conn):
     )
     conn.commit()
 
-
+@migration
 def _1_to_2(conn):
     conn.executescript(
         'DROP TABLE IF EXISTS folders;'
@@ -87,14 +99,15 @@ def _1_to_2(conn):
     )
     conn.commit()
 
-
-_migrations = [_0_to_1, _1_to_2]
-"""list of all migrations from index -> index+1"""
+@migration
+def _2_to_3(conn):
+    conn.executescript(
+        _prop_table +
+        'PRAGMA user_version = 3;'
+    );
 
 
 class SchemaMixin(object):
-    _DB_SCHEMA_VER = 2
-
     def init(self):
         try:
             self.create_tables()
@@ -107,7 +120,7 @@ class SchemaMixin(object):
 
         logger.info('DB schema version is %i.' % ver)
 
-        if self._DB_SCHEMA_VER > ver:
+        if _DB_SCHEMA_VER > ver:
             self._migrate(ver)
 
         self.KeyValueStorage = _KeyValueStorage(self._conn)
