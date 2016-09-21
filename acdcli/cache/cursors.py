@@ -21,5 +21,8 @@ class mod_cursor(object):
         return self.cursor
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.conn.commit()
+        if exc_type is None:
+            self.conn.commit()
+        else:
+            self.conn.rollback()
         self.cursor.close()
