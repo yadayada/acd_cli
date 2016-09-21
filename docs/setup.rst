@@ -8,8 +8,8 @@ Check which Python 3 version is installed on your system, e.g. by running
 
 If it is Python 3.2.3, 3.3.0 or 3.3.1, you need to upgrade to a higher minor version.
 
-You may now proceed to install using PIP, your Arch package manager or build Debian/RedHat
-packages.
+You may now proceed to install using PIP, your package manager if you are using
+Arch Linux/Fedora or build Debian/RedHat packages using fpm.
 
 Installation with PIP
 ---------------------
@@ -33,14 +33,15 @@ The recommended and most up-to-date way is to directly install the master branch
 
    pip3 install --upgrade git+https://github.com/yadayada/acd_cli.git
 
-The easiest way is to directly install from PyPI.
+Or use the usual installation method by specifying the PyPI package name. This may not work 
+flawlessly on Windows systems.
 ::
 
    pip3 install --upgrade --pre acdcli
 
 
-PIP Errors
-~~~~~~~~~~
+PIP Errors on Debian
+~~~~~~~~~~~~~~~~~~~~
 
 A version incompatibility may arise with PIP when upgrading the requests package.
 PIP will throw the following error:
@@ -64,9 +65,15 @@ Arch Linux
 ~~~~~~~~~~
 
 There are two packages for Arch Linux in the AUR,
-`acd_cli-git <https://aur4.archlinux.org/packages/acd_cli-git/>`_, which is linked to the
+`acd_cli-git <https://aur.archlinux.org/packages/acd_cli-git/>`_, which is linked to the
 master branch of the GitHub repository, and
 `acd_cli <https://aur.archlinux.org/packages/acd_cli/>`_, which is linked to the PyPI release.
+
+Fedora
+~~~~~~
+
+An official `rpm package <https://admin.fedoraproject.org/pkgdb/package/rpms/acd_cli/>`_ exists
+that may be installed.
 
 Building deb/rpm packages
 ~~~~~~~~~~~~~~~~~~~~~~~~~
