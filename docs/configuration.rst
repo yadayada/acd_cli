@@ -5,6 +5,22 @@ Some module constants may be set in INI-style configuration files. If you want t
 the defaults as described below, create a plain text file for the module using the section heading
 as the file name in the settings directory.
 
+acd\_cli.ini
+------------
+
+::
+
+  [download]
+  ;do not delete corrupt files
+  keep_corrupt = False
+  
+  ;do not delete partially downloaded files
+  keep_incomplete = True
+
+  [upload]
+  ;waiting time for timed-out uploads/overwrittes to appear remotely [minutes]
+  timeout_wait = 10
+
 acd\_client.ini
 ---------------
 

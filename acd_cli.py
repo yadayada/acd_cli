@@ -69,6 +69,7 @@ for path in paths:
 
 def_conf = ConfigParser()
 def_conf['download'] = dict(keep_corrupt=False, keep_incomplete=True)
+def_conf['upload'] = dict(timeout_wait=10)
 conf = None
 
 # consts
@@ -135,7 +136,7 @@ def sync_node_list(full=False, to_file=None, from_file=None) -> 'Union[int, None
 
     wt = min(lst + MIN_SYNC_INTERVAL - time.time(), MIN_SYNC_INTERVAL)
     if lst and wt > 0:
-        print('Last sync was very recent or has invalid date. Waiting %im %is.' 
+        print('Last sync was very recent or has invalid date. Waiting %im %is.'
               % (wt / 60, wt % 60))
         time.sleep(wt)
 
@@ -316,7 +317,7 @@ def upload_complete(node: dict, path: str, hash_: str, size_: int, rsf: bool) ->
 
 
 def upload_timeout(parent_id: str, path: str, hash_: str, size_: int, rsf: bool) -> int:
-    minutes = 10
+    minutes = conf.getint('upload', 'timeout_wait')
     while minutes > 0:
         time.sleep(60)
         minutes -= 1
@@ -330,7 +331,7 @@ def upload_timeout(parent_id: str, path: str, hash_: str, size_: int, rsf: bool)
 
 
 def overwrite_timeout(initial_node: dict, path: str, hash_: str, size_: int, rsf: bool) -> int:
-    minutes = 10
+    minutes = conf.getint('upload', 'timeout_wait')
     while minutes > 0:
         time.sleep(60)
         minutes -= 1
@@ -1565,10 +1566,11 @@ def main():
 
     logger.info('Settings path is "%s".' % SETTINGS_PATH)
 
-    conf = get_conf(SETTINGS_PATH, _SETTINGS_FILENAME, def_conf)
-
     global acd_client
     global cache
+    global conf
+
+    conf = get_conf(SETTINGS_PATH, _SETTINGS_FILENAME, def_conf)
 
     if args.func not in offline_actions:
         try:
