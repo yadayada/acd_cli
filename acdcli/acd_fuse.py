@@ -382,10 +382,10 @@ class ACDFuse(LoggingMixIn, Operations):
         autosync = kwargs['autosync']
         conf = kwargs['conf']
 
-        self.rp = ReadProxy(self.acd_client, 
+        self.rp = ReadProxy(self.acd_client,
                             conf.getint('read', 'open_chunk_limit'), conf.getint('read', 'timeout'))
         """collection of files opened for reading"""
-        self.wp = WriteProxy(self.acd_client, self.cache, 
+        self.wp = WriteProxy(self.acd_client, self.cache,
                              conf.getint('write', 'buffer_size'), conf.getint('write', 'timeout'))
         """collection of files opened for writing"""
         try:
@@ -708,6 +708,9 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
     opts = dict(auto_cache=True, sync_read=True)
     if sys.platform == 'linux':
         opts['big_writes']=True
+
+    if kwargs['volname'] is None:
+        del kwargs['volname']
 
     kwargs.update(opts)
 

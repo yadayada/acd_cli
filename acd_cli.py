@@ -1094,7 +1094,8 @@ def mount_action(args: argparse.Namespace):
                           nothreads=args.single_threaded,
                           nonempty=args.nonempty, modules=args.modules,
                           umask=args.umask,gid=args.gid,uid=args.uid,
-                          allow_root=args.allow_root, allow_other=args.allow_other)
+                          allow_root=args.allow_root, allow_other=args.allow_other,
+                          volname=args.volname)
 
 
 @offline_action
@@ -1516,6 +1517,7 @@ def get_parser() -> tuple:
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
     fuse_sp.add_argument('--interval', '-i', type=int, default=0,
                          help='sync every x seconds [turned off by default]')
+    fuse_sp.add_argument('--volname', '-vn', help='volume name')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 
