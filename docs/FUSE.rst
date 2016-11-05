@@ -86,6 +86,7 @@ may be used, e.g. ``--modules="iconv,to_code=CHARSET"``.
 --single-threaded, -st    disallow multi-threaded FUSE operations
 --uid UID                 override the user ID (defaults to the user's uid)
 --umask UMASK             override the standard permission bits
+--volname VN, -vn VN      set the volume name to VN (Mac OS)
 
 Automatic Remount
 ~~~~~~~~~~~~~~~~~
