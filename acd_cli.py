@@ -1517,7 +1517,7 @@ def get_parser() -> tuple:
     fuse_sp.add_argument('--nlinks', '-n', action='store_true', help='calculate nlinks')
     fuse_sp.add_argument('--interval', '-i', type=int, default=0,
                          help='sync every x seconds [turned off by default]')
-    fuse_sp.add_argument('--volname', '-vn', help='volume name')
+    fuse_sp.add_argument('--volname', '-vn', help='override volume name')
     fuse_sp.add_argument('path')
     fuse_sp.set_defaults(func=mount_action)
 

@@ -706,10 +706,10 @@ def mount(path: str, args: dict, **kwargs) -> 'Union[int, None]':
         return 1
 
     opts = dict(auto_cache=True, sync_read=True)
-    if sys.platform == 'linux':
-        opts['big_writes']=True
+    if sys.platform.startswith('linux'):
+        opts['big_writes'] = True
 
-    if kwargs['volname'] is None:
+    if sys.platform != 'darwin' or kwargs['volname'] is None:
         del kwargs['volname']
 
     kwargs.update(opts)
