@@ -1130,6 +1130,9 @@ def resolve_remote_path_args(args: argparse.Namespace, attrs: list, incl_trash: 
                 setattr(args, id_attr, v.id)
                 setattr(args, id_attr + '_path', val)
             elif is_valid_id(val):
+                if not cache.get_node(val):
+                    logger.critical('Cannot find node with ID "%s".' % val)
+                    sys.exit(INVALID_ARG_RETVAL)
                 setattr(args, id_attr + '_path', cache.first_path(val))
             else:
                 logger.critical('Invalid ID format: "%s".' % val)
