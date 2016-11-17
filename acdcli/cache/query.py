@@ -13,6 +13,12 @@ def datetime_from_string(dt: str) -> datetime:
     return dt
 
 
+CONFLICTING_NODE_SQL = """SELECT n.*, f.* FROM nodes n
+                  JOIN parentage p ON n.id = p.child
+                  LEFT OUTER JOIN files f ON n.id = f.id
+                  WHERE p.parent = (?) AND LOWER(name) = (?) AND status = 'AVAILABLE'
+                  ORDER BY n.name"""
+
 CHILDREN_SQL = """SELECT n.*, f.* FROM nodes n
                   JOIN parentage p ON n.id = p.child
                   LEFT OUTER JOIN files f ON n.id = f.id
@@ -146,10 +152,11 @@ class QueryMixin(object):
 
     def get_conflicting_node(self, name: str, parent_id: str):
         """Finds conflicting node in folder specified by *parent_id*, if one exists."""
-        folders, files = self.list_children(parent_id)
-        for n in folders + files:
-            if n.is_available and n.name.lower() == name.lower():
-                return n
+        with cursor(self._conn) as c:
+            c.execute(CONFLICTING_NODE_SQL, [parent_id, name.lower()])
+            r = c.fetchone()
+            if r:
+                return Node(r)
 
     def resolve(self, path: str, trash=False) -> 'Union[Node|None]':
         segments = list(filter(bool, path.split('/')))
