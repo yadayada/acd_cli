@@ -36,7 +36,7 @@ class ActionTestCase(unittest.TestCase):
         self.cache = db.NodeCache(cache_path)
 
     def tearDown(self):
-        self.cache.remove_db_file()
+        db.NodeCache.remove_db_file(cache_path)
 
     # tests
 

@@ -22,7 +22,7 @@ _SETTINGS_FILENAME = 'cache.ini'
 
 _def_conf = configparser.ConfigParser()
 _def_conf['sqlite'] = dict(filename='nodes.db', busy_timeout=30000, journal_mode='wal')
-_def_conf['blacklist'] = dict(folders= [])
+_def_conf['blacklist'] = dict(folders=[])
 
 
 
@@ -91,22 +91,25 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
             logger.debug('Set %s to %s. Result: %s.' % (key, value, r[0]))
             return r[0]
 
-    def remove_db_file(self) -> bool:
+    @classmethod
+    def remove_db_file(cls, cache_path='', settings_path='') -> bool:
         """Removes database file."""
-        self._conn.close()
 
         import os
         import random
         import string
         import tempfile
 
+        conf = get_conf(settings_path, _SETTINGS_FILENAME, _def_conf)
+        db_path = os.path.join(cache_path, conf['sqlite']['filename'])
+
         tmp_name = ''.join(random.choice(string.ascii_lowercase) for _ in range(16))
         tmp_name = os.path.join(tempfile.gettempdir(), tmp_name)
 
         try:
-            os.rename(self.db_path, tmp_name)
+            os.rename(db_path, tmp_name)
         except OSError:
-            logger.critical('Error renaming/removing database file "%s".' % self.db_path)
+            logger.critical('Error renaming/removing database file "%s".' % db_path)
             return False
         else:
             try:

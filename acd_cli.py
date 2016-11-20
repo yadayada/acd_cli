@@ -757,7 +757,7 @@ def delete_everything_action(args: argparse.Namespace):
 
 @offline_action
 def clear_action(args: argparse.Namespace):
-    if not cache.drop_all():
+    if not db.NodeCache.remove_db_file(CACHE_PATH, SETTINGS_PATH):
         return ERROR_RETVAL
 
 
@@ -1615,7 +1615,7 @@ def main():
 
         ret = args.func(args)
         if not ret:
-            sys.exit()
+            sys.exit(ret)
 
         trunc_ret = ret % 256
         if trunc_ret != ret:

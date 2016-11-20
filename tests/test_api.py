@@ -92,7 +92,8 @@ class APITestCase(unittest.TestCase):
                                     '"nodes": [ {"kind": "FILE", "status": "TRASH"} ], '
                                     '"statusCode": 200}\n'
                                     '{"end": true}')
-        changesets = [c for c in self.acd.get_changes()]
+        tmp = self.acd.get_changes()
+        changesets = [c for c in self.acd._iter_changes_lines(tmp)]
         self.assertEqual(len(changesets), 1)
         changeset = changesets[0]
         self.assertEqual(len(changeset.nodes), 1)
@@ -105,7 +106,8 @@ class APITestCase(unittest.TestCase):
         httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": "foo", "reset": true, "nodes": [], '
                                     '"statusCode": 200}\n')
-        changesets = [c for c in self.acd.get_changes()]
+        tmp = self.acd.get_changes()
+        changesets = [c for c in self.acd._iter_changes_lines(tmp)]
         self.assertEqual(len(changesets), 1)
         changeset = changesets[0]
         self.assertEqual(len(changeset.nodes), 0)
@@ -118,7 +120,8 @@ class APITestCase(unittest.TestCase):
         httpretty.register_uri(httpretty.POST, self.acd.metadata_url + 'changes',
                                body='{"checkpoint": }')
         with self.assertRaises(RequestError):
-            [cs for cs in self.acd.get_changes()]
+            tmp = self.acd.get_changes()
+            [cs for cs in self.acd._iter_changes_lines(tmp)]
 
     #
     # oauth
@@ -140,7 +143,8 @@ class APITestCase(unittest.TestCase):
         os.path.isfile = MagicMock()
         with patch('builtins.open', mock_file, create=True):
             with patch('os.fsync', MagicMock):
-                h = oauth.AppspotOAuthHandler('')
+                with patch('os.rename', MagicMock):
+                    h = oauth.AppspotOAuthHandler('')
 
         mock_file.assert_any_call(oauth.OAuthHandler.OAUTH_DATA_FILE)
         self.assertIn(oauth.OAuthHandler.KEYS.EXP_TIME, h.oauth_data)

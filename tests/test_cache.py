@@ -12,8 +12,7 @@ class CacheTestCase(unittest.TestCase):
         self.cache = db.NodeCache(self.path)
 
     def tearDown(self):
-        self.cache.drop_all()
-        self.cache.remove_db_file()
+        db.NodeCache.remove_db_file(self.path)
 
     def testEmpty(self):
         self.assertEqual(self.cache.get_node_count(), 0)
