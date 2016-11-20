@@ -183,9 +183,9 @@ class QueryMixin(object):
                 if not trash:
                     return
                 if r2:
-                    logger.debug('None-unique trash name "%s" in %s.' %(segment, parent))
+                    logger.debug('None-unique trash name "%s" in %s.' % (segment, parent))
                     return
-            if i + 1 == segments.__len__():
+            if i + 1 == len(segments):
                 return r
             if r.is_folder:
                 parent = r.id

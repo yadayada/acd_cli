@@ -34,6 +34,9 @@ If the sync times out, consider increasing the idle timeout (refer to the
 You may also want to try the deprecated (and undocumented) synchronization method ``acd_cli old-sync`` 
 if you happen to have only up to a few thousand files and folders in total.
 
+If you do not need to synchronize your full Drive hierarchy, consider running a partial sync
+(``psync``).
+
 How Do I Pass a Node ID Starting with ``-`` (dash/minus/hyphen)?
 ----------------------------------------------------------------
 

@@ -206,12 +206,55 @@ def old_sync() -> 'Union[int, None]':
         files = acd_client.get_file_list()
         files.extend(acd_client.get_trashed_files())
     except RequestError as e:
+        logger.error(e)
         logger.critical('Sync failed.')
-        print(e)
         return ERROR_RETVAL
 
     cache.insert_nodes(files + folders, partial=False)
     cache.KeyValueStorage['sync_date'] = time.time()
+
+
+def partial_sync(path: str, recursive: bool) -> 'Union[int|None]':
+    path = '/' + '/'.join(list(filter(bool, path.split('/'))))
+    n = cache.resolve(path, trash=False)
+    fid = None
+
+    if n:
+        fid = n.id
+        n = acd_client.get_metadata(fid)
+        cache.insert_node(n)
+    else:
+        exc = None
+        try:
+            folder_chain = acd_client.resolve_folder_path(path)
+        except RequestError as e:
+            exc = e
+
+        if not folder_chain or exc:
+            if exc:
+                logger.error(e)
+            logger.critical('Could not resolve path "%s".' % path)
+            return INVALID_ARG_RETVAL
+
+        cache.insert_nodes(folder_chain)
+        fid = folder_chain[-1]['id']
+
+    try:
+        children = acd_client.list_children(fid)
+        if recursive:
+            recursive_insert(children)
+        else:
+            cache.insert_nodes(children)
+    except RequestError as e:
+        logger.error("Sync failed: %s" % e)
+        return ERROR_RETVAL
+
+
+def recursive_insert(nodes: 'List[dict]'):
+    cache.insert_nodes(nodes)
+    for n in nodes:
+        if n['kind'] == 'FOLDER':
+            recursive_insert(acd_client.list_children(n['id']))
 
 
 def autosync(interval: int, stop: Event = None):
@@ -241,6 +284,7 @@ def autosync(interval: int, stop: Event = None):
 RetryRetVal = namedtuple('RetryRetVal', ['ret_val', 'retry'])
 STD_RETRY_RETVALS = [UL_DL_FAILED]
 DL_RETRY_RETVALS = [UL_DL_FAILED, HASH_MISMATCH]
+
 
 def retry_on(ret_vals: 'List[int]'):
     """Retry decorator that sets the wrapped function's progress handler argument according to its
@@ -727,12 +771,24 @@ def no_autores_trash_action(func):
 # actual actions
 
 def sync_action(args: argparse.Namespace):
-    return sync_node_list(args.full, args.to_file, args.from_file)
+    ret = sync_node_list(args.full, args.to_file, args.from_file)
+    if cache.get_root_node() or args.to_file:
+        return ret
+    logger.error("Root node not found. Sync may have been incomplete.")
+    return ret | ERROR_RETVAL
 
 
 def old_sync_action(args: argparse.Namespace):
     print('Syncing...')
     r = old_sync()
+    if not r:
+        print('Done.')
+    return r
+
+
+def partial_sync_action(args: argparse.Namespace):
+    print('Syncing...')
+    r = partial_sync(args.path, args.recursive)
     if not r:
         print('Done.')
     return r
@@ -985,7 +1041,7 @@ def restore_action(args: argparse.Namespace) -> int:
 def resolve_action(args: argparse.Namespace) -> int:
     node = cache.resolve(args.path)
     if node:
-        print(node)
+        print(node.id)
     else:
         return INVALID_ARG_RETVAL
 
@@ -1308,7 +1364,7 @@ def get_parser() -> tuple:
     vers_sp.set_defaults(func=print_version_action)
 
     sync_sp = subparsers.add_parser('sync', aliases=['s'],
-                                    help='[+] refresh node list cache; fetches complete node list '
+                                    help='[+] refresh node cache; fetches complete node list '
                                          'if the cache is empty or incremental changes '
                                          'if the cache is non-empty')
     sync_sp.add_argument('--full', '-f', action='store_true',
@@ -1321,6 +1377,12 @@ def get_parser() -> tuple:
 
     old_sync_sp = subparsers.add_parser('old-sync', add_help=False)
     old_sync_sp.set_defaults(func=old_sync_action)
+
+    psync_sp = subparsers.add_parser('psync', help='[+] only refresh the node cache for the '
+                                                   'specified folder [does not include trash]')
+    psync_sp.add_argument('--recursive', '-r', action='store_true')
+    psync_sp.add_argument('path')
+    psync_sp.set_defaults(func=partial_sync_action)
 
     clear_sp = subparsers.add_parser('clear-cache', aliases=['cc'],
                                      help='delete node cache file [offline operation]\n\n')
@@ -1570,6 +1632,7 @@ def main():
         logger.info(msg)
 
     logger.info('Settings path is "%s".' % SETTINGS_PATH)
+    logger.info('Cache path is "%s".' % CACHE_PATH)
 
     global acd_client
     global cache
@@ -1591,7 +1654,7 @@ def main():
             raise
             sys.exit(INIT_FAILED_RETVAL)
 
-        if args.func not in [sync_action, old_sync_action, clear_action]:
+        if args.func not in [sync_action, old_sync_action, partial_sync_action, clear_action]:
             if not check_cache():
                  sys.exit(INIT_FAILED_RETVAL)
             pass

@@ -159,10 +159,8 @@ class MetadataMixin(object):
             raise RequestError(r.status_code, r.text)
         return r.json()
 
-    def get_root_id(self) -> str:
-        """Gets the ID of the root node
-
-        :returns: the topmost folder id"""
+    def get_root_node(self) -> dict:
+        """Gets the root node metadata"""
 
         params = {'filters': 'isRoot:true'}
         r = self.BOReq.get(self.metadata_url + 'nodes', params=params)
@@ -172,11 +170,24 @@ class MetadataMixin(object):
 
         data = r.json()
 
-        if 'id' in data['data'][0]:
-            return data['data'][0]['id']
+        return data['data'][0]
+
+    def get_root_id(self) -> str:
+        """Gets the ID of the root node
+
+        :returns: the topmost folder id"""
+
+        r = self.get_root_node()
+        if 'id' in r['data'][0]:
+            return r['data'][0]['id']
 
     def list_children(self, node_id: str) -> list:
         l = self.BOReq.paginated_get(self.metadata_url + 'nodes/' + node_id + '/children')
+        return l
+
+    def list_child_folders(self, node_id: str) -> list:
+        l = self.BOReq.paginated_get(self.metadata_url + 'nodes/' + node_id + '/children',
+                                     params={'filters': 'kind:FOLDER'})
         return l
 
     def add_child(self, parent_id: str, child_id: str) -> dict:
@@ -274,3 +285,26 @@ class MetadataMixin(object):
                                   % (self.metadata_url, node_id, owner_id, key), acc_codes=ok_codes)
             if r.status_code not in ok_codes:
                 raise RequestError(r.status_code, r.text)
+
+    def resolve_folder_path(self, path: str) -> 'List[dict]':
+        """Resolves a non-trash folder path to a list of folder entries."""
+        segments = list(filter(bool, path.split('/')))
+        folder_chain = []
+
+        root = self.get_root_node()
+        folder_chain.append(root)
+
+        if not segments:
+            return folder_chain
+
+        for i, segment in enumerate(segments):
+            dir_entries = self.list_child_folders(folder_chain[-1]['id'])
+
+            for ent in dir_entries:
+                if ent['status'] == 'AVAILABLE' and ent['name'] == segment:
+                    folder_chain.append(ent)
+                    break
+            if len(folder_chain) != i + 2:
+                return []
+
+        return folder_chain

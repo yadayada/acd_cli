@@ -3,13 +3,15 @@ Usage
 
 acd_cli may be invoked as ``acd_cli`` or ``acdcli``.
 
-Most actions need the node cache to be initialized and up-to-date, so please run a sync.
-A sync will fetch the changes since the last sync or the full node list if the cache is empty.
+Most actions need the node cache to be initialized and up-to-date, so please run a sync. An ordinary
+sync will fetch the changes since the last sync or the full node list if the cache is empty.
+Partially syncing will only fetch the active contents of one folder, optionally recursively.
 
 The following actions are built in
 ::
 
-        sync (s)            refresh node list cache; necessary for many actions
+        sync (s)            refresh node cache; prerequisite for many actions
+        psync               only refresh the contents of the specified folder
         clear-cache (cc)    clear node cache [offline operation]
 
         tree (t)            print directory tree [offline operation]
@@ -102,4 +104,4 @@ error deleting source file    4096
 If multiple errors occur, their respective flag values will be compounded into the exit
 status value by a binary OR operation. Because exit status values may not be larger than 255,
 flags 256 and above cannot be returned via exit status. 
-A warning message will be displayed at the end of execution if those errors occured.
+A warning message will be displayed at the end of execution if those errors occurred.
