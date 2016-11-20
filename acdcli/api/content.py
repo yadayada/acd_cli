@@ -56,6 +56,7 @@ def _stream_is_empty(stream) -> bool:
                      'not contain at least one byte.')
         return False
 
+
 class ContentMixin(object):
     """Implements content portion of the ACD API."""
 
@@ -305,6 +306,12 @@ class ContentMixin(object):
 
         dl_chunk_sz = self._conf.getint('transfer', 'dl_chunk_size')
 
+        seekable = True
+        try:
+            file.tell()
+        except OSError:
+            seekable = False
+
         retries = 0
         while chunk_start < length:
             chunk_end = chunk_start + dl_chunk_sz - 1
@@ -341,7 +348,10 @@ class ContentMixin(object):
                         curr_ln += len(chunk)
             finally:
                 r.close()
-                chunk_start = file.tell()
+                if seekable:
+                    chunk_start = file.tell()
+                else:
+                    chunk_start = chunk_start + curr_ln
 
             retries = 0
 

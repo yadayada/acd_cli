@@ -54,7 +54,7 @@ A folder's JSON looks similar, but it lacks the ``contentProperties`` dictionary
 
 """
 
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 
 # monkey patch the user agent
 try:

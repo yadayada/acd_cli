@@ -32,7 +32,6 @@ _def_conf['proxies'] = dict()
 class ACDClient(AccountMixin, ContentMixin, MetadataMixin, TrashMixin):
     """Provides a client to the Amazon Cloud Drive RESTful interface."""
 
-
     def __init__(self, cache_path='', settings_path=''):
         """Initializes OAuth and endpoints."""
 
