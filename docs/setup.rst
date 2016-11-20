@@ -9,7 +9,7 @@ Check which Python 3 version is installed on your system, e.g. by running
 If it is Python 3.2.3, 3.3.0 or 3.3.1, you need to upgrade to a higher minor version.
 
 You may now proceed to install using PIP, your package manager if you are using
-Arch Linux/Fedora or build Debian/RedHat packages using fpm.
+Arch Linux/Devuan/Fedora or build Debian/RedHat packages using fpm.
 
 Installation with PIP
 ---------------------
@@ -58,7 +58,7 @@ Run these commands to fix it:
 This will remove the distribution's pip3 package and replace it with a version that is compatible
 with the newer requests package.
 
-Installation on Arch/Debian/RedHat
+Installation on Arch/Devuan/Fedora
 ----------------------------------
 
 Arch Linux
@@ -69,6 +69,12 @@ There are two packages for Arch Linux in the AUR,
 master branch of the GitHub repository, and
 `acd_cli <https://aur.archlinux.org/packages/acd_cli/>`_, which is linked to the PyPI release.
 
+Devuan
+~~~~~~
+
+The Devuan package is called "python3-acdcli" and may be installed as usual
+(by running `apt-get install python3-acdcli` as superuser).
+
 Fedora
 ~~~~~~
 
@@ -76,7 +82,7 @@ An official `rpm package <https://admin.fedoraproject.org/pkgdb/package/rpms/acd
 that may be installed.
 
 Building deb/rpm packages
-~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------
 
 You will need to have `fpm <https://github.com/jordansissel/fpm>`_ installed to build packages.
 
