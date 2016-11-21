@@ -775,7 +775,7 @@ def sync_action(args: argparse.Namespace):
     if cache.get_root_node() or args.to_file:
         return ret
     logger.error("Root node not found. Sync may have been incomplete.")
-    return ret | ERROR_RETVAL
+    return ret if ret else 0 | ERROR_RETVAL
 
 
 def old_sync_action(args: argparse.Namespace):
