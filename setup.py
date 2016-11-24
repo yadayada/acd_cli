@@ -16,7 +16,7 @@ version = acdcli.__version__
 StrictVersion(version)
 
 dependencies = ['appdirs', 'colorama', 'fusepy', 'python_dateutil',
-                'requests>=2.1.0,!=2.9.0', 'requests_toolbelt!=0.5.0']
+                'requests>=2.1.0,!=2.9.0,!=2.12.0', 'requests_toolbelt!=0.5.0']
 doc_dependencies = ['sphinx_paramlinks']
 test_dependencies = ['httpretty<0.8.11', 'mock']
 
