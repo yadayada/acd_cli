@@ -126,11 +126,8 @@ class ContentMixin(object):
         mime_type = _get_mimetype(basename)
         f = _tee_open(file_name, callbacks=read_callbacks)
 
-        # basename is ignored
         m = MultipartEncoder(fields=OrderedDict([('metadata', json.dumps(metadata)),
-                                                 (
-                                                     'content',
-                                                     (quote_plus(basename), f, mime_type))]))
+                                                 ('content', ('filename', f, mime_type))]))
 
         ok_codes = [http.CREATED]
         r = self.BOReq.post(self.content_url + 'nodes', params=params, data=m,
