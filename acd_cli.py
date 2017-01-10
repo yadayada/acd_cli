@@ -811,6 +811,7 @@ def delete_everything_action(args: argparse.Namespace):
         print('Deleting directory failed.')
 
 
+@nocache_action
 @offline_action
 def clear_action(args: argparse.Namespace):
     if not db.NodeCache.remove_db_file(CACHE_PATH, SETTINGS_PATH):
