@@ -58,7 +58,10 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
         self.tl = local()
 
         self.integrity_check(check)
-        self.init()
+        try:
+            self.init()
+        except sqlite3.DatabaseError as e:
+            raise IntegrityError(e)
 
         self._conn.create_function('REGEXP', _regex_match.__code__.co_argcount, _regex_match)
 
