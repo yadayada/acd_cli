@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sqlite3
+import sys
 from threading import local
 
 from acdcli.utils.conf import get_conf
@@ -75,7 +76,8 @@ class NodeCache(SchemaMixin, QueryMixin, SyncMixin, FormatterMixin):
             self.root_id = first_id
 
         self._execute_pragma('busy_timeout', self._conf['sqlite']['busy_timeout'])
-        self._execute_pragma('journal_mode', self._conf['sqlite']['journal_mode'])
+        if sys.version_info[:3] != (3, 6, 0):
+            self._execute_pragma('journal_mode', self._conf['sqlite']['journal_mode'])
 
     @property
     def _conn(self) -> sqlite3.Connection:
