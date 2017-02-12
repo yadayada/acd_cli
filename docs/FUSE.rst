@@ -107,7 +107,7 @@ For this to work, an executable shell script /usr/bin/acdmount must be created
   
   #!/bin/bash
 
-  acd_cli mount -nl $1
+  acd_cli -nl mount $1
 
 Library Path
 ~~~~~~~~~~~~
