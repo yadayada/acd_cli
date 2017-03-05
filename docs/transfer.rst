@@ -80,8 +80,8 @@ Abort/Resume
     Incomplete file downloads will be resumed automatically. Aborted file uploads are not resumable
     at the moment.
 
-    Folder or directory hierarchies that were created for a transfer do not need to be recreated when
-    resuming a transfer.
+    Folder or directory hierarchies that were created for a transfer do not need to be recreated 
+    when resuming a transfer.
 
 Retry
 
@@ -101,12 +101,17 @@ Remove Source Files
 
     #. if the upload succeeds
     #. if deduplication is enabled and at least one duplicate is found
-    #. if a file of the same name is present in the remote upload path but the file is not to bei
+    #. if a file of the same name is present in the remote upload path but the file is not to be
        overwritten (deletion then only occurs if the file sizes match) 
 
 Deduplication
 
-    Server-side deduplication prevents completely uploaded files from being saved as a node if another
-    file with the same MD5 checksum already exists.
+    Server-side deduplication prevents completely uploaded files from being saved as a node if
+    another file with the same MD5 checksum already exists.
     acd\_cli can prevent uploading duplicates by checking local files' sizes and MD5s.
     Empty files are never regarded duplicates.
+
+Progress indicator
+
+    To suppress the progress indicator from being displayed on standard output, use the ``--quiet``
+    flag.
