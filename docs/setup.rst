@@ -91,7 +91,6 @@ There is a Makefile in the assets directory that includes commands to build Debi
 requests-toolbelt package.
 fpm may also be able to build packages for other distributions or operating systems.
 
-
 Environment Variables
 ---------------------
 
