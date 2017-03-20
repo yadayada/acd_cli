@@ -101,7 +101,7 @@ Recent Changes
 0.3.2
 ~~~~~
 * added ``--remove-source-files`` argument to upload action
-* added ``--times``` argument to download action for preservation of modification times
+* added ``--times`` argument to download action for preservation of modification times
 * added streamed overwrite action
 * fixed upload of directories containing broken symlinks
 * disabled FUSE autosync by default
