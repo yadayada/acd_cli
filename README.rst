@@ -1,10 +1,6 @@
-+-----------------------------------------------------------------------------+
-|**Please be aware that your private data may end up visible to other users.**|
-+-----------------------------------------------------------------------------+
-
 |Donate| |Gitter| |PyVersion| |Status| |License| |Build| |PyPiVersion|
 
-acd\_cli
+acd\_cli is currently not usable for casual users who are not in posession of a whitelisted security profile. Please do not try to obtain or use other project's security profile details. Also, please use the Gitter chat linked to above.
 ========
 
 **acd\_cli** provides a command line interface to Amazon Drive and allows Unix users to mount
