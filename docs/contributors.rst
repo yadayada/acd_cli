@@ -23,6 +23,8 @@ Thanks to
 
 - `memoz <https://github.com/memoz>`_ for amending proxy documentation
 
+- `gerph <https://github.com/gerph>`_ for making file searches faster, particularly on large repositories
+
 Also thanks to
 
 - `fibersnet <https://github.com/fibersnet>`_ for pointing out a possible deadlock in ACDFuse.
