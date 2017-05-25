@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from setuptools import setup, find_packages
 from distutils.version import StrictVersion
 import acdcli
@@ -15,8 +16,10 @@ repl = ('`([^`]*?) <(docs/)?(.*?)\.rst>`_',
 version = acdcli.__version__
 StrictVersion(version)
 
+requests_py32 = ',<2.11.0' if sys.version_info[0:2] == (3, 2) else ''
+
 dependencies = ['appdirs', 'colorama', 'fusepy', 'python_dateutil',
-                'requests>=2.1.0,!=2.9.0,!=2.12.0', 'requests_toolbelt!=0.5.0']
+                'requests>=2.1.0,!=2.9.0,!=2.12.0%s' % requests_py32, 'requests_toolbelt!=0.5.0']
 doc_dependencies = ['sphinx_paramlinks']
 test_dependencies = ['httpretty<0.8.11', 'mock']
 
@@ -53,6 +56,7 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3 :: Only',
         'Development Status :: 4 - Beta',
         'Topic :: System :: Archiving :: Backup',
