@@ -14,7 +14,7 @@ def get_conf(path, filename, default_conf: configparser.ConfigParser) \
     try:
         with open(conffn) as cf:
             conf.read_file(cf)
-    except OSError:
+    except (OSError, IOError):
         pass
 
     logger.debug('configuration resulting from merging default and %s: %s' % (filename, 
