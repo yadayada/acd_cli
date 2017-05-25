@@ -29,7 +29,7 @@ def create_handler(path: str):
 
 
 class OAuthHandler(AuthBase):
-    OAUTH_DATA_FILE = 'oauth_data'
+    OAUTH_DATA_FILE = 'oauth.json'
 
     class KEYS(object):
         EXP_IN = 'expires_in'
