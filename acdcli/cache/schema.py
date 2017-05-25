@@ -60,7 +60,17 @@ _CREATION_SCRIPT = """
 _GEN_DROP_TABLES_SQL = \
     'SELECT "DROP TABLE " || name || ";" FROM sqlite_master WHERE type == "table"'
 
+_migrations = []
+"""list of all schema migrations"""
 
+
+def _migration(func):
+    """scheme migration annotation; must be used in correct order"""
+    _migrations.append(func)
+    return func
+
+
+@_migration
 def _0_to_1(conn):
     conn.executescript(
         'ALTER TABLE nodes ADD updated DATETIME;'
@@ -70,6 +80,7 @@ def _0_to_1(conn):
     conn.commit()
 
 
+@_migration
 def _1_to_2(conn):
     conn.executescript(
         'DROP TABLE IF EXISTS folders;'
@@ -79,19 +90,15 @@ def _1_to_2(conn):
     )
     conn.commit()
 
+
+@_migration
 def _2_to_3(conn):
     conn.executescript(
         'CREATE INDEX IF NOT EXISTS ix_parentage_child ON parentage(child);'
-        # Having changed the schema, the queries can be optimised differently.
-        # In order to be aware of that, re-analyze the type of data and indexes,
-        # allowing SQLite3 to make better decisions.
-        'ANALYZE;'
+        'REINDEX;'
         'PRAGMA user_version = 3;'
     )
     conn.commit()
-
-_migrations = [_0_to_1, _1_to_2, _2_to_3]
-"""list of all migrations from index -> index+1"""
 
 
 class SchemaMixin(object):
