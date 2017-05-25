@@ -52,8 +52,9 @@ _CREATION_SCRIPT = """
         FOREIGN KEY(child) REFERENCES nodes (id)
     );
 
+    CREATE INDEX ix_parentage_child ON parentage(child);
     CREATE INDEX ix_nodes_names ON nodes(name);
-    PRAGMA user_version = 2;
+    PRAGMA user_version = 3;
     """
 
 _GEN_DROP_TABLES_SQL = \
@@ -78,13 +79,23 @@ def _1_to_2(conn):
     )
     conn.commit()
 
+def _2_to_3(conn):
+    conn.executescript(
+        'CREATE INDEX IF NOT EXISTS ix_parentage_child ON parentage(child);'
+        # Having changed the schema, the queries can be optimised differently.
+        # In order to be aware of that, re-analyze the type of data and indexes,
+        # allowing SQLite3 to make better decisions.
+        'ANALYZE;'
+        'PRAGMA user_version = 3;'
+    )
+    conn.commit()
 
-_migrations = [_0_to_1, _1_to_2]
+_migrations = [_0_to_1, _1_to_2, _2_to_3]
 """list of all migrations from index -> index+1"""
 
 
 class SchemaMixin(object):
-    _DB_SCHEMA_VER = 2
+    _DB_SCHEMA_VER = 3
 
     def init(self):
         try:
