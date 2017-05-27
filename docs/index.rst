@@ -14,6 +14,7 @@ Contents:
    authorization
    usage
    configuration
+   sync
    transfer
    find
    FUSE

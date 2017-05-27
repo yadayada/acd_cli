@@ -27,7 +27,7 @@ You will not have to prepare anything to initiate this authorization method, jus
 run, for example, ``acd_cli init``.
 
 A browser (tab) will open and you will be asked to log into your Amazon account
-or grant access for 'acd\_cli\_oa'.
+or grant access for 'acd-api'.
 Signing in or clicking on 'Continue' will download a JSON file named ``oauth_data``, which must be
 placed in the cache directory displayed on screen (e.g. ``/home/<USER>/.cache/acd_cli``).
 

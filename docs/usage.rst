@@ -8,7 +8,8 @@ sync will fetch the changes since the last sync or the full node list if the cac
 Partially syncing will only fetch the active contents of one folder, optionally recursively.
 
 The following actions are built in
-::
+
+.. code-block:: none
 
         sync (s)            refresh node cache; prerequisite for many actions
         psync               only refresh the contents of the specified folder
@@ -51,8 +52,9 @@ arguments of an action and their order can be printed by calling ``acd_cli [acti
 Most node arguments may be specified as a 22 character ID or a UNIX-style path.
 Trashed nodes' paths might not be able to be resolved correctly; use their ID instead.
 
-There are more detailed instructions for :doc:`file transfer actions <transfer>`,
-:doc:`find actions <find>` and :doc:`FUSE documentation <FUSE>`.
+There are more detailed instructions for :doc:`sycing <sync>`, 
+:doc:`file transfer actions <transfer>`,
+:doc:`find actions <find>` and the :doc:`FUSE module <FUSE>`.
 
 Logs will automatically be saved into the cache directory.
 
