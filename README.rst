@@ -98,6 +98,12 @@ Have a look at the `contributing guidelines <CONTRIBUTING.rst>`_.
 Recent Changes
 --------------
 
+0.3.3 (upcoming)
+~~~~~~~~~~~~~~~~
+
+* stat
+* Appspot OAuth proxy switch
+
 0.3.2
 ~~~~~
 * added ``--remove-source-files`` argument to upload action
