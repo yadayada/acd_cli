@@ -79,6 +79,9 @@ fuse.ini
 --------
 
 ::
+  [fs]
+  ;block size used for size info
+  block_size = 512
 
   [read]
   ;maximal number of simultaneously opened chunks per file

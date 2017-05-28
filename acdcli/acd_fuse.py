@@ -45,6 +45,7 @@ except:
 _SETTINGS_FILENAME = 'fuse.ini'
 
 _def_conf = configparser.ConfigParser()
+_def_conf['fs'] = dict(block_size=512)
 _def_conf['read'] = dict(open_chunk_limit=10, timeout=5)
 _def_conf['write'] = dict(buffer_size = 32, timeout=30)
 
@@ -381,6 +382,7 @@ class ACDFuse(LoggingMixIn, Operations):
         self.acd_client = kwargs['acd_client']
         autosync = kwargs['autosync']
         conf = kwargs['conf']
+        self.conf = conf
 
         self.rp = ReadProxy(self.acd_client,
                             conf.getint('read', 'open_chunk_limit'), conf.getint('read', 'timeout'))
@@ -453,6 +455,8 @@ class ACDFuse(LoggingMixIn, Operations):
             return dict(st_mode=stat.S_IFREG | 0o0666,
                         st_nlink=self.cache.num_parents(node.id) if self.nlinks else 1,
                         st_size=node.size,
+                        st_blksize=self.conf.getint('fs', 'block_size'),
+                        st_blocks=(node.size+511)//512,
                         **times)
 
     def read(self, path, length, offset, fh) -> bytes:
@@ -476,7 +480,7 @@ class ACDFuse(LoggingMixIn, Operations):
     def statfs(self, path) -> dict:
         """Gets some filesystem statistics as specified in :manpage:`stat(2)`."""
 
-        bs = 512 * 1024  # no effect?
+        bs = self.conf.getint('fs', 'block_size')
         return dict(f_bsize=bs,
                     f_frsize=bs,
                     f_blocks=self.total // bs,  # total no of blocks
