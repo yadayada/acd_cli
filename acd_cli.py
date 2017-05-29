@@ -479,19 +479,23 @@ def traverse_ul_dir(dirs: list, directory: str, parent_id: str, overwr: bool, fo
             curr_node = cache.get_node(r['id'])
         except RequestError as e:
             if e.status_code == 409:
-                logger.error('Folder "%s" already exists. Please sync.' % short_nm)
+                logger.error('Folder "%s" already exists in %s [%s]. Error message: %s.'
+                             'You may need to sync.'
+                             % (short_nm, parent.simple_name, parent_id, e))
             else:
-                logger.error('Error creating remote folder "%s": %s.' % (short_nm, e))
+                logger.error('Error creating remote folder "%s" in %s [%s]. Error message: %s.'
+                             % (short_nm, parent.simple_name, parent_id, e))
             return ERR_CR_FOLDER
     elif curr_node.is_file:
-        logger.error('Cannot create remote folder "%s", '
-                     'because a file of the same name already exists.' % short_nm)
+        logger.error('Cannot create remote folder "%s" in %s [%s], '
+                     'because a file of the same name already exists.'
+                     % (short_nm, parent.simple_name, parent_id))
         return ERR_CR_FOLDER
 
     try:
         entries = sorted(os.listdir(directory))
     except OSError as e:
-        logger.error('Skipping directory %s because of an error.' % directory)
+        logger.error('Skipping directory %s because of an error: %s' % (directory, e))
         logger.info(e)
         return ERROR_RETVAL
 
@@ -513,7 +517,8 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         nodes = cache.find_by_md5(hashing.hash_file(path))
         nodes = [n for n in cache.path_format(nodes)]
         if len(nodes) > 0:
-            logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s' % (short_nm, nodes))
+            logger.info('Skipping upload of duplicate file "%s". Location of duplicates: %s'
+                        % (short_nm, nodes))
             pg_handler.done()
             if rsf:
                 return remove_file(path)
@@ -523,13 +528,17 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
     file_id = None
     if conflicting_node:
         if conflicting_node.name != short_nm:
-            logger.error('File name "%s" collides with remote node "%s".'
-                         % (short_nm, conflicting_node.name))
+            logger.error('Name collision in %s [%s]: '
+                         'File name "%s" collides with existing node "%s".'
+                         % (cache.get_node(parent_id).simple_name, parent_id,
+                            short_nm, conflicting_node.simple_name))
             return NAME_COLLISION
 
         if conflicting_node.is_folder:
-            logger.error('Name collision with existing folder '
-                         'in the same location: "%s".' % short_nm)
+            logger.error('Name collision in %s [%s]: '
+                         'File name "%s" collides with existing folder "%s".'
+                         % (cache.get_node(parent_id).simple_name, parent_id,
+                            short_nm, conflicting_node.simple_name))
             return NAME_COLLISION
 
         file_id = conflicting_node.id
@@ -583,7 +592,6 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
 
         logger.info('Keeping "%s" because of remote size mismatch.' % path)
         return 0
-
 
     # ctime is checked because files can be overwritten by files with older mtime
     if rmod < lmod or (rmod < lcre and conflicting_node.size != os.path.getsize(path)) \
@@ -674,7 +682,7 @@ def create_dl_jobs(node_id: str, local_path: str, preserve_mtime: bool, rsf: boo
 
     flp = os.path.join(local_path, loc_name)
     if os.path.isfile(flp):
-        logger.info('Skipping download of existing file "%s"' % loc_name)
+        logger.info('Skipping download of existing file "%s".' % loc_name)
         if os.path.getsize(flp) != node.size:
             logger.info('Skipped file "%s" has different size than local file.' % loc_name)
             return SIZE_MISMATCH
