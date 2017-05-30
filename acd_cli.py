@@ -554,19 +554,22 @@ def upload_file(path: str, parent_id: str, overwr: bool, force: bool, dedup: boo
         except RequestError as e:
             if e.status_code == 409:  # might happen if cache is outdated
                 if not dedup:
-                    logger.error('Uploading "%s" failed. Name collision with non-cached file. '
-                                 'If you want to overwrite, please sync and try again.' % short_nm)
+                    logger.error('Uploading "%s" failed. Name collision with non-cached file '
+                                 'in folder "%s" [%s]. If you want to overwrite, '
+                                 'please sync and try again. Error message: %s.'
+                                 % (short_nm, cache.get_node(parent_id).simple_name, parent_id, e))
                 else:
-                    logger.error(
-                        'Uploading "%s" failed. '
-                        'Name or hash collision with non-cached file.' % short_nm)
+                    logger.error('Uploading "%s" failed. Name or hash collision'
+                                 'in folder "%s" [%s] with non-cached file. Error message: %s.'
+                                 % (short_nm, cache.get_node(parent_id).simple_name, parent_id, e))
                     logger.info(e)
                 # colliding node ID is returned in error message -> could be used to continue
                 return CACHE_ASYNC
             elif e.status_code == 504 or e.status_code == 408:  # proxy timeout / request timeout
                 return upload_timeout(parent_id, path, hasher.get_result(), local_size, rsf)
             else:
-                logger.error('Uploading "%s" failed. %s.' % (short_nm, str(e)))
+                logger.error('Uploading "%s" to "%s" [%s] failed. Error message: %s.'
+                             % (short_nm, cache.get_node(parent_id).simple_name, parent_id, e))
                 return UL_DL_FAILED
         else:
             return upload_complete(r, path, hasher.get_result(), local_size, rsf)
